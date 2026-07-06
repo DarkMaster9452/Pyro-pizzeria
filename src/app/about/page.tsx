@@ -23,7 +23,7 @@ export default function AboutPage() {
             <span className="chip bg-brand-primary/10 text-brand-primary">
               O nás
             </span>
-            <h1 className="mt-3 font-display text-3xl font-extrabold sm:text-4xl">
+            <h1 className="mt-3 font-heading text-4xl uppercase tracking-tight sm:text-5xl">
               {r.name}
             </h1>
             <p className="mt-4 text-lg text-neutral-600 dark:text-neutral-300">

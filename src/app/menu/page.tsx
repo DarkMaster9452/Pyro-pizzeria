@@ -61,16 +61,16 @@ function MenuInner() {
     <main>
       {/* header */}
       <div className="section pt-10">
-        <h1 className="font-display text-3xl font-extrabold sm:text-4xl">
-          Menu
+        <h1 className="font-heading text-4xl uppercase tracking-tight sm:text-5xl">
+          Naše <span className="text-brand-red">Menu</span>
         </h1>
-        <p className="mt-1 text-neutral-500">
+        <p className="mt-1 text-neutral-500 dark:text-neutral-400">
           Vyberte kategóriu a prispôsobte si objednávku.
         </p>
       </div>
 
       {/* sticky category + search */}
-      <div className="sticky top-16 z-30 mt-4 border-y border-black/5 bg-brand-bg/90 backdrop-blur-xl dark:border-white/10 dark:bg-[#141414]/90">
+      <div className="sticky top-[72px] z-30 mt-4 border-y border-black/5 bg-brand-bg/90 backdrop-blur-xl dark:border-white/[0.06] dark:bg-brand-ink/85">
         <div className="section flex flex-col gap-3 py-3">
           <div className="flex items-center gap-3">
             <div className="flex flex-1 items-center gap-2 rounded-full bg-white px-4 shadow-sm dark:bg-[#242424]">

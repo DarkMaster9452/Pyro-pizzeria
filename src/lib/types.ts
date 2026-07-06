@@ -67,7 +67,11 @@ export interface OpeningHours {
 export interface Restaurant {
   id: string;
   name: string;
+  logoName: string; // shorter name shown in the script logo
+  logoTag: string; // small uppercase tagline under the logo
   tagline: string;
+  heroLine1: string; // big display headline, line 1 (white)
+  heroLine2: string; // big display headline, line 2 (red)
   city: string;
   address: string;
   phone: string;

@@ -36,7 +36,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="sk" suppressHydrationWarning>
+    <html lang="sk" className="dark" suppressHydrationWarning>
       <head>
         <link
           rel="preconnect"
@@ -48,7 +48,7 @@ export default function RootLayout({
           crossOrigin=""
         />
         <link
-          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Poppins:wght@600;700;800&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Poppins:wght@600;700;800&family=Anton&family=Pacifico&display=swap"
           rel="stylesheet"
         />
         {/* JSON-LD structured data */}

@@ -39,8 +39,8 @@ export default function OffersPage() {
   return (
     <main className="section py-10">
       <div className="mb-8">
-        <h1 className="font-display text-3xl font-extrabold sm:text-4xl">
-          Špeciálne akcie
+        <h1 className="font-heading text-4xl uppercase tracking-tight sm:text-5xl">
+          Špeciálne <span className="text-brand-red">akcie</span>
         </h1>
         <p className="mt-1 text-neutral-500">
           Aktuálne zľavy a kupóny pre {r.name}.

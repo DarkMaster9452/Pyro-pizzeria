@@ -41,7 +41,7 @@ export function ProductCard({ product }: { product: Product }) {
       <motion.div
         layout
         whileHover={{ y: -4 }}
-        className="group relative flex flex-col overflow-hidden rounded-2xl bg-white shadow-card transition-shadow hover:shadow-soft dark:bg-[#1e1e1e] dark:border dark:border-white/5"
+        className="group relative flex flex-col overflow-hidden rounded-2xl bg-white shadow-card transition-all hover:shadow-soft dark:border dark:border-white/[0.06] dark:bg-[#171313] dark:hover:border-brand-red/30"
       >
         <div className="relative aspect-[4/3] overflow-hidden">
           <Image

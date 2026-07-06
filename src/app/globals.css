@@ -16,10 +16,24 @@
     font-feature-settings: "cv02", "cv03", "cv04";
   }
   .dark body {
-    @apply bg-[#141414] text-neutral-100;
+    @apply text-neutral-100;
+    background-color: #0d0b0b;
+    background-image: radial-gradient(
+        1200px 600px at 85% -5%,
+        rgba(230, 51, 41, 0.12),
+        transparent 60%
+      ),
+      radial-gradient(
+        900px 500px at 5% 0%,
+        rgba(232, 93, 4, 0.08),
+        transparent 55%
+      );
   }
   ::selection {
-    @apply bg-brand-secondary/30;
+    @apply bg-brand-red/30;
+  }
+  .font-heading {
+    letter-spacing: 0.01em;
   }
 }
 
@@ -28,19 +42,21 @@
     @apply bg-white/70 backdrop-blur-xl border border-white/40;
   }
   .dark .glass {
-    @apply bg-white/5 border-white/10;
+    @apply border-white/10;
+    background-color: rgba(18, 15, 15, 0.72);
   }
   .card {
     @apply bg-white rounded-2xl shadow-card;
   }
   .dark .card {
-    @apply bg-[#1e1e1e] shadow-none border border-white/5;
+    @apply rounded-2xl shadow-none border border-white/[0.06];
+    background-color: #171313;
   }
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 rounded-full bg-gradient-to-br from-brand-primary to-brand-secondary px-6 py-3 font-semibold text-white shadow-glow transition-transform active:scale-95 hover:brightness-110;
+    @apply inline-flex items-center justify-center gap-2 rounded-full bg-gradient-to-b from-[#EF4136] to-[#C81E17] px-6 py-3 font-semibold text-white shadow-glow transition-all active:scale-95 hover:brightness-110;
   }
   .btn-ghost {
-    @apply inline-flex items-center justify-center gap-2 rounded-full border border-brand-primary/20 px-5 py-2.5 font-medium text-brand-primary transition-colors hover:bg-brand-primary/5;
+    @apply inline-flex items-center justify-center gap-2 rounded-full border border-brand-red/25 px-5 py-2.5 font-medium text-brand-red transition-colors hover:bg-brand-red/5;
   }
   .dark .btn-ghost {
     @apply border-white/15 text-neutral-100 hover:bg-white/5;

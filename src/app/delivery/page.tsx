@@ -23,8 +23,8 @@ export default function DeliveryPage() {
         <span className="chip bg-brand-primary/10 text-brand-primary">
           <Truck className="h-3 w-3" /> Rozvoz
         </span>
-        <h1 className="mt-3 font-display text-3xl font-extrabold sm:text-4xl">
-          Rozvozové zóny — {r.city}
+        <h1 className="mt-3 font-heading text-4xl uppercase tracking-tight sm:text-5xl">
+          Rozvozové <span className="text-brand-red">zóny</span> — {r.city}
         </h1>
         <p className="mt-1 text-neutral-500">
           Overte si, či doručujeme na vašu adresu.

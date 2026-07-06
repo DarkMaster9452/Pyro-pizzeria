@@ -38,7 +38,11 @@ export const RESTAURANTS: Restaurant[] = [
   {
     id: "pyro",
     name: "Pyro Pizzeria",
+    logoName: "Pyro",
+    logoTag: "PIZZA Z PECE",
     tagline: "Pravá pec, pravá chuť.",
+    heroLine1: "PRAVÁ PEC,",
+    heroLine2: "PRAVÁ CHUŤ",
     city: "Kamenná Poruba",
     address: "Kamenná Poruba 215, 013 14",
     phone: "+421 907 111 222",
@@ -93,7 +97,11 @@ export const RESTAURANTS: Restaurant[] = [
   {
     id: "polomarik",
     name: "Polomárik",
+    logoName: "Polomárik",
+    logoTag: "PIZZA Z PECE",
     tagline: "Domáca pohoda pod Malou Fatrou.",
+    heroLine1: "DOMÁCA POHODA",
+    heroLine2: "POD MALOU FATROU",
     city: "Stráňavy",
     address: "Stráňavy 435, 013 25",
     phone: "+421 908 333 444",

@@ -44,7 +44,7 @@ export const useApp = create<AppState>()(
       setRestaurant: (id) => set({ restaurantId: id }),
       clearRestaurant: () => set({ restaurantId: null, cart: [], coupon: null }),
 
-      theme: "light",
+      theme: "dark",
       toggleTheme: () =>
         set((s) => ({ theme: s.theme === "light" ? "dark" : "light" })),
 

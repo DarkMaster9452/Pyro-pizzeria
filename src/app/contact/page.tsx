@@ -14,7 +14,7 @@ export default function ContactPage() {
 
   return (
     <main className="section py-10">
-      <h1 className="font-display text-3xl font-extrabold sm:text-4xl">
+      <h1 className="font-heading text-4xl uppercase tracking-tight sm:text-5xl">
         Kontakt
       </h1>
       <p className="mt-1 text-neutral-500">
