@@ -8,38 +8,48 @@ import { RESTAURANTS } from "@/lib/data";
 import { subtotal } from "@/lib/pricing";
 import { getOpenState, eur, cn } from "@/lib/utils";
 import {
-  Moon,
-  Sun,
   ShoppingBag,
   ChevronDown,
   User,
-  Flame,
   Menu as MenuIcon,
   X,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
+import type { Restaurant } from "@/lib/types";
 
 const LINKS = [
   { href: "/", label: "Domov" },
   { href: "/menu", label: "Menu" },
-  { href: "/offers", label: "Akcie" },
   { href: "/about", label: "O nás" },
   { href: "/contact", label: "Kontakt" },
   { href: "/track", label: "Sledovať objednávku" },
 ];
 
-function Logo({ name, tag }: { name: string; tag: string }) {
+function Logo({ restaurant }: { restaurant?: Restaurant }) {
+  const [imgOk, setImgOk] = useState(true);
+  // Brand logo image if available (public/logos/*.png); otherwise a script
+  // wordmark fallback so the header always looks intentional.
+  if (restaurant?.logo && imgOk) {
+    return (
+      <Link href="/" className="flex items-center">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={restaurant.logo}
+          alt={restaurant.name}
+          onError={() => setImgOk(false)}
+          className="h-12 w-auto object-contain"
+        />
+      </Link>
+    );
+  }
   return (
-    <Link href="/" className="group flex items-center gap-3">
-      <span className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.12] bg-white/[0.04] text-brand-primary transition-colors group-hover:border-brand-primary/50">
-        <Flame className="h-5 w-5" />
-      </span>
+    <Link href="/" className="flex items-center gap-2.5 leading-none">
       <span className="leading-none">
-        <span className="block font-heading text-lg tracking-tight text-white">
-          {name}
+        <span className="block font-script text-2xl text-white">
+          {restaurant ? restaurant.logoName : "Pyro & Polomárik"}
         </span>
-        <span className="mt-1 block whitespace-nowrap text-[10px] font-bold uppercase tracking-[0.3em] text-brand-primary">
-          {tag}
+        <span className="mt-0.5 block whitespace-nowrap text-[10px] font-bold uppercase tracking-[0.3em] text-brand-primary">
+          {restaurant ? restaurant.logoTag : "PIZZA PLATFORM"}
         </span>
       </span>
     </Link>
@@ -50,8 +60,6 @@ export function Navbar() {
   const pathname = usePathname();
   const restaurantId = useApp((s) => s.restaurantId);
   const clearRestaurant = useApp((s) => s.clearRestaurant);
-  const theme = useApp((s) => s.theme);
-  const toggleTheme = useApp((s) => s.toggleTheme);
   const cart = useApp((s) => s.cart);
   const setCartOpen = useApp((s) => s.setCartOpen);
   const [scrolled, setScrolled] = useState(false);
@@ -80,10 +88,7 @@ export function Navbar() {
     >
       <nav className="section flex h-[84px] items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <Logo
-            name={restaurant ? restaurant.logoName : "Pyro & Polomárik"}
-            tag={restaurant ? restaurant.logoTag : "PIZZA PLATFORM"}
-          />
+          <Logo restaurant={restaurant} />
         </div>
 
         <div className="hidden items-center gap-7 lg:flex">
@@ -112,19 +117,6 @@ export function Navbar() {
         </div>
 
         <div className="flex items-center gap-2.5">
-          {mounted && (
-            <button
-              onClick={toggleTheme}
-              aria-label="Prepnúť tému"
-              className="flex h-11 w-11 items-center justify-center rounded-full border border-white/[0.1] bg-white/[0.04] text-white/80 transition-colors hover:bg-white/[0.08] hover:text-white"
-            >
-              {theme === "dark" ? (
-                <Sun className="h-5 w-5" />
-              ) : (
-                <Moon className="h-5 w-5" />
-              )}
-            </button>
-          )}
           <Link
             href="/account"
             className="hidden h-11 items-center gap-2 rounded-full border border-white/[0.1] bg-white/[0.04] px-5 text-[15px] font-medium text-white transition-colors hover:bg-white/[0.08] sm:flex"

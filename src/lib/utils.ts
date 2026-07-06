@@ -91,3 +91,10 @@ export function findZone(r: Restaurant, query: string): ZoneMatch {
 export function shortId(): string {
   return Math.random().toString(36).slice(2, 8).toUpperCase();
 }
+
+// Dynamic kitchen wait: base prep time grows with the number of pizzas in the
+// queue. ~1.5 min per pizza => 10 pizzas adds ~15 min (base 45 → ≈1 hodina).
+export function estimatedWait(baseMinutes: number, queuePizzas: number): number {
+  const raw = baseMinutes + queuePizzas * 1.5;
+  return Math.round(raw / 5) * 5; // round to a friendly 5-min step
+}

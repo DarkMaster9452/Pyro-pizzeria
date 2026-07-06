@@ -5,7 +5,7 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import { useApp } from "@/lib/store";
 import { RESTAURANTS, PRODUCTS, CATEGORIES, REVIEWS } from "@/lib/data";
-import { getOpenState, eur } from "@/lib/utils";
+import { getOpenState, eur, estimatedWait } from "@/lib/utils";
 import { Footer } from "@/components/Footer";
 import { ProductCard } from "@/components/ProductCard";
 import { Seal } from "@/components/Seal";
@@ -19,12 +19,34 @@ import {
   Flame,
   Rocket,
   Utensils,
-  Tag,
+  Phone,
   MapPin,
   ChevronDown,
+  AlertTriangle,
 } from "lucide-react";
 
 const ease = [0.22, 1, 0.36, 1] as const;
+
+const FEATURES = [
+  {
+    icon: <Rocket className="h-6 w-6" />,
+    t: "Rýchly rozvoz",
+    d: "Doručenie do 45 minút · zadarmo.",
+    tint: "bg-brand-primary/12 text-brand-primary",
+  },
+  {
+    icon: <ShieldCheck className="h-6 w-6" />,
+    t: "Čerstvé suroviny",
+    d: "Denne pripravované cesto a omáčky.",
+    tint: "bg-brand-accent/12 text-brand-accent",
+  },
+  {
+    icon: <Flame className="h-6 w-6" />,
+    t: "Pec na dreve",
+    d: "Pizza pečená pri vysokej teplote.",
+    tint: "bg-brand-secondary/12 text-brand-secondary",
+  },
+];
 
 export default function HomePage() {
   const restaurantId = useApp((s) => s.restaurantId);
@@ -39,7 +61,7 @@ export default function HomePage() {
   return (
     <main>
       <Hero r={r} />
-      <FeatureStrip />
+      <FeatureStripSection />
       <Categories />
       <Popular popular={popular} />
       <Reviews reviews={reviews} />
@@ -53,7 +75,11 @@ export default function HomePage() {
 
 function Hero({ r }: { r: Restaurant }) {
   const clearRestaurant = useApp((s) => s.clearRestaurant);
+  const soldOut = useApp((s) => s.soldOut[r.id] ?? false);
+  const queue = useApp((s) => s.kitchenQueue[r.id] ?? 0);
   const state = getOpenState(r);
+  const wait = estimatedWait(r.prepTimeMinutes, queue);
+  const canOrder = state.open && !soldOut;
 
   const stagger = {
     hidden: {},
@@ -101,11 +127,24 @@ function Hero({ r }: { r: Restaurant }) {
     </motion.div>
   );
 
+  const SoldOutBanner = soldOut ? (
+    <motion.div
+      variants={item}
+      className="flex items-start gap-3 rounded-2xl border border-brand-error/30 bg-brand-error/10 px-4 py-3 text-sm text-[#ffb4b4]"
+    >
+      <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-brand-error" />
+      <span>
+        <strong className="text-white">Momentálne vypredané.</strong>{" "}
+        {r.soldOutNote}
+      </span>
+    </motion.div>
+  ) : null;
+
   const Headline = (
     <motion.h1
       variants={item}
       className="font-heading text-white"
-      style={{ lineHeight: 0.92, letterSpacing: "-0.03em" }}
+      style={{ lineHeight: 0.92 }}
     >
       <span className="block text-[46px] sm:text-[64px] xl:text-[82px]">
         {r.heroLine1}
@@ -130,19 +169,25 @@ function Hero({ r }: { r: Restaurant }) {
 
   const Cta = (
     <motion.div variants={item} className="flex flex-wrap gap-3">
-      <Link
-        href="/menu"
-        className="inline-flex h-16 items-center gap-3 rounded-full bg-brand-primary px-8 text-lg font-semibold text-white shadow-glow transition-all duration-200 hover:-translate-y-0.5 hover:bg-brand-primaryHover hover:shadow-[0_20px_60px_-10px_rgba(233,78,27,0.75)]"
-      >
-        <Utensils className="h-5 w-5" /> Objednať teraz
-        <ArrowRight className="h-5 w-5" />
-      </Link>
-      <Link
-        href="/offers"
+      {canOrder ? (
+        <Link
+          href="/menu"
+          className="inline-flex h-16 items-center gap-3 rounded-full bg-brand-primary px-8 text-lg font-semibold text-white shadow-glow transition-all duration-200 hover:-translate-y-0.5 hover:bg-brand-primaryHover hover:shadow-[0_20px_60px_-10px_rgba(233,78,27,0.75)]"
+        >
+          <Utensils className="h-5 w-5" /> Objednať teraz
+          <ArrowRight className="h-5 w-5" />
+        </Link>
+      ) : (
+        <span className="inline-flex h-16 cursor-not-allowed items-center gap-3 rounded-full bg-white/[0.06] px-8 text-lg font-semibold text-white/50">
+          {soldOut ? "Vypredané" : "Momentálne zatvorené"}
+        </span>
+      )}
+      <a
+        href={`tel:${r.phone.replace(/\s/g, "")}`}
         className="inline-flex h-16 items-center gap-3 rounded-full border border-white/[0.12] bg-white/[0.04] px-8 text-lg font-semibold text-white backdrop-blur-md transition-all duration-200 hover:-translate-y-0.5 hover:bg-white/[0.08]"
       >
-        <Tag className="h-5 w-5 text-brand-accent" /> Dnešné akcie
-      </Link>
+        <Phone className="h-5 w-5 text-brand-accent" /> {r.phone}
+      </a>
     </motion.div>
   );
 
@@ -153,11 +198,10 @@ function Hero({ r }: { r: Restaurant }) {
     >
       <span className="flex items-center gap-2.5">
         <Clock className="h-[18px] w-[18px] text-brand-accent" /> Príprava ~
-        {r.prepTimeMinutes} min
+        {wait} min
       </span>
       <span className="flex items-center gap-2.5">
-        <Truck className="h-[18px] w-[18px] text-brand-accent" /> Rozvoz od{" "}
-        {eur(r.deliveryZones[0].minimumOrder)}
+        <Truck className="h-[18px] w-[18px] text-brand-accent" /> Rozvoz zadarmo
       </span>
       <span className="flex items-center gap-2.5">
         <Star className="h-[18px] w-[18px] fill-brand-accent text-brand-accent" />{" "}
@@ -169,7 +213,7 @@ function Hero({ r }: { r: Restaurant }) {
   return (
     <section className="relative -mt-[84px] w-full overflow-hidden">
       {/* ============ DESKTOP ============ */}
-      <div className="relative hidden h-screen min-h-[720px] w-full items-center lg:flex">
+      <div className="relative hidden h-screen min-h-[760px] w-full lg:block">
         <div className="absolute inset-0 bg-[#0d0a08]">
           <Image
             src={r.image}
@@ -177,7 +221,7 @@ function Hero({ r }: { r: Restaurant }) {
             fill
             priority
             sizes="100vw"
-            className="object-cover object-[70%_center]"
+            className="object-cover object-[72%_center]"
           />
         </div>
         {/* natural fade — solid at left for legible type, pizza stays sharp at right */}
@@ -192,19 +236,20 @@ function Hero({ r }: { r: Restaurant }) {
           className="absolute inset-0"
           style={{
             background:
-              "linear-gradient(0deg, #090909 0%, rgba(9,9,9,0) 24%), linear-gradient(180deg, rgba(9,9,9,0.55) 0%, rgba(9,9,9,0) 16%)",
+              "linear-gradient(0deg, #090909 4%, rgba(9,9,9,0) 34%), linear-gradient(180deg, rgba(9,9,9,0.55) 0%, rgba(9,9,9,0) 16%)",
           }}
         />
         <Embers />
 
-        <div className="section relative z-10 w-full">
+        <div className="section relative z-10 flex h-full flex-col justify-center pb-40 pt-24">
           <motion.div
             variants={stagger}
             initial="hidden"
             animate="show"
-            className="max-w-[600px] space-y-7 pt-16"
+            className="max-w-[620px] space-y-7"
           >
             {Pills}
+            {SoldOutBanner}
             {Headline}
             {Paragraph}
             {Cta}
@@ -216,33 +261,15 @@ function Hero({ r }: { r: Restaurant }) {
           initial={{ opacity: 0, scale: 0.8, rotate: -12 }}
           animate={{ opacity: 1, scale: 1, rotate: 0 }}
           transition={{ duration: 0.8, ease, delay: 0.4 }}
-          className="absolute right-[7%] top-[22%] z-10"
+          className="absolute right-[6%] top-[16%] z-10"
         >
           <Seal />
         </motion.div>
 
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, ease, delay: 0.6 }}
-          className="absolute bottom-12 right-[7%] z-10"
-        >
-          <SocialProof />
-        </motion.div>
-
-        <a
-          href="#features"
-          aria-label="Preskočiť nižšie"
-          className="absolute bottom-8 left-1/2 z-10 hidden -translate-x-1/2 text-white/40 transition-colors hover:text-white xl:block"
-        >
-          <motion.span
-            animate={{ y: [0, 6, 0] }}
-            transition={{ repeat: Infinity, duration: 1.8, ease: "easeInOut" }}
-            className="block"
-          >
-            <ChevronDown className="h-6 w-6" />
-          </motion.span>
-        </a>
+        {/* feature strip pinned to the bottom of the hero */}
+        <div className="section absolute inset-x-0 bottom-6 z-10">
+          <FeatureBand />
+        </div>
       </div>
 
       {/* ============ MOBILE ============ */}
@@ -268,11 +295,55 @@ function Hero({ r }: { r: Restaurant }) {
           className="section -mt-16 relative z-10 space-y-6 pb-4"
         >
           {Pills}
+          {SoldOutBanner}
           {Headline}
           {Paragraph}
           {Cta}
           {Info}
         </motion.div>
+      </div>
+    </section>
+  );
+}
+
+function FeatureBand() {
+  return (
+    <div className="grid grid-cols-3 overflow-hidden rounded-3xl border border-white/[0.08] bg-[#111111]/80 backdrop-blur-md divide-x divide-white/[0.06]">
+      {FEATURES.map((f) => (
+        <div key={f.t} className="flex items-center gap-4 p-6">
+          <div
+            className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${f.tint}`}
+          >
+            {f.icon}
+          </div>
+          <div>
+            <p className="text-lg font-bold text-white">{f.t}</p>
+            <p className="text-[14px] text-[#B5B5B5]">{f.d}</p>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* feature strip for mobile (desktop uses the pinned band inside the hero) */
+function FeatureStripSection() {
+  return (
+    <section id="features" className="section pt-10 lg:hidden">
+      <div className="grid gap-2 overflow-hidden rounded-3xl border border-white/[0.08] bg-[#111111] sm:grid-cols-3 sm:divide-x sm:divide-white/[0.06]">
+        {FEATURES.map((f) => (
+          <div key={f.t} className="flex items-center gap-4 p-6">
+            <div
+              className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${f.tint}`}
+            >
+              {f.icon}
+            </div>
+            <div>
+              <p className="text-lg font-bold text-white">{f.t}</p>
+              <p className="text-[14px] text-[#B5B5B5]">{f.d}</p>
+            </div>
+          </div>
+        ))}
       </div>
     </section>
   );
@@ -293,12 +364,8 @@ function Embers() {
         <motion.span
           key={i}
           className="absolute h-1 w-1 rounded-full bg-brand-accent/70"
-          style={{ left: p.l, bottom: "20%", filter: "blur(0.5px)" }}
-          animate={{
-            y: [0, -160],
-            x: [0, p.x, 0],
-            opacity: [0, 0.8, 0],
-          }}
+          style={{ left: p.l, bottom: "24%", filter: "blur(0.5px)" }}
+          animate={{ y: [0, -160], x: [0, p.x, 0], opacity: [0, 0.8, 0] }}
           transition={{
             duration: 6,
             delay: p.d,
@@ -308,81 +375,6 @@ function Embers() {
         />
       ))}
     </div>
-  );
-}
-
-function SocialProof() {
-  return (
-    <div className="flex items-center gap-3.5 rounded-2xl border border-white/[0.1] bg-white/[0.05] px-5 py-3.5 backdrop-blur-xl">
-      <div className="flex -space-x-2.5">
-        {[
-          "from-amber-300 to-orange-500",
-          "from-rose-400 to-red-500",
-          "from-orange-300 to-amber-500",
-          "from-red-400 to-rose-600",
-        ].map((g, i) => (
-          <span
-            key={i}
-            className={`h-9 w-9 rounded-full border-2 border-[#0e0e0e] bg-gradient-to-br ${g}`}
-          />
-        ))}
-      </div>
-      <div className="text-sm leading-tight">
-        <p className="font-bold text-white">5000+ zákazníkov</p>
-        <p className="text-[#B5B5B5]">nám dôveruje ❤︎</p>
-      </div>
-    </div>
-  );
-}
-
-/* ------------------------- FEATURE STRIP ------------------------- */
-
-function FeatureStrip() {
-  const features = [
-    {
-      icon: <Rocket className="h-6 w-6" />,
-      t: "Rýchly rozvoz",
-      d: "Doručenie do 45 minút v zóne A.",
-      tint: "bg-brand-primary/12 text-brand-primary",
-    },
-    {
-      icon: <ShieldCheck className="h-6 w-6" />,
-      t: "Čerstvé suroviny",
-      d: "Denne pripravované cesto a omáčky.",
-      tint: "bg-brand-accent/12 text-brand-accent",
-    },
-    {
-      icon: <Flame className="h-6 w-6" />,
-      t: "Pec na dreve",
-      d: "Pizza pečená pri vysokej teplote.",
-      tint: "bg-brand-secondary/12 text-brand-secondary",
-    },
-  ];
-  return (
-    <section id="features" className="section pt-14 lg:pt-20">
-      <div className="grid overflow-hidden rounded-3xl border border-white/[0.08] bg-[#111111] sm:grid-cols-3 sm:divide-x sm:divide-white/[0.06]">
-        {features.map((f, i) => (
-          <motion.div
-            key={f.t}
-            initial={{ opacity: 0, y: 16 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: "-80px" }}
-            transition={{ duration: 0.5, delay: i * 0.08, ease }}
-            className="flex items-center gap-4 p-7"
-          >
-            <div
-              className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${f.tint}`}
-            >
-              {f.icon}
-            </div>
-            <div>
-              <p className="text-lg font-bold text-white">{f.t}</p>
-              <p className="text-[15px] text-[#B5B5B5]">{f.d}</p>
-            </div>
-          </motion.div>
-        ))}
-      </div>
-    </section>
   );
 }
 

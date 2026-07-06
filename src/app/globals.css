@@ -21,10 +21,10 @@
   ::selection {
     @apply bg-brand-primary/30 text-white;
   }
-  /* Editorial display type */
+  /* Condensed poster display type (Anton) */
   .font-heading {
-    font-weight: 800;
-    letter-spacing: -0.03em;
+    letter-spacing: 0.005em;
+    font-weight: 400;
   }
   :focus-visible {
     outline: 2px solid #e94e1b;

@@ -15,7 +15,9 @@ export function ProductCard({ product }: { product: Product }) {
   const favorites = useApp((s) => s.favorites);
   const toggleFavorite = useApp((s) => s.toggleFavorite);
   const addLine = useApp((s) => s.addLine);
+  const soldOut = useApp((s) => s.soldOut[product.restaurantId] ?? false);
   const isFav = favorites.includes(product.id);
+  const orderable = product.available && !soldOut;
 
   function quickAdd() {
     const size = product.sizes[0];
@@ -99,19 +101,24 @@ export function ProductCard({ product }: { product: Product }) {
                 {eur(product.basePrice)}
               </p>
             </div>
-            {product.category === "pizza" ? (
+            {!orderable ? (
+              <button
+                disabled
+                className="cursor-not-allowed rounded-full bg-white/10 px-5 py-2.5 text-sm font-semibold text-white/50"
+              >
+                {soldOut ? "Vypredané" : "Nedostupné"}
+              </button>
+            ) : product.category === "pizza" ? (
               <button
                 onClick={() => setOpen(true)}
-                disabled={!product.available}
-                className="btn-primary px-5 py-2.5 text-sm disabled:opacity-40"
+                className="btn-primary px-5 py-2.5 text-sm"
               >
                 Prispôsobiť
               </button>
             ) : (
               <button
                 onClick={quickAdd}
-                disabled={!product.available}
-                className="btn-primary px-5 py-2.5 text-sm disabled:opacity-40"
+                className="btn-primary px-5 py-2.5 text-sm"
               >
                 <Plus className="h-4 w-4" /> Pridať
               </button>

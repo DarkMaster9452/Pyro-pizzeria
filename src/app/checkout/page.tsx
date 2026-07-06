@@ -7,7 +7,7 @@ import { motion } from "framer-motion";
 import { useApp } from "@/lib/store";
 import { RESTAURANTS } from "@/lib/data";
 import { computeTotals, subtotal } from "@/lib/pricing";
-import { eur, shortId, cn } from "@/lib/utils";
+import { eur, shortId, cn, estimatedWait } from "@/lib/utils";
 import {
   AddressVerification,
   type VerifyResult,
@@ -41,6 +41,8 @@ export default function CheckoutPage() {
   const coupon = useApp((s) => s.coupon);
   const addOrder = useApp((s) => s.addOrder);
   const clearCart = useApp((s) => s.clearCart);
+  const soldOut = useApp((s) => (restaurantId ? s.soldOut[restaurantId] ?? false : false));
+  const queue = useApp((s) => (restaurantId ? s.kitchenQueue[restaurantId] ?? 0 : 0));
 
   const r = RESTAURANTS.find((x) => x.id === restaurantId);
   const [fulfillment, setFulfillment] = useState<FulfillmentType>("delivery");
@@ -61,12 +63,12 @@ export default function CheckoutPage() {
     fulfillment === "pickup" ||
     (verify?.zone != null && sub >= verify.zone.minimumOrder);
   const detailsOk = name.trim() && phone.trim();
-  const canOrder = cart.length > 0 && deliveryOk && detailsOk;
+  const canOrder = cart.length > 0 && deliveryOk && detailsOk && !soldOut;
 
   const eta =
     fulfillment === "delivery"
-      ? zone?.estimatedMinutes ?? 45
-      : r.prepTimeMinutes;
+      ? Math.max(zone?.estimatedMinutes ?? 45, estimatedWait(r.prepTimeMinutes, queue))
+      : estimatedWait(r.prepTimeMinutes, queue);
 
   function placeOrder() {
     if (!canOrder || !r) return;
@@ -116,6 +118,13 @@ export default function CheckoutPage() {
       <p className="mt-1 text-neutral-500">
         {r.name} · {r.city}
       </p>
+
+      {soldOut && (
+        <div className="mt-6 rounded-2xl border border-brand-error/30 bg-brand-error/10 px-5 py-4 text-sm font-semibold text-[#ff8f8f]">
+          Momentálne máme vypredané — objednávky sú dočasne pozastavené.
+          Ďakujeme za pochopenie.
+        </div>
+      )}
 
       <div className="mt-8 grid gap-8 lg:grid-cols-[1fr_380px]">
         <div className="space-y-6">

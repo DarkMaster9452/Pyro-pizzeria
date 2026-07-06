@@ -10,7 +10,10 @@ export function Footer() {
   const r = RESTAURANTS.find((x) => x.id === restaurantId) ?? RESTAURANTS[0];
 
   return (
-    <footer className="mt-20 border-t border-white/[0.06] bg-[#0c0c0c] pb-24 text-neutral-300 lg:pb-0">
+    <footer
+      className="mt-20 border-t border-white/[0.06] bg-[#0c0c0c] text-neutral-300 lg:!pb-0"
+      style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 6rem)" }}
+    >
       <div className="section grid gap-10 py-14 md:grid-cols-4">
         <div>
           <div className="flex items-center gap-2 text-white">
@@ -30,10 +33,10 @@ export function Footer() {
           <ul className="space-y-2 text-sm">
             {[
               ["/menu", "Menu"],
-              ["/offers", "Akcie"],
               ["/delivery", "Rozvoz"],
               ["/about", "O nás"],
               ["/track", "Sledovať objednávku"],
+              ["/admin", "Administrácia"],
             ].map(([href, label]) => (
               <li key={href}>
                 <Link href={href} className="hover:text-white">

@@ -7,12 +7,12 @@ import { motion } from "framer-motion";
 import { useApp } from "@/lib/store";
 import { subtotal } from "@/lib/pricing";
 import { eur, cn } from "@/lib/utils";
-import { Home, UtensilsCrossed, Tag, User, ShoppingBag } from "lucide-react";
+import { Home, UtensilsCrossed, MapPin, User, ShoppingBag } from "lucide-react";
 
 const ITEMS = [
   { href: "/", label: "Domov", icon: Home },
   { href: "/menu", label: "Menu", icon: UtensilsCrossed },
-  { href: "/offers", label: "Akcie", icon: Tag },
+  { href: "/track", label: "Sledovať", icon: MapPin },
   { href: "/account", label: "Účet", icon: User },
 ];
 
@@ -26,8 +26,11 @@ export function MobileTabBar() {
   const count = cart.reduce((s, l) => s + l.quantity, 0);
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-40 lg:hidden">
-      <div className="mx-auto mb-3 flex max-w-md items-center justify-between gap-1 rounded-full border border-white/[0.08] bg-[#111111]/90 px-2.5 py-2 backdrop-blur-xl shadow-[0_20px_50px_-15px_rgba(0,0,0,0.9)]">
+    <div
+      className="fixed inset-x-0 bottom-0 z-40 px-3 lg:hidden"
+      style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
+    >
+      <div className="mx-auto flex max-w-md items-center justify-between gap-1 rounded-full border border-white/[0.08] bg-[#111111]/90 px-2.5 py-2 backdrop-blur-xl shadow-[0_20px_50px_-15px_rgba(0,0,0,0.9)]">
         {ITEMS.slice(0, 2).map((it) => (
           <TabLink key={it.href} {...it} active={pathname === it.href} />
         ))}

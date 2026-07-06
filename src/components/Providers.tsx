@@ -16,11 +16,13 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   useEffect(() => setMounted(true), []);
 
+  // The public site is always dark. Light/dark mode only applies inside the
+  // admin panel, where it follows the theme toggle.
   useEffect(() => {
     const root = document.documentElement;
-    if (theme === "dark") root.classList.add("dark");
-    else root.classList.remove("dark");
-  }, [theme]);
+    const wantDark = isAdmin ? theme === "dark" : true;
+    root.classList.toggle("dark", wantDark);
+  }, [theme, isAdmin]);
 
   // Avoid hydration flash: render children but keep interactive shell hidden until mounted
   return (
