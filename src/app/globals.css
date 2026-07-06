@@ -1,0 +1,91 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-sans: "Inter", system-ui, sans-serif;
+  --font-display: "Poppins", system-ui, sans-serif;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    @apply bg-brand-bg text-brand-dark antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04";
+  }
+  .dark body {
+    @apply bg-[#141414] text-neutral-100;
+  }
+  ::selection {
+    @apply bg-brand-secondary/30;
+  }
+}
+
+@layer components {
+  .glass {
+    @apply bg-white/70 backdrop-blur-xl border border-white/40;
+  }
+  .dark .glass {
+    @apply bg-white/5 border-white/10;
+  }
+  .card {
+    @apply bg-white rounded-2xl shadow-card;
+  }
+  .dark .card {
+    @apply bg-[#1e1e1e] shadow-none border border-white/5;
+  }
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-full bg-gradient-to-br from-brand-primary to-brand-secondary px-6 py-3 font-semibold text-white shadow-glow transition-transform active:scale-95 hover:brightness-110;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-full border border-brand-primary/20 px-5 py-2.5 font-medium text-brand-primary transition-colors hover:bg-brand-primary/5;
+  }
+  .dark .btn-ghost {
+    @apply border-white/15 text-neutral-100 hover:bg-white/5;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold;
+  }
+  .section {
+    @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8;
+  }
+}
+
+/* skeleton shimmer */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.06);
+}
+.dark .skeleton {
+  background: rgba(255, 255, 255, 0.06);
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.35),
+    transparent
+  );
+  animation: shimmer 1.6s infinite;
+}
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* hide scrollbar for category nav */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

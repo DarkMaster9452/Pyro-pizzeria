@@ -1,0 +1,126 @@
+// Reference data model for the Pyro & Polomárik ordering platform.
+// The running app uses a typed in-memory data layer (src/lib/data.ts) so it
+// works without a database. This schema mirrors that model 1:1 — swap the
+// data layer for Prisma queries / Server Actions to make it production-backed.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Restaurant {
+  id             String         @id @default(cuid())
+  name           String
+  tagline        String
+  city           String
+  address        String
+  phone          String
+  email          String
+  image          String
+  lat            Float
+  lng            Float
+  prepTimeMinutes Int
+  accent         String
+  gallery        String[]
+  openingHours   OpeningHour[]
+  deliveryZones  DeliveryZone[]
+  products       Product[]
+  orders         Order[]
+  employees      Employee[]
+  createdAt      DateTime       @default(now())
+}
+
+model OpeningHour {
+  id           String     @id @default(cuid())
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
+  restaurantId String
+  day          Int // 0 = Monday ... 6 = Sunday
+  open         String
+  close        String
+  closed       Boolean    @default(false)
+}
+
+model DeliveryZone {
+  id              String     @id @default(cuid())
+  restaurant      Restaurant @relation(fields: [restaurantId], references: [id])
+  restaurantId    String
+  name            String
+  minimumOrder    Float
+  deliveryFee     Float
+  estimatedMinutes Int
+  areas           String[] // street / village names; future: GPS polygon (JSON)
+  polygon         Json?
+}
+
+model Product {
+  id           String     @id @default(cuid())
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
+  restaurantId String
+  category     String
+  name         String
+  description  String
+  image        String
+  basePrice    Float
+  sizes        Json // [{ id, label, priceDelta }]
+  ingredients  String[]
+  allergens    String[]
+  badges       String[] // recommended | spicy | vegetarian | new | bestseller
+  available    Boolean    @default(true)
+}
+
+model Coupon {
+  id           String  @id @default(cuid())
+  code         String  @unique
+  restaurantId String? // null = valid for all restaurants
+  type         String // percentage | fixed | free_delivery
+  value        Float
+  minSubtotal  Float
+  label        String
+  active       Boolean @default(true)
+}
+
+model Customer {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  phone     String?
+  orders    Order[]
+  createdAt DateTime @default(now())
+}
+
+model Order {
+  id           String     @id @default(cuid())
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
+  restaurantId String
+  customer     Customer?  @relation(fields: [customerId], references: [id])
+  customerId   String?
+  status       String     @default("received")
+  fulfillment  String // delivery | pickup
+  customerName String
+  phone        String
+  email        String
+  address      Json? // { street, houseNumber, city, zip }
+  zoneName     String?
+  lines        Json // CartLine[]
+  subtotal     Float
+  deliveryFee  Float
+  discount     Float
+  total        Float
+  payment      String
+  note         String?
+  eta          Int
+  createdAt    DateTime   @default(now())
+}
+
+model Employee {
+  id           String     @id @default(cuid())
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
+  restaurantId String
+  name         String
+  role         String // manager | kitchen | driver
+  active       Boolean    @default(true)
+}

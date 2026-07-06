@@ -1,0 +1,180 @@
+"use client";
+
+import { Suspense, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
+import Link from "next/link";
+import { motion } from "framer-motion";
+import { useApp } from "@/lib/store";
+import { RESTAURANTS } from "@/lib/data";
+import { eur } from "@/lib/utils";
+import type { OrderStatus } from "@/lib/types";
+import { Footer } from "@/components/Footer";
+import { Check, Clock, ChefHat, Package, Truck, Home } from "lucide-react";
+
+const STEPS: { id: OrderStatus; label: string; icon: React.ReactNode }[] = [
+  { id: "received", label: "Prijaté", icon: <Clock className="h-5 w-5" /> },
+  { id: "accepted", label: "Potvrdené", icon: <Check className="h-5 w-5" /> },
+  { id: "preparing", label: "Pripravuje sa", icon: <ChefHat className="h-5 w-5" /> },
+  { id: "ready", label: "Pripravené", icon: <Package className="h-5 w-5" /> },
+  { id: "delivering", label: "Na ceste", icon: <Truck className="h-5 w-5" /> },
+  { id: "delivered", label: "Doručené", icon: <Home className="h-5 w-5" /> },
+];
+
+function TrackInner() {
+  const params = useSearchParams();
+  const id = params.get("id");
+  const orders = useApp((s) => s.orders);
+  const updateOrderStatus = useApp((s) => s.updateOrderStatus);
+  const order = orders.find((o) => o.id === id) ?? orders[0];
+
+  // Simulate live status progression
+  useEffect(() => {
+    if (!order) return;
+    const seq: OrderStatus[] =
+      order.fulfillment === "delivery"
+        ? ["received", "accepted", "preparing", "ready", "delivering", "delivered"]
+        : ["received", "accepted", "preparing", "ready", "delivered"];
+    const idx = seq.indexOf(order.status);
+    if (idx < 0 || idx >= seq.length - 1) return;
+    const t = setTimeout(() => {
+      updateOrderStatus(order.id, seq[idx + 1]);
+    }, 6000);
+    return () => clearTimeout(t);
+  }, [order, updateOrderStatus]);
+
+  if (!order) {
+    return (
+      <main className="section flex min-h-[70vh] flex-col items-center justify-center gap-4 text-center">
+        <div className="text-6xl">📦</div>
+        <h1 className="font-display text-2xl font-bold">
+          Žiadna objednávka na sledovanie
+        </h1>
+        <p className="text-neutral-500">Vytvorte objednávku v menu.</p>
+        <Link href="/menu" className="btn-primary">
+          Prejsť do menu
+        </Link>
+      </main>
+    );
+  }
+
+  const r = RESTAURANTS.find((x) => x.id === order.restaurantId);
+  const steps = STEPS.filter(
+    (s) => order.fulfillment === "delivery" || s.id !== "delivering"
+  );
+  const currentIdx = steps.findIndex((s) => s.id === order.status);
+
+  return (
+    <main className="section py-10">
+      <div className="mx-auto max-w-2xl">
+        <div className="card overflow-hidden">
+          <div className="bg-gradient-to-br from-brand-primary to-brand-secondary p-6 text-white">
+            <p className="text-sm text-white/80">Objednávka</p>
+            <h1 className="font-display text-3xl font-extrabold">#{order.id}</h1>
+            <p className="mt-1 text-white/85">
+              {r?.name} · {order.fulfillment === "delivery" ? "Rozvoz" : "Odber"}{" "}
+              · odhad ~{order.eta} min
+            </p>
+          </div>
+
+          {/* stepper */}
+          <div className="p-6">
+            <div className="space-y-1">
+              {steps.map((s, i) => {
+                const done = i < currentIdx;
+                const active = i === currentIdx;
+                return (
+                  <div key={s.id} className="flex items-center gap-4">
+                    <div className="flex flex-col items-center">
+                      <motion.div
+                        animate={
+                          active
+                            ? { scale: [1, 1.12, 1] }
+                            : { scale: 1 }
+                        }
+                        transition={{
+                          repeat: active ? Infinity : 0,
+                          duration: 1.6,
+                        }}
+                        className={`flex h-11 w-11 items-center justify-center rounded-full ${
+                          done || active
+                            ? "bg-brand-primary text-white"
+                            : "bg-neutral-200 text-neutral-400 dark:bg-neutral-700"
+                        }`}
+                      >
+                        {done ? <Check className="h-5 w-5" /> : s.icon}
+                      </motion.div>
+                      {i < steps.length - 1 && (
+                        <div
+                          className={`h-8 w-0.5 ${
+                            done ? "bg-brand-primary" : "bg-neutral-200 dark:bg-neutral-700"
+                          }`}
+                        />
+                      )}
+                    </div>
+                    <div className="pb-6">
+                      <p
+                        className={`font-semibold ${
+                          active ? "text-brand-primary" : ""
+                        }`}
+                      >
+                        {s.label}
+                      </p>
+                      {active && (
+                        <p className="text-sm text-neutral-500">
+                          Prebieha… aktualizuje sa automaticky
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* summary */}
+          <div className="border-t border-black/5 p-6 dark:border-white/10">
+            <h3 className="mb-3 font-display font-bold">Položky</h3>
+            <div className="space-y-1.5 text-sm">
+              {order.lines.map((l) => (
+                <div key={l.lineId} className="flex justify-between">
+                  <span className="text-neutral-600 dark:text-neutral-300">
+                    {l.quantity}× {l.name}
+                  </span>
+                  <span>{eur(l.unitPrice * l.quantity)}</span>
+                </div>
+              ))}
+              <div className="flex justify-between border-t border-dashed border-black/10 pt-2 font-bold dark:border-white/10">
+                <span>Spolu</span>
+                <span className="text-brand-primary">{eur(order.total)}</span>
+              </div>
+            </div>
+            {order.address && (
+              <p className="mt-4 text-sm text-neutral-500">
+                Doručenie: {order.address.street} {order.address.houseNumber},{" "}
+                {order.address.city}
+              </p>
+            )}
+            <p className="mt-1 text-sm text-neutral-500">
+              Platba: {order.payment}
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-6 flex justify-center">
+          <Link href="/menu" className="btn-ghost">
+            Objednať znova
+          </Link>
+        </div>
+      </div>
+      <Footer />
+    </main>
+  );
+}
+
+export default function TrackPage() {
+  return (
+    <Suspense fallback={<div className="section py-20">Načítavam…</div>}>
+      <TrackInner />
+    </Suspense>
+  );
+}
