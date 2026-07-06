@@ -36,7 +36,7 @@ export function Footer() {
               ["/delivery", "Rozvoz"],
               ["/about", "O nás"],
               ["/track", "Sledovať objednávku"],
-              ["/admin", "Administrácia"],
+              ["/account", "Prihlásenie"],
             ].map(([href, label]) => (
               <li key={href}>
                 <Link href={href} className="hover:text-white">

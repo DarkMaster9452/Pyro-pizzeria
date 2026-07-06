@@ -7,6 +7,7 @@ import { motion } from "framer-motion";
 import { useApp } from "@/lib/store";
 import { RESTAURANTS } from "@/lib/data";
 import { computeTotals, subtotal } from "@/lib/pricing";
+import { createOrder } from "@/lib/server-actions";
 import { eur, shortId, cn, estimatedWait } from "@/lib/utils";
 import {
   AddressVerification,
@@ -52,6 +53,8 @@ export default function CheckoutPage() {
   const [email, setEmail] = useState("");
   const [note, setNote] = useState("");
   const [payment, setPayment] = useState("cash_delivery");
+  const [submitting, setSubmitting] = useState(false);
+  const [orderError, setOrderError] = useState("");
 
   if (!r) return null;
 
@@ -70,10 +73,41 @@ export default function CheckoutPage() {
       ? Math.max(zone?.estimatedMinutes ?? 45, estimatedWait(r.prepTimeMinutes, queue))
       : estimatedWait(r.prepTimeMinutes, queue);
 
-  function placeOrder() {
-    if (!canOrder || !r) return;
+  async function placeOrder() {
+    if (!canOrder || !r || submitting) return;
+    setSubmitting(true);
+    setOrderError("");
+    const paymentLabel =
+      PAYMENTS[fulfillment].find((p) => p.id === payment)?.label ?? payment;
+    const address = fulfillment === "delivery" ? verify?.address : undefined;
+
+    // Persist to the database (Neon). Falls back gracefully if unavailable.
+    const res = await createOrder({
+      restaurantId: r.id,
+      fulfillment,
+      customerName: name,
+      phone,
+      email,
+      address,
+      zoneName: zone?.name,
+      lines: cart,
+      subtotal: totals.subtotal,
+      deliveryFee: totals.deliveryFee,
+      discount: totals.discount,
+      total: totals.total,
+      payment: paymentLabel,
+      note,
+      eta,
+    });
+
+    if (!res.ok) {
+      setOrderError(res.error ?? "Objednávku sa nepodarilo odoslať.");
+      setSubmitting(false);
+      return;
+    }
+
     const order: Order = {
-      id: shortId(),
+      id: res.id ?? shortId(),
       restaurantId: r.id,
       createdAt: Date.now(),
       status: "received",
@@ -81,15 +115,14 @@ export default function CheckoutPage() {
       customerName: name,
       phone,
       email,
-      address: fulfillment === "delivery" ? verify?.address : undefined,
+      address,
       zoneName: zone?.name,
       lines: cart,
       subtotal: totals.subtotal,
       deliveryFee: totals.deliveryFee,
       discount: totals.discount,
       total: totals.total,
-      payment:
-        PAYMENTS[fulfillment].find((p) => p.id === payment)?.label ?? payment,
+      payment: paymentLabel,
       note,
       eta,
     };
@@ -293,13 +326,17 @@ export default function CheckoutPage() {
               </p>
             )}
 
+            {orderError && (
+              <p className="mt-3 text-xs text-brand-error">{orderError}</p>
+            )}
             <motion.button
               whileTap={{ scale: 0.97 }}
               onClick={placeOrder}
-              disabled={!canOrder}
+              disabled={!canOrder || submitting}
               className="btn-primary mt-4 w-full disabled:cursor-not-allowed disabled:opacity-40"
             >
-              Záväzne objednať <ArrowRight className="h-5 w-5" />
+              {submitting ? "Odosielam…" : "Záväzne objednať"}
+              {!submitting && <ArrowRight className="h-5 w-5" />}
             </motion.button>
           </div>
         </div>
