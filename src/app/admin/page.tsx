@@ -62,7 +62,7 @@ export default function AdminPage() {
   return (
     <div className="flex min-h-screen bg-[#f4f4f5] dark:bg-[#0f0f0f] text-neutral-800 dark:text-neutral-200">
       {/* sidebar */}
-      <aside className="hidden w-64 shrink-0 flex-col border-r border-black/[0.08] dark:border-white/5 bg-white dark:bg-[#161616] lg:flex">
+      <aside className="hidden w-64 shrink-0 flex-col border-r border-black/[0.08] dark:border-white/5 bg-white dark:bg-[#161616] md:flex">
         <div className="flex items-center gap-2 border-b border-black/[0.08] dark:border-white/5 p-5">
           <span className="text-2xl">🔥</span>
           <div>
@@ -107,7 +107,7 @@ export default function AdminPage() {
       </aside>
 
       {/* mobile tabs */}
-      <div className="fixed inset-x-0 bottom-0 z-40 flex justify-around border-t border-black/10 dark:border-white/10 bg-white dark:bg-[#161616] p-1 lg:hidden">
+      <div className="fixed inset-x-0 bottom-0 z-40 flex justify-around border-t border-black/10 dark:border-white/10 bg-white dark:bg-[#161616] p-1 md:hidden">
         {NAV.slice(0, 5).map((n) => (
           <button
             key={n.id}
@@ -123,7 +123,7 @@ export default function AdminPage() {
         ))}
       </div>
 
-      <main className="flex-1 overflow-x-hidden p-5 pb-24 lg:p-8">
+      <main className="flex-1 overflow-x-hidden p-5 pb-24 md:p-8 md:pb-8">
         <div className="mb-6 flex items-center justify-between">
           <div>
             <h1 className="font-display text-2xl font-extrabold text-neutral-900 dark:text-white">
