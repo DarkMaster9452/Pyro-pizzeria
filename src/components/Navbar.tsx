@@ -13,6 +13,7 @@ import {
   ShoppingBag,
   ChevronDown,
   User,
+  Flame,
   Menu as MenuIcon,
   X,
 } from "lucide-react";
@@ -27,16 +28,18 @@ const LINKS = [
   { href: "/track", label: "Sledovať objednávku" },
 ];
 
-function Logo({ name }: { name: string }) {
+function Logo({ name, tag }: { name: string; tag: string }) {
   return (
-    <Link href="/" className="flex items-center gap-2.5">
-      <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-b from-[#EF4136] to-[#C81E17] text-xl shadow-glow">
-        🍅
+    <Link href="/" className="group flex items-center gap-3">
+      <span className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.12] bg-white/[0.04] text-brand-primary transition-colors group-hover:border-brand-primary/50">
+        <Flame className="h-5 w-5" />
       </span>
       <span className="leading-none">
-        <span className="block font-script text-2xl text-white">{name}</span>
-        <span className="block text-[9px] font-bold uppercase tracking-[0.28em] text-brand-red">
-          Pizza z pece
+        <span className="block font-heading text-lg tracking-tight text-white">
+          {name}
+        </span>
+        <span className="mt-1 block whitespace-nowrap text-[10px] font-bold uppercase tracking-[0.3em] text-brand-primary">
+          {tag}
         </span>
       </span>
     </Link>
@@ -75,12 +78,15 @@ export function Navbar() {
           : "bg-transparent"
       )}
     >
-      <nav className="section flex h-[72px] items-center justify-between gap-4">
+      <nav className="section flex h-[84px] items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <Logo name={restaurant ? restaurant.logoName : "Pyro & Polomárik"} />
+          <Logo
+            name={restaurant ? restaurant.logoName : "Pyro & Polomárik"}
+            tag={restaurant ? restaurant.logoTag : "PIZZA PLATFORM"}
+          />
         </div>
 
-        <div className="hidden items-center gap-1 lg:flex">
+        <div className="hidden items-center gap-7 lg:flex">
           {LINKS.map((l) => {
             const active = pathname === l.href;
             return (
@@ -88,17 +94,16 @@ export function Navbar() {
                 key={l.href}
                 href={l.href}
                 className={cn(
-                  "relative px-3.5 py-2 text-[15px] font-medium transition-colors",
-                  active
-                    ? "text-brand-red"
-                    : "text-neutral-300 hover:text-white"
+                  "relative py-1.5 text-[17px] font-medium transition-colors",
+                  active ? "text-white" : "text-white/60 hover:text-white"
                 )}
               >
                 {l.label}
                 {active && (
                   <motion.span
                     layoutId="nav-underline"
-                    className="absolute inset-x-3.5 -bottom-0.5 h-0.5 rounded-full bg-brand-red"
+                    transition={{ type: "spring", stiffness: 400, damping: 32 }}
+                    className="absolute -bottom-1 left-0 h-[2px] w-full rounded-full bg-brand-primary"
                   />
                 )}
               </Link>
@@ -111,7 +116,7 @@ export function Navbar() {
             <button
               onClick={toggleTheme}
               aria-label="Prepnúť tému"
-              className="flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/5 text-neutral-200 transition-colors hover:bg-white/10"
+              className="flex h-11 w-11 items-center justify-center rounded-full border border-white/[0.1] bg-white/[0.04] text-white/80 transition-colors hover:bg-white/[0.08] hover:text-white"
             >
               {theme === "dark" ? (
                 <Sun className="h-5 w-5" />
@@ -122,24 +127,24 @@ export function Navbar() {
           )}
           <Link
             href="/account"
-            className="hidden items-center gap-2 rounded-full border border-white/12 bg-white/5 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-white/10 sm:flex"
+            className="hidden h-11 items-center gap-2 rounded-full border border-white/[0.1] bg-white/[0.04] px-5 text-[15px] font-medium text-white transition-colors hover:bg-white/[0.08] sm:flex"
           >
             <User className="h-4 w-4" />
             Účet
           </Link>
           <button
             onClick={() => setCartOpen(true)}
-            className="flex items-center gap-2 rounded-full bg-gradient-to-b from-[#EF4136] to-[#C81E17] px-4 py-2.5 text-sm font-bold text-white shadow-glow"
+            className="flex h-11 items-center gap-2 rounded-full bg-brand-primary px-5 text-[15px] font-bold text-white shadow-glow transition-colors hover:bg-brand-primaryHover"
             aria-label="Košík"
           >
-            <ShoppingBag className="h-4.5 w-4.5" />
+            <ShoppingBag className="h-[18px] w-[18px]" />
             <span className="tabular-nums">
               {mounted ? eur(total) : "0,00 €"}
             </span>
           </button>
           <button
             onClick={() => setMobileOpen((v) => !v)}
-            className="flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white lg:hidden"
+            className="flex h-11 w-11 items-center justify-center rounded-full border border-white/[0.1] bg-white/[0.04] text-white lg:hidden"
             aria-label="Menu"
           >
             {mobileOpen ? (

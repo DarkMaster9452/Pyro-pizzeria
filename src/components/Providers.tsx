@@ -5,7 +5,7 @@ import { useApp } from "@/lib/store";
 import { Navbar } from "./Navbar";
 import { Cart } from "./Cart";
 import { RestaurantModal } from "./RestaurantModal";
-import { FloatingCartButton } from "./FloatingCartButton";
+import { MobileTabBar } from "./MobileTabBar";
 import { usePathname } from "next/navigation";
 
 export function Providers({ children }: { children: React.ReactNode }) {
@@ -31,7 +31,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
         <>
           <RestaurantModal />
           <Cart />
-          <FloatingCartButton />
+          <MobileTabBar />
         </>
       )}
     </>

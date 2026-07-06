@@ -10,7 +10,7 @@ export function Footer() {
   const r = RESTAURANTS.find((x) => x.id === restaurantId) ?? RESTAURANTS[0];
 
   return (
-    <footer className="mt-20 border-t border-black/5 bg-brand-dark text-neutral-300 dark:border-white/10">
+    <footer className="mt-20 border-t border-white/[0.06] bg-[#0c0c0c] pb-24 text-neutral-300 lg:pb-0">
       <div className="section grid gap-10 py-14 md:grid-cols-4">
         <div>
           <div className="flex items-center gap-2 text-white">

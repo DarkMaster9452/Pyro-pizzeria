@@ -7,25 +7,27 @@ const config: Config = {
     extend: {
       colors: {
         brand: {
-          primary: "#E63329",
-          red: "#E63329",
-          primaryDeep: "#B22222",
+          primary: "#E94E1B",
+          primaryHover: "#F5642C",
+          red: "#E94E1B",
           secondary: "#E85D04",
-          accent: "#F4C542",
-          dark: "#191919",
-          surface: "#262626",
+          accent: "#FFC857",
+          dark: "#111111",
+          surface: "#171717",
+          card: "#171717",
           bg: "#FFF8F1",
-          ink: "#0d0b0b",
-          panel: "#171313",
-          success: "#2E7D32",
-          error: "#C62828",
+          ink: "#090909",
+          panel: "#111111",
+          muted: "#777777",
+          sub: "#B5B5B5",
+          success: "#22C55E",
+          error: "#EF4444",
         },
       },
       fontFamily: {
         sans: ["var(--font-sans)", "system-ui", "sans-serif"],
-        display: ["var(--font-display)", "system-ui", "sans-serif"],
-        heading: ["Anton", "Impact", "system-ui", "sans-serif"],
-        script: ["Pacifico", "cursive"],
+        display: ["var(--font-sans)", "system-ui", "sans-serif"],
+        heading: ["var(--font-sans)", "system-ui", "sans-serif"],
       },
       borderRadius: {
         xl: "18px",
@@ -34,8 +36,9 @@ const config: Config = {
       },
       boxShadow: {
         soft: "0 10px 40px -12px rgba(0,0,0,0.18)",
-        glow: "0 8px 30px -6px rgba(230,51,41,0.45)",
+        glow: "0 10px 40px -8px rgba(233,78,27,0.55)",
         card: "0 4px 24px -8px rgba(0,0,0,0.12)",
+        lift: "0 24px 60px -20px rgba(0,0,0,0.7)",
       },
       keyframes: {
         float: {

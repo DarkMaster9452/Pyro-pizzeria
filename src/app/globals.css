@@ -3,8 +3,7 @@
 @tailwind utilities;
 
 :root {
-  --font-sans: "Inter", system-ui, sans-serif;
-  --font-display: "Poppins", system-ui, sans-serif;
+  --font-sans: "Plus Jakarta Sans", "Manrope", "Inter", system-ui, sans-serif;
 }
 
 @layer base {
@@ -13,59 +12,67 @@
   }
   body {
     @apply bg-brand-bg text-brand-dark antialiased;
-    font-feature-settings: "cv02", "cv03", "cv04";
+    font-feature-settings: "ss01", "cv01";
   }
   .dark body {
-    @apply text-neutral-100;
-    background-color: #0d0b0b;
-    background-image: radial-gradient(
-        1200px 600px at 85% -5%,
-        rgba(230, 51, 41, 0.12),
-        transparent 60%
-      ),
-      radial-gradient(
-        900px 500px at 5% 0%,
-        rgba(232, 93, 4, 0.08),
-        transparent 55%
-      );
+    @apply text-white;
+    background-color: #090909;
   }
   ::selection {
-    @apply bg-brand-red/30;
+    @apply bg-brand-primary/30 text-white;
   }
+  /* Editorial display type */
   .font-heading {
-    letter-spacing: 0.01em;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+  }
+  :focus-visible {
+    outline: 2px solid #e94e1b;
+    outline-offset: 2px;
+    border-radius: 8px;
   }
 }
 
 @layer components {
   .glass {
-    @apply bg-white/70 backdrop-blur-xl border border-white/40;
+    @apply border border-white/[0.08] backdrop-blur-xl;
+    background-color: rgba(255, 255, 255, 0.7);
   }
   .dark .glass {
-    @apply border-white/10;
-    background-color: rgba(18, 15, 15, 0.72);
+    @apply border-white/[0.08];
+    background-color: rgba(17, 17, 17, 0.6);
   }
   .card {
-    @apply bg-white rounded-2xl shadow-card;
+    @apply rounded-2xl border border-black/[0.06] bg-white shadow-card;
   }
   .dark .card {
-    @apply rounded-2xl shadow-none border border-white/[0.06];
-    background-color: #171313;
+    @apply border-white/[0.08] shadow-none;
+    background-color: #171717;
   }
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 rounded-full bg-gradient-to-b from-[#EF4136] to-[#C81E17] px-6 py-3 font-semibold text-white shadow-glow transition-all active:scale-95 hover:brightness-110;
+    @apply inline-flex items-center justify-center gap-2 rounded-full bg-brand-primary px-6 py-3 font-semibold text-white shadow-glow transition-all duration-200 hover:bg-brand-primaryHover hover:shadow-[0_16px_50px_-10px_rgba(233,78,27,0.7)] active:scale-[0.98];
   }
   .btn-ghost {
-    @apply inline-flex items-center justify-center gap-2 rounded-full border border-brand-red/25 px-5 py-2.5 font-medium text-brand-red transition-colors hover:bg-brand-red/5;
+    @apply inline-flex items-center justify-center gap-2 rounded-full border border-black/10 px-5 py-2.5 font-medium text-neutral-800 transition-colors hover:bg-black/5;
   }
   .dark .btn-ghost {
-    @apply border-white/15 text-neutral-100 hover:bg-white/5;
+    @apply border-white/[0.12] text-white hover:bg-white/[0.06];
   }
   .chip {
     @apply inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold;
   }
   .section {
-    @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8;
+    @apply mx-auto w-full max-w-[1320px] px-6 sm:px-10 lg:px-20;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
   }
 }
 
