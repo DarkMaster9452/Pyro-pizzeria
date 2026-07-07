@@ -1,32 +1,97 @@
 import "server-only";
+import { hash as argonHash, verify as argonVerify } from "@node-rs/argon2";
 import { sql } from "./db";
 
 export interface DbUser {
   id: string;
   email: string;
   name: string;
-  role: "customer" | "admin";
+  role: "customer" | "employee" | "admin" | "super_admin";
   restaurant_id: string | null;
+  session_version: number;
 }
 
-// Verify email + password using pgcrypto's crypt() (bcrypt) inside the DB.
+// OWASP-recommended Argon2id parameters.
+const ARGON_OPTS = { memoryCost: 19456, timeCost: 2, parallelism: 1 };
+// Dummy hash used to equalise timing when an account does not exist
+// (mitigates user-enumeration via response time).
+const DUMMY_HASH =
+  "$argon2id$v=19$m=19456,t=2,p=1$CpNy0N164gYlx7dEcWCrqA$Gico5QTgY5ArUqXSrXt+y0C6pXtPA3tX8JT1oG0O07k";
+
+const LOCK_THRESHOLD = 5;
+const LOCK_MINUTES = 15;
+
+export async function hashPassword(password: string): Promise<string> {
+  return argonHash(password, ARGON_OPTS);
+}
+
+interface UserRow extends DbUser {
+  password_hash: string;
+  failed_attempts: number;
+  locked_until: string | null;
+}
+
+// Verify credentials with Argon2id + temporary account lockout after repeated
+// failures. Returns the user on success, otherwise null (invalid or locked).
 export async function verifyCredentials(
   email: string,
   password: string
 ): Promise<DbUser | null> {
+  const e = email.toLowerCase().trim();
   const rows = (await sql`
-    SELECT id, email, name, role, restaurant_id
-    FROM users
-    WHERE email = ${email.toLowerCase().trim()}
-      AND password_hash = crypt(${password}, password_hash)
-    LIMIT 1
-  `) as DbUser[];
-  return rows[0] ?? null;
+    SELECT id, email, name, role, restaurant_id, session_version,
+           password_hash, failed_attempts, locked_until
+    FROM users WHERE email = ${e} LIMIT 1
+  `) as UserRow[];
+  const row = rows[0];
+
+  if (!row) {
+    await argonVerify(DUMMY_HASH, password).catch(() => false);
+    return null;
+  }
+  if (row.locked_until && new Date(row.locked_until) > new Date()) {
+    return null;
+  }
+
+  let ok = false;
+  try {
+    ok = await argonVerify(row.password_hash, password);
+  } catch {
+    ok = false;
+  }
+
+  if (ok) {
+    if (row.failed_attempts > 0) {
+      await sql`UPDATE users SET failed_attempts = 0, locked_until = NULL WHERE id = ${row.id}`;
+    }
+    return {
+      id: row.id,
+      email: row.email,
+      name: row.name,
+      role: row.role,
+      restaurant_id: row.restaurant_id,
+      session_version: row.session_version,
+    };
+  }
+
+  const attempts = row.failed_attempts + 1;
+  if (attempts >= LOCK_THRESHOLD) {
+    await sql`
+      UPDATE users
+      SET failed_attempts = ${attempts},
+          locked_until = now() + (${LOCK_MINUTES} || ' minutes')::interval
+      WHERE id = ${row.id}
+    `;
+  } else {
+    await sql`UPDATE users SET failed_attempts = ${attempts} WHERE id = ${row.id}`;
+  }
+  return null;
 }
 
 export interface RegisterResult {
   ok: boolean;
   error?: string;
+  userId?: string;
 }
 
 export async function registerUser(
@@ -35,17 +100,39 @@ export async function registerUser(
   password: string
 ): Promise<RegisterResult> {
   const e = email.toLowerCase().trim();
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e))
-    return { ok: false, error: "Neplatný email." };
-  if (password.length < 6)
-    return { ok: false, error: "Heslo musí mať aspoň 6 znakov." };
-
   const existing = (await sql`SELECT 1 FROM users WHERE email = ${e} LIMIT 1`) as unknown[];
-  if (existing.length) return { ok: false, error: "Účet s týmto emailom už existuje." };
+  if (existing.length)
+    return { ok: false, error: "Účet s týmto emailom už existuje." };
 
-  await sql`
-    INSERT INTO users (email, name, password_hash, role)
-    VALUES (${e}, ${name.trim() || e}, crypt(${password}, gen_salt('bf')), 'customer')
-  `;
-  return { ok: true };
+  const pwHash = await hashPassword(password);
+  const rows = (await sql`
+    INSERT INTO users (email, name, password_hash, role, consent_at)
+    VALUES (${e}, ${name.trim() || e}, ${pwHash}, 'customer', now())
+    RETURNING id
+  `) as { id: string }[];
+  return { ok: true, userId: rows[0]?.id };
+}
+
+// Session version check for "logout from all devices" revocation.
+export async function getSessionVersion(userId: string): Promise<number | null> {
+  const rows = (await sql`
+    SELECT session_version FROM users WHERE id = ${userId} LIMIT 1
+  `) as { session_version: number }[];
+  return rows[0]?.session_version ?? null;
+}
+
+export async function bumpSessionVersion(userId: string): Promise<void> {
+  await sql`UPDATE users SET session_version = session_version + 1 WHERE id = ${userId}`;
+}
+
+export async function deleteAccount(userId: string): Promise<void> {
+  await sql`DELETE FROM users WHERE id = ${userId}`;
+}
+
+export async function exportAccount(userId: string) {
+  const rows = (await sql`
+    SELECT id, email, name, role, restaurant_id, created_at, consent_at
+    FROM users WHERE id = ${userId} LIMIT 1
+  `) as Record<string, unknown>[];
+  return rows[0] ?? null;
 }

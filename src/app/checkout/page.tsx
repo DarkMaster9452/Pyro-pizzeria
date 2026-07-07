@@ -81,7 +81,8 @@ export default function CheckoutPage() {
       PAYMENTS[fulfillment].find((p) => p.id === payment)?.label ?? payment;
     const address = fulfillment === "delivery" ? verify?.address : undefined;
 
-    // Persist to the database (Neon). Falls back gracefully if unavailable.
+    // Server recomputes and validates all prices — the client total is only
+    // for display and is never trusted server-side.
     const res = await createOrder({
       restaurantId: r.id,
       fulfillment,
@@ -89,15 +90,9 @@ export default function CheckoutPage() {
       phone,
       email,
       address,
-      zoneName: zone?.name,
       lines: cart,
-      subtotal: totals.subtotal,
-      deliveryFee: totals.deliveryFee,
-      discount: totals.discount,
-      total: totals.total,
-      payment: paymentLabel,
+      couponCode: coupon,
       note,
-      eta,
     });
 
     if (!res.ok) {
@@ -121,10 +116,10 @@ export default function CheckoutPage() {
       subtotal: totals.subtotal,
       deliveryFee: totals.deliveryFee,
       discount: totals.discount,
-      total: totals.total,
+      total: res.total ?? totals.total,
       payment: paymentLabel,
       note,
-      eta,
+      eta: res.eta ?? eta,
     };
     addOrder(order);
     clearCart();

@@ -37,6 +37,8 @@ export function Footer() {
               ["/about", "O nás"],
               ["/track", "Sledovať objednávku"],
               ["/account", "Prihlásenie"],
+              ["/privacy", "Ochrana súkromia"],
+              ["/terms", "Obchodné podmienky"],
             ].map(([href, label]) => (
               <li key={href}>
                 <Link href={href} className="hover:text-white">

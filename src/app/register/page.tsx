@@ -32,9 +32,28 @@ export default function RegisterPage() {
             <Field
               name="password"
               type="password"
-              placeholder="Heslo (min. 6 znakov)"
+              placeholder="Heslo (min. 10 znakov)"
               autoComplete="new-password"
             />
+            <label className="flex items-start gap-2.5 text-xs text-[#B5B5B5]">
+              <input
+                type="checkbox"
+                name="consent"
+                required
+                className="mt-0.5 h-4 w-4 shrink-0 accent-brand-primary"
+              />
+              <span>
+                Súhlasím s{" "}
+                <Link href="/terms" className="text-brand-primary underline">
+                  obchodnými podmienkami
+                </Link>{" "}
+                a{" "}
+                <Link href="/privacy" className="text-brand-primary underline">
+                  spracovaním osobných údajov
+                </Link>
+                .
+              </span>
+            </label>
             {state?.error && (
               <p className="rounded-xl bg-brand-error/12 px-3 py-2 text-sm text-[#ff8f8f]">
                 {state.error}

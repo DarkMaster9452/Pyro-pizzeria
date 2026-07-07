@@ -5,8 +5,23 @@ import Link from "next/link";
 import { useApp } from "@/lib/store";
 import { PRODUCTS, RESTAURANTS } from "@/lib/data";
 import { eur } from "@/lib/utils";
-import { logoutAction } from "@/lib/auth-actions";
-import { Heart, Clock, Bell, LogOut } from "lucide-react";
+import { useState } from "react";
+import {
+  logoutAction,
+  logoutAllDevicesAction,
+  deleteAccountAction,
+  exportAccountAction,
+} from "@/lib/auth-actions";
+import {
+  Heart,
+  Clock,
+  Bell,
+  LogOut,
+  Download,
+  Trash2,
+  ShieldCheck,
+  MonitorSmartphone,
+} from "lucide-react";
 
 export function AccountDashboard({
   name,
@@ -18,6 +33,21 @@ export function AccountDashboard({
   const orders = useApp((s) => s.orders);
   const favorites = useApp((s) => s.favorites);
   const favProducts = PRODUCTS.filter((p) => favorites.includes(p.id));
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  async function exportData() {
+    const data = await exportAccountAction();
+    if (!data) return;
+    const blob = new Blob([JSON.stringify(data, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "moje-udaje.json";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   return (
     <>
@@ -108,11 +138,11 @@ export function AccountDashboard({
           )}
         </section>
 
-        <section className="rounded-3xl border border-white/[0.08] bg-[#141414] p-6 lg:col-span-2">
+        <section className="rounded-3xl border border-white/[0.08] bg-[#141414] p-6">
           <h2 className="mb-4 flex items-center gap-2 font-display text-lg font-bold text-white">
             <Bell className="h-5 w-5 text-brand-accent" /> Notifikácie
           </h2>
-          <div className="grid gap-2 sm:grid-cols-3">
+          <div className="grid gap-2">
             {["Email", "SMS", "Push"].map((n) => (
               <label
                 key={n}
@@ -126,6 +156,57 @@ export function AccountDashboard({
                 />
               </label>
             ))}
+          </div>
+        </section>
+
+        {/* GDPR / security */}
+        <section className="rounded-3xl border border-white/[0.08] bg-[#141414] p-6">
+          <h2 className="mb-4 flex items-center gap-2 font-display text-lg font-bold text-white">
+            <ShieldCheck className="h-5 w-5 text-brand-success" /> Súkromie a
+            bezpečnosť
+          </h2>
+          <div className="space-y-2.5 text-sm">
+            <button
+              onClick={exportData}
+              className="flex w-full items-center gap-3 rounded-xl bg-white/[0.03] p-3 text-left text-white hover:bg-white/[0.06]"
+            >
+              <Download className="h-4 w-4 text-brand-secondary" />
+              Exportovať moje údaje (GDPR)
+            </button>
+            <form action={logoutAllDevicesAction}>
+              <button className="flex w-full items-center gap-3 rounded-xl bg-white/[0.03] p-3 text-left text-white hover:bg-white/[0.06]">
+                <MonitorSmartphone className="h-4 w-4 text-brand-secondary" />
+                Odhlásiť zo všetkých zariadení
+              </button>
+            </form>
+            {confirmDelete ? (
+              <div className="rounded-xl border border-brand-error/30 bg-brand-error/10 p-3">
+                <p className="mb-2 text-[#ffb4b4]">
+                  Naozaj natrvalo zmazať účet? Túto akciu nie je možné vrátiť.
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setConfirmDelete(false)}
+                    className="flex-1 rounded-full border border-white/15 py-2 font-semibold text-white"
+                  >
+                    Zrušiť
+                  </button>
+                  <form action={deleteAccountAction} className="flex-1">
+                    <button className="w-full rounded-full bg-brand-error py-2 font-bold text-white">
+                      Zmazať účet
+                    </button>
+                  </form>
+                </div>
+              </div>
+            ) : (
+              <button
+                onClick={() => setConfirmDelete(true)}
+                className="flex w-full items-center gap-3 rounded-xl bg-brand-error/10 p-3 text-left font-semibold text-[#ff8f8f] hover:bg-brand-error/15"
+              >
+                <Trash2 className="h-4 w-4" />
+                Zmazať účet
+              </button>
+            )}
           </div>
         </section>
       </div>

@@ -2,14 +2,24 @@
 
 import { sql } from "./db";
 import { auth } from "@/auth";
-import { registerUser } from "./users";
-import { RESTAURANTS, PRODUCTS } from "./data";
-import { estimatedWait, shortId } from "./utils";
-import type { CartLine, FulfillmentType, CustomerAddress } from "./types";
+import { registerUser, getSessionVersion } from "./users";
+import {
+  RESTAURANTS,
+  PRODUCTS,
+  EXTRA_INGREDIENTS,
+  EXTRA_CHEESE_PRICE,
+  STUFFED_CRUST_PRICE,
+} from "./data";
+import { computeTotals } from "./pricing";
+import { estimatedWait, shortId, findZone } from "./utils";
+import { orderInputSchema, firstError } from "./validation";
+import { rateLimit, audit, clientIp } from "./security";
+import type { CartLine, DeliveryZone } from "./types";
 
 const PIZZA_IDS = new Set(
   PRODUCTS.filter((p) => p.category === "pizza").map((p) => p.id)
 );
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
 function pizzaCount(lines: CartLine[]): number {
   return lines.reduce(
@@ -18,7 +28,33 @@ function pizzaCount(lines: CartLine[]): number {
   );
 }
 
-// -------- Registration --------
+// Re-price a cart line from the DATABASE/menu — the client's unitPrice is
+// discarded. Returns null for an unknown product.
+function repriceLine(line: CartLine, restaurantId: string): CartLine | null {
+  const product = PRODUCTS.find(
+    (p) => p.id === line.productId && p.restaurantId === restaurantId
+  );
+  if (!product || !product.available) return null;
+  const size =
+    product.sizes.find((s) => s.id === line.sizeId) ?? product.sizes[0];
+  let unit = product.basePrice + size.priceDelta;
+  if (line.extraCheese) unit += EXTRA_CHEESE_PRICE;
+  if (line.stuffedCrust) unit += STUFFED_CRUST_PRICE;
+  for (const name of line.addedIngredients) {
+    const ing = EXTRA_INGREDIENTS.find((i) => i.name === name);
+    if (ing) unit += ing.price;
+  }
+  return {
+    ...line,
+    name: product.name,
+    image: product.image,
+    sizeLabel: size.label,
+    unitPrice: round2(unit),
+    quantity: Math.min(50, Math.max(1, Math.floor(line.quantity))),
+  };
+}
+
+// -------- Registration (also used by the register form action) --------
 export async function registerAction(
   name: string,
   email: string,
@@ -42,66 +78,144 @@ export async function getRestaurantStates(): Promise<Record<string, boolean>> {
   }
 }
 
-// -------- Create order (checkout) --------
+// -------- Create order (server recomputes ALL money) --------
 export interface NewOrderInput {
   restaurantId: string;
-  fulfillment: FulfillmentType;
+  fulfillment: "delivery" | "pickup";
   customerName: string;
   phone: string;
   email?: string;
-  address?: CustomerAddress;
-  zoneName?: string;
+  address?: { street: string; houseNumber: string; city: string; zip: string };
   lines: CartLine[];
-  subtotal: number;
-  deliveryFee: number;
-  discount: number;
-  total: number;
-  payment: string;
+  couponCode?: string | null;
   note?: string;
-  eta: number;
+}
+
+export interface CreateOrderResult {
+  ok: boolean;
+  id?: string;
+  error?: string;
+  total?: number;
+  eta?: number;
 }
 
 export async function createOrder(
   input: NewOrderInput
-): Promise<{ ok: boolean; id?: string; error?: string }> {
+): Promise<CreateOrderResult> {
+  // 1) validate shape
+  const parsed = orderInputSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: firstError(parsed.error) };
+  const data = parsed.data;
+
+  // 2) rate limit
+  const ip = await clientIp();
+  const rl = await rateLimit("order", ip, 12, 10 * 60);
+  if (!rl.allowed)
+    return { ok: false, error: "Príliš veľa objednávok. Skúste o chvíľu." };
+
+  const restaurant = RESTAURANTS.find((r) => r.id === data.restaurantId);
+  if (!restaurant) return { ok: false, error: "Neznáma prevádzka." };
+
   try {
+    // 3) sold-out (authoritative, from DB)
     const state = (await sql`
-      SELECT sold_out FROM restaurant_state WHERE id = ${input.restaurantId} LIMIT 1
+      SELECT sold_out FROM restaurant_state WHERE id = ${data.restaurantId} LIMIT 1
     `) as { sold_out: boolean }[];
-    if (state[0]?.sold_out) {
+    if (state[0]?.sold_out)
       return { ok: false, error: "Prevádzka je momentálne vypredaná." };
+
+    // 4) re-price every line from the menu (ignore client prices)
+    const lines: CartLine[] = [];
+    for (const l of data.lines) {
+      const priced = repriceLine(l as CartLine, data.restaurantId);
+      if (!priced)
+        return { ok: false, error: "Niektorý produkt už nie je dostupný." };
+      lines.push(priced);
     }
+
+    // 5) resolve delivery zone + fee server-side
+    let zone: DeliveryZone | null = null;
+    if (data.fulfillment === "delivery") {
+      if (!data.address)
+        return { ok: false, error: "Chýba adresa doručenia." };
+      zone = findZone(
+        restaurant,
+        `${data.address.street} ${data.address.city}`
+      ).zone;
+      if (!zone)
+        return { ok: false, error: "Na túto adresu nedoručujeme." };
+    }
+
+    // 6) authoritative totals (server-computed discounts/fees/total)
+    const totals = computeTotals(
+      lines,
+      data.restaurantId,
+      zone,
+      data.fulfillment,
+      data.couponCode ?? null
+    );
+
+    // 7) enforce delivery minimum
+    if (zone && totals.subtotal < zone.minimumOrder) {
+      return {
+        ok: false,
+        error: `Minimálna objednávka pre rozvoz je ${zone.minimumOrder} €.`,
+      };
+    }
+
+    // 8) ETA from current kitchen load
+    const pending = (await sql`
+      SELECT COALESCE(SUM(pizza_count),0)::int AS p FROM orders
+      WHERE restaurant_id = ${data.restaurantId}
+        AND status IN ('received','accepted','preparing')
+    `) as { p: number }[];
+    const wait = estimatedWait(
+      restaurant.prepTimeMinutes,
+      (pending[0]?.p ?? 0) + pizzaCount(lines)
+    );
+    const eta = zone ? Math.max(zone.estimatedMinutes, wait) : wait;
+
     const id = shortId();
-    const pc = pizzaCount(input.lines);
     await sql`
       INSERT INTO orders (
         id, restaurant_id, status, fulfillment, customer_name, phone, email,
         address, zone_name, lines, pizza_count, subtotal, delivery_fee,
         discount, total, payment, note, eta
       ) VALUES (
-        ${id}, ${input.restaurantId}, 'received', ${input.fulfillment},
-        ${input.customerName}, ${input.phone}, ${input.email ?? null},
-        ${input.address ? JSON.stringify(input.address) : null},
-        ${input.zoneName ?? null}, ${JSON.stringify(input.lines)}, ${pc},
-        ${input.subtotal}, ${input.deliveryFee}, ${input.discount},
-        ${input.total}, ${input.payment}, ${input.note ?? null}, ${input.eta}
+        ${id}, ${data.restaurantId}, 'received', ${data.fulfillment},
+        ${data.customerName}, ${data.phone}, ${data.email || null},
+        ${data.address ? JSON.stringify(data.address) : null},
+        ${zone?.name ?? null}, ${JSON.stringify(lines)}, ${pizzaCount(lines)},
+        ${totals.subtotal}, ${totals.deliveryFee}, ${totals.discount},
+        ${totals.total},
+        ${data.fulfillment === "delivery" ? "Platba pri doručení" : "Platba pri odbere"},
+        ${data.note || null}, ${eta}
       )
     `;
-    return { ok: true, id };
+    await audit({
+      action: "order.created",
+      restaurantId: data.restaurantId,
+      target: id,
+      meta: { total: totals.total, fulfillment: data.fulfillment, ip },
+    });
+    return { ok: true, id, total: totals.total, eta };
   } catch (e) {
     console.error("createOrder failed", e);
     return { ok: false, error: "Objednávku sa nepodarilo uložiť." };
   }
 }
 
-// -------- Admin: context for the logged-in admin --------
+// -------- Admin context --------
 export async function getAdminContext(): Promise<{
   restaurantId: string;
   name: string;
   email: string;
 } | null> {
   const session = await auth();
-  if (session?.user?.role !== "admin" || !session.user.restaurantId)
+  if (
+    (session?.user?.role !== "admin" && session?.user?.role !== "super_admin") ||
+    !session.user.restaurantId
+  )
     return null;
   return {
     restaurantId: session.user.restaurantId,
@@ -110,12 +224,19 @@ export async function getAdminContext(): Promise<{
   };
 }
 
-// -------- Admin: guard helper --------
+// -------- Admin: guard (authn + authz + session revocation) --------
 async function requireAdmin(restaurantId: string) {
   const session = await auth();
-  if (session?.user?.role !== "admin") throw new Error("Unauthorized");
+  if (!session?.user) throw new Error("Unauthorized");
+  const role = session.user.role;
+  if (role !== "admin" && role !== "super_admin")
+    throw new Error("Unauthorized");
   if (session.user.restaurantId !== restaurantId)
-    throw new Error("Forbidden restaurant");
+    throw new Error("Forbidden");
+  // enforce "logout from all devices" revocation
+  const current = await getSessionVersion(session.user.id);
+  if (current !== null && current !== session.user.sessionVersion)
+    throw new Error("Session revoked");
   return session;
 }
 
@@ -148,7 +269,6 @@ export async function getAdminSummary(
   const base =
     RESTAURANTS.find((r) => r.id === restaurantId)?.prepTimeMinutes ?? 45;
 
-  // Local-noon boundary (reset at 12:00 the next day) in Bratislava time.
   const boundarySql = `(
     (date_trunc('day', (now() AT TIME ZONE 'Europe/Bratislava'))
       + CASE WHEN (now() AT TIME ZONE 'Europe/Bratislava')
@@ -220,23 +340,50 @@ export async function getAdminSummary(
 }
 
 export async function setSoldOut(restaurantId: string, value: boolean) {
-  await requireAdmin(restaurantId);
+  const session = await requireAdmin(restaurantId);
   await sql`
     UPDATE restaurant_state SET sold_out = ${value}, updated_at = now()
     WHERE id = ${restaurantId}
   `;
+  await audit({
+    action: "restaurant.sold_out",
+    actorId: session.user.id,
+    actorEmail: session.user.email,
+    restaurantId,
+    meta: { value },
+  });
   return { ok: true };
 }
+
+const ALLOWED_STATUSES = [
+  "received",
+  "accepted",
+  "preparing",
+  "ready",
+  "delivering",
+  "delivered",
+  "cancelled",
+];
 
 export async function setOrderStatus(
   restaurantId: string,
   id: string,
   status: string
 ) {
-  await requireAdmin(restaurantId);
+  const session = await requireAdmin(restaurantId);
+  if (!ALLOWED_STATUSES.includes(status))
+    return { ok: false, error: "Neplatný stav." };
   await sql`
     UPDATE orders SET status = ${status}
     WHERE id = ${id} AND restaurant_id = ${restaurantId}
   `;
+  await audit({
+    action: "order.status_changed",
+    actorId: session.user.id,
+    actorEmail: session.user.email,
+    restaurantId,
+    target: id,
+    meta: { status },
+  });
   return { ok: true };
 }
