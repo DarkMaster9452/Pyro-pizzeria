@@ -67,9 +67,11 @@ export interface OpeningHours {
 export interface Restaurant {
   id: string;
   name: string;
-  logoName: string; // shorter name shown in the script logo
+  logo: string; // path to brand logo image (public/logos/*)
+  logoName: string; // shorter name shown in the script logo (fallback)
   logoTag: string; // small uppercase tagline under the logo
   tagline: string;
+  soldOutNote?: string; // shown when the restaurant sells out ("do vypredania")
   heroLine1: string; // big display headline, line 1 (white)
   heroLine2: string; // big display headline, line 2 (red)
   city: string;

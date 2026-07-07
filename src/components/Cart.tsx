@@ -31,6 +31,7 @@ export function Cart() {
   const [code, setCode] = useState("");
   const [couponError, setCouponError] = useState("");
 
+  const soldOut = useApp((s) => (restaurantId ? s.soldOut[restaurantId] : false));
   const restaurant = RESTAURANTS.find((r) => r.id === restaurantId);
   const totals = computeTotals(cart, restaurantId, null, "pickup", coupon);
   const sub = subtotal(cart);
@@ -262,13 +263,19 @@ export function Cart() {
                     </p>
                   </div>
 
-                  <Link
-                    href="/checkout"
-                    onClick={() => setCartOpen(false)}
-                    className="btn-primary w-full"
-                  >
-                    Pokračovať k objednávke
-                  </Link>
+                  {soldOut ? (
+                    <div className="w-full rounded-full bg-brand-error/12 px-4 py-3 text-center text-sm font-semibold text-[#ff8f8f]">
+                      Momentálne vypredané — objednávky sú dočasne pozastavené.
+                    </div>
+                  ) : (
+                    <Link
+                      href="/checkout"
+                      onClick={() => setCartOpen(false)}
+                      className="btn-primary w-full"
+                    >
+                      Pokračovať k objednávke
+                    </Link>
+                  )}
                 </div>
               </>
             )}

@@ -27,7 +27,8 @@ const config: Config = {
       fontFamily: {
         sans: ["var(--font-sans)", "system-ui", "sans-serif"],
         display: ["var(--font-sans)", "system-ui", "sans-serif"],
-        heading: ["var(--font-sans)", "system-ui", "sans-serif"],
+        heading: ["Anton", "Impact", "system-ui", "sans-serif"],
+        script: ["Pacifico", "cursive"],
       },
       borderRadius: {
         xl: "18px",

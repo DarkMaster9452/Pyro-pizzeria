@@ -7,7 +7,8 @@ import { motion } from "framer-motion";
 import { useApp } from "@/lib/store";
 import { RESTAURANTS } from "@/lib/data";
 import { computeTotals, subtotal } from "@/lib/pricing";
-import { eur, shortId, cn } from "@/lib/utils";
+import { createOrder } from "@/lib/server-actions";
+import { eur, shortId, cn, estimatedWait } from "@/lib/utils";
 import {
   AddressVerification,
   type VerifyResult,
@@ -41,6 +42,8 @@ export default function CheckoutPage() {
   const coupon = useApp((s) => s.coupon);
   const addOrder = useApp((s) => s.addOrder);
   const clearCart = useApp((s) => s.clearCart);
+  const soldOut = useApp((s) => (restaurantId ? s.soldOut[restaurantId] ?? false : false));
+  const queue = useApp((s) => (restaurantId ? s.kitchenQueue[restaurantId] ?? 0 : 0));
 
   const r = RESTAURANTS.find((x) => x.id === restaurantId);
   const [fulfillment, setFulfillment] = useState<FulfillmentType>("delivery");
@@ -50,6 +53,8 @@ export default function CheckoutPage() {
   const [email, setEmail] = useState("");
   const [note, setNote] = useState("");
   const [payment, setPayment] = useState("cash_delivery");
+  const [submitting, setSubmitting] = useState(false);
+  const [orderError, setOrderError] = useState("");
 
   if (!r) return null;
 
@@ -61,17 +66,43 @@ export default function CheckoutPage() {
     fulfillment === "pickup" ||
     (verify?.zone != null && sub >= verify.zone.minimumOrder);
   const detailsOk = name.trim() && phone.trim();
-  const canOrder = cart.length > 0 && deliveryOk && detailsOk;
+  const canOrder = cart.length > 0 && deliveryOk && detailsOk && !soldOut;
 
   const eta =
     fulfillment === "delivery"
-      ? zone?.estimatedMinutes ?? 45
-      : r.prepTimeMinutes;
+      ? Math.max(zone?.estimatedMinutes ?? 45, estimatedWait(r.prepTimeMinutes, queue))
+      : estimatedWait(r.prepTimeMinutes, queue);
 
-  function placeOrder() {
-    if (!canOrder || !r) return;
+  async function placeOrder() {
+    if (!canOrder || !r || submitting) return;
+    setSubmitting(true);
+    setOrderError("");
+    const paymentLabel =
+      PAYMENTS[fulfillment].find((p) => p.id === payment)?.label ?? payment;
+    const address = fulfillment === "delivery" ? verify?.address : undefined;
+
+    // Server recomputes and validates all prices — the client total is only
+    // for display and is never trusted server-side.
+    const res = await createOrder({
+      restaurantId: r.id,
+      fulfillment,
+      customerName: name,
+      phone,
+      email,
+      address,
+      lines: cart,
+      couponCode: coupon,
+      note,
+    });
+
+    if (!res.ok) {
+      setOrderError(res.error ?? "Objednávku sa nepodarilo odoslať.");
+      setSubmitting(false);
+      return;
+    }
+
     const order: Order = {
-      id: shortId(),
+      id: res.id ?? shortId(),
       restaurantId: r.id,
       createdAt: Date.now(),
       status: "received",
@@ -79,17 +110,16 @@ export default function CheckoutPage() {
       customerName: name,
       phone,
       email,
-      address: fulfillment === "delivery" ? verify?.address : undefined,
+      address,
       zoneName: zone?.name,
       lines: cart,
       subtotal: totals.subtotal,
       deliveryFee: totals.deliveryFee,
       discount: totals.discount,
-      total: totals.total,
-      payment:
-        PAYMENTS[fulfillment].find((p) => p.id === payment)?.label ?? payment,
+      total: res.total ?? totals.total,
+      payment: paymentLabel,
       note,
-      eta,
+      eta: res.eta ?? eta,
     };
     addOrder(order);
     clearCart();
@@ -116,6 +146,13 @@ export default function CheckoutPage() {
       <p className="mt-1 text-neutral-500">
         {r.name} · {r.city}
       </p>
+
+      {soldOut && (
+        <div className="mt-6 rounded-2xl border border-brand-error/30 bg-brand-error/10 px-5 py-4 text-sm font-semibold text-[#ff8f8f]">
+          Momentálne máme vypredané — objednávky sú dočasne pozastavené.
+          Ďakujeme za pochopenie.
+        </div>
+      )}
 
       <div className="mt-8 grid gap-8 lg:grid-cols-[1fr_380px]">
         <div className="space-y-6">
@@ -284,13 +321,17 @@ export default function CheckoutPage() {
               </p>
             )}
 
+            {orderError && (
+              <p className="mt-3 text-xs text-brand-error">{orderError}</p>
+            )}
             <motion.button
               whileTap={{ scale: 0.97 }}
               onClick={placeOrder}
-              disabled={!canOrder}
+              disabled={!canOrder || submitting}
               className="btn-primary mt-4 w-full disabled:cursor-not-allowed disabled:opacity-40"
             >
-              Záväzne objednať <ArrowRight className="h-5 w-5" />
+              {submitting ? "Odosielam…" : "Záväzne objednať"}
+              {!submitting && <ArrowRight className="h-5 w-5" />}
             </motion.button>
           </div>
         </div>

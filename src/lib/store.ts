@@ -35,6 +35,12 @@ interface AppState {
   orders: Order[];
   addOrder: (order: Order) => void;
   updateOrderStatus: (id: string, status: Order["status"]) => void;
+
+  // operations (controlled from the admin panel)
+  soldOut: Record<string, boolean>; // per restaurant "do vypredania"
+  setSoldOut: (restaurantId: string, value: boolean) => void;
+  kitchenQueue: Record<string, number>; // pizzas currently in the queue
+  setKitchenQueue: (restaurantId: string, count: number) => void;
 }
 
 export const useApp = create<AppState>()(
@@ -79,6 +85,15 @@ export const useApp = create<AppState>()(
       updateOrderStatus: (id, status) =>
         set((s) => ({
           orders: s.orders.map((o) => (o.id === id ? { ...o, status } : o)),
+        })),
+
+      soldOut: {},
+      setSoldOut: (restaurantId, value) =>
+        set((s) => ({ soldOut: { ...s.soldOut, [restaurantId]: value } })),
+      kitchenQueue: {},
+      setKitchenQueue: (restaurantId, count) =>
+        set((s) => ({
+          kitchenQueue: { ...s.kitchenQueue, [restaurantId]: Math.max(0, count) },
         })),
     }),
     { name: "pyro-platform" }
