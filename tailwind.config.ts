@@ -7,11 +7,13 @@ const config: Config = {
     extend: {
       colors: {
         brand: {
-          primary: "#E94E1B",
-          primaryHover: "#F5642C",
-          red: "#E94E1B",
+          // Driven by CSS vars so each restaurant can theme to its logo.
+          // Defaults (Pyro) live in globals.css; [data-brand="polomarik"] overrides.
+          primary: "rgb(var(--brand-primary) / <alpha-value>)",
+          primaryHover: "rgb(var(--brand-primary-hover) / <alpha-value>)",
+          red: "rgb(var(--brand-primary) / <alpha-value>)",
           secondary: "#E85D04",
-          accent: "#FFC857",
+          accent: "rgb(var(--brand-accent) / <alpha-value>)",
           dark: "#111111",
           surface: "#171717",
           card: "#171717",

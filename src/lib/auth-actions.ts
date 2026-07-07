@@ -8,6 +8,7 @@ import {
   bumpSessionVersion,
   deleteAccount,
   exportAccount,
+  getRoleByEmail,
 } from "./users";
 import { loginSchema, registerSchema, firstError } from "./validation";
 import { rateLimit, audit, clientIp } from "./security";
@@ -40,18 +41,16 @@ export async function loginAction(
     }
     throw e;
   }
-  const session = await auth();
+  // Determine the role from the DB, not from auth(): the session cookie set by
+  // signIn() above is not yet readable within this same request, so auth()
+  // would return a stale session and send admins to the customer page.
+  const role = await getRoleByEmail(parsed.data.email);
   await audit({
     action: "login.success",
-    actorId: session?.user?.id,
-    actorEmail: session?.user?.email,
+    actorEmail: parsed.data.email,
     meta: { ip },
   });
-  redirect(
-    session?.user?.role === "admin" || session?.user?.role === "super_admin"
-      ? "/admin"
-      : "/account"
-  );
+  redirect(role === "admin" || role === "super_admin" ? "/admin" : "/account");
 }
 
 export async function registerFormAction(

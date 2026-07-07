@@ -4,7 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useApp } from "@/lib/store";
-import { RESTAURANTS, PRODUCTS, CATEGORIES, REVIEWS } from "@/lib/data";
+import { RESTAURANTS, PRODUCTS, REVIEWS } from "@/lib/data";
 import { getOpenState, eur, estimatedWait } from "@/lib/utils";
 import { Footer } from "@/components/Footer";
 import { ProductCard } from "@/components/ProductCard";
@@ -62,7 +62,6 @@ export default function HomePage() {
     <main>
       <Hero r={r} />
       <FeatureStripSection />
-      <Categories />
       <Popular popular={popular} />
       <Reviews reviews={reviews} />
       <ClosingCta />
@@ -390,35 +389,6 @@ function SectionHead({ kicker, title }: { kicker: string; title: string }) {
         {title}
       </h2>
     </div>
-  );
-}
-
-function Categories() {
-  return (
-    <section className="section py-16 lg:py-20">
-      <SectionHead kicker="Ponuka" title="Na čo máte chuť?" />
-      <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-7">
-        {CATEGORIES.map((c, i) => (
-          <motion.div
-            key={c.id}
-            initial={{ opacity: 0, y: 12 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ delay: i * 0.04, ease }}
-          >
-            <Link
-              href={`/menu?cat=${c.id}`}
-              className="flex flex-col items-center gap-2.5 rounded-2xl border border-white/[0.08] bg-[#141414] p-5 transition-all duration-200 hover:-translate-y-1 hover:border-brand-primary/40 hover:bg-[#181818]"
-            >
-              <span className="text-3xl">{c.icon}</span>
-              <span className="text-sm font-semibold text-white/80">
-                {c.name}
-              </span>
-            </Link>
-          </motion.div>
-        ))}
-      </div>
-    </section>
   );
 }
 

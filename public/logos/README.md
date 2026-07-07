@@ -1,11 +1,13 @@
 # Brand logos
 
-Drop the two restaurant logo files here with these exact names:
+The header (and other places) use these two logo files:
 
-- `pyro.png`        → Pyro Pizzeria logo
-- `polomarik.png`   → Polomárik Pizzeria logo
+- `pyro.svg`        → Pyro Pizzeria logo
+- `polomarik.svg`   → Polomárik Pizzeria logo
 
-They are shown in the navbar (and can be reused elsewhere). Transparent PNG or
-SVG works best; recommended height ~96px (they are rendered at 48px, 2x for
-retina). Until the files are present, the header falls back to a script
+The committed `.svg` files are clean placeholder lockups built from the printed
+menu artwork. To use the exact brand art, replace a file in place (keep the same
+name), or drop a transparent PNG next to it and point `logo` in
+`src/lib/data.ts` at the new file. Recommended height ~96px; they render at 48px
+(2× for retina). If a logo file is missing, the header falls back to a script
 wordmark automatically.

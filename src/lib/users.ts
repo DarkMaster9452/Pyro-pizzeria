@@ -113,6 +113,19 @@ export async function registerUser(
   return { ok: true, userId: rows[0]?.id };
 }
 
+// Look up a user's role by email. Used right after sign-in to decide where to
+// redirect, because calling auth() in the same server-action request can return
+// a stale (pre-login) session and misroute admins to the customer page.
+export async function getRoleByEmail(
+  email: string
+): Promise<DbUser["role"] | null> {
+  const e = email.toLowerCase().trim();
+  const rows = (await sql`
+    SELECT role FROM users WHERE email = ${e} LIMIT 1
+  `) as { role: DbUser["role"] }[];
+  return rows[0]?.role ?? null;
+}
+
 // Session version check for "logout from all devices" revocation.
 export async function getSessionVersion(userId: string): Promise<number | null> {
   const rows = (await sql`

@@ -7,7 +7,6 @@ import { useApp } from "@/lib/store";
 import { PRODUCTS, CATEGORIES } from "@/lib/data";
 import type { Badge, CategoryId } from "@/lib/types";
 import { ProductCard } from "@/components/ProductCard";
-import { Footer } from "@/components/Footer";
 import { cn } from "@/lib/utils";
 import { Search, SlidersHorizontal } from "lucide-react";
 
@@ -154,8 +153,6 @@ function MenuInner() {
           </motion.div>
         )}
       </div>
-
-      <Footer />
     </main>
   );
 }

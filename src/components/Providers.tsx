@@ -11,6 +11,7 @@ import { usePathname } from "next/navigation";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const theme = useApp((s) => s.theme);
+  const restaurantId = useApp((s) => s.restaurantId);
   const [mounted, setMounted] = useState(false);
   const pathname = usePathname();
   const isAdmin = pathname?.startsWith("/admin");
@@ -40,6 +41,14 @@ export function Providers({ children }: { children: React.ReactNode }) {
     const wantDark = isAdmin ? theme === "dark" : true;
     root.classList.toggle("dark", wantDark);
   }, [theme, isAdmin]);
+
+  // Theme the whole page to the selected restaurant's brand colour (Pyro
+  // orange vs Polomárik gold) so the two pizzerias feel distinct.
+  useEffect(() => {
+    const root = document.documentElement;
+    if (!isAdmin && restaurantId) root.setAttribute("data-brand", restaurantId);
+    else root.removeAttribute("data-brand");
+  }, [restaurantId, isAdmin]);
 
   // Avoid hydration flash: render children but keep interactive shell hidden until mounted
   return (
