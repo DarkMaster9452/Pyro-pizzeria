@@ -4,6 +4,20 @@
 
 :root {
   --font-sans: "Plus Jakarta Sans", "Manrope", "Inter", system-ui, sans-serif;
+
+  /* Brand palette (RGB channels, consumed by Tailwind brand-* colors).
+     Default = Pyro (fiery orange). */
+  --brand-primary: 233 78 27;
+  --brand-primary-hover: 245 100 44;
+  --brand-accent: 255 200 87;
+}
+
+/* Polomárik themes the page to its gold-on-charcoal logo, so the two
+   pizzerias feel like distinct brands. */
+[data-brand="polomarik"] {
+  --brand-primary: 245 179 1;
+  --brand-primary-hover: 255 197 51;
+  --brand-accent: 245 179 1;
 }
 
 @layer base {
