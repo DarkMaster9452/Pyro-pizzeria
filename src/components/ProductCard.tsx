@@ -56,7 +56,7 @@ export function ProductCard({ product }: { product: Product }) {
           {!product.available && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/60">
               <span className="rounded-full bg-white px-4 py-1.5 text-sm font-bold text-brand-dark">
-                Momentálne nedostupné
+                Aktuálne nedostupná
               </span>
             </div>
           )}
@@ -106,7 +106,7 @@ export function ProductCard({ product }: { product: Product }) {
                 disabled
                 className="cursor-not-allowed rounded-full bg-white/10 px-5 py-2.5 text-sm font-semibold text-white/50"
               >
-                {soldOut ? "Vypredané" : "Nedostupné"}
+                {soldOut ? "Vypredané" : "Aktuálne nedostupná"}
               </button>
             ) : product.category === "pizza" ? (
               <button

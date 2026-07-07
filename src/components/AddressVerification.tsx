@@ -14,11 +14,12 @@ export interface VerifyResult {
 
 export function AddressVerification({
   restaurant,
-  subtotal,
+  zones,
   onResult,
 }: {
   restaurant: Restaurant;
-  subtotal: number;
+  // optional live zones (from DB); falls back to the restaurant's seed zones
+  zones?: DeliveryZone[];
   onResult: (r: VerifyResult) => void;
 }) {
   const [address, setAddress] = useState<CustomerAddress>({
@@ -37,18 +38,16 @@ export function AddressVerification({
     // simulate database lookup
     setTimeout(() => {
       const query = `${address.street} ${address.city}`.trim();
-      const { zone, matchedArea } = findZone(restaurant, query);
+      const { zone, matchedArea } = findZone(
+        zones ? { ...restaurant, deliveryZones: zones } : restaurant,
+        query
+      );
       const r = { zone, address, matchedArea };
       setResult(r);
       onResult(r);
       setChecking(false);
     }, 700);
   }
-
-  const missing =
-    result?.zone && subtotal < result.zone.minimumOrder
-      ? result.zone.minimumOrder - subtotal
-      : 0;
 
   return (
     <div className="space-y-4">
@@ -111,11 +110,7 @@ export function AddressVerification({
                   <CheckCircle2 className="h-5 w-5" />
                   Sem doručujeme! ({result.zone.name})
                 </div>
-                <div className="mt-3 grid grid-cols-3 gap-2 text-center text-sm">
-                  <Stat
-                    label="Min. objednávka"
-                    value={eur(result.zone.minimumOrder)}
-                  />
+                <div className="mt-3 grid grid-cols-2 gap-2 text-center text-sm">
                   <Stat
                     label="Doprava"
                     value={
@@ -129,12 +124,6 @@ export function AddressVerification({
                     value={`~${result.zone.estimatedMinutes} min`}
                   />
                 </div>
-                {missing > 0 && (
-                  <p className="mt-3 rounded-xl bg-brand-accent/15 px-3 py-2 text-sm font-medium text-amber-700 dark:text-brand-accent">
-                    Pridajte ešte {eur(missing)} pre splnenie minimálnej
-                    objednávky.
-                  </p>
-                )}
               </div>
             ) : (
               <div className="rounded-2xl border border-brand-error/30 bg-brand-error/5 p-4">

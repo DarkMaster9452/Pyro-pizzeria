@@ -6,7 +6,7 @@ import Image from "next/image";
 import { useApp } from "@/lib/store";
 import { RESTAURANTS } from "@/lib/data";
 import { getOpenState, distanceKm } from "@/lib/utils";
-import { Clock, MapPin, Navigation, Timer } from "lucide-react";
+import { Clock, MapPin, Navigation, Timer, ArrowRight } from "lucide-react";
 
 export function RestaurantModal() {
   const restaurantId = useApp((s) => s.restaurantId);
@@ -43,32 +43,34 @@ export function RestaurantModal() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[100] overflow-y-auto bg-gradient-to-br from-[#1a0505] via-[#2a0d05] to-[#1a0505]"
+          className="fixed inset-0 z-[100] overflow-y-auto bg-[#090909]"
         >
-          {/* ambient glow */}
-          <div className="pointer-events-none absolute -top-40 left-1/2 h-96 w-96 -translate-x-1/2 rounded-full bg-brand-primary/30 blur-[120px]" />
-          <div className="pointer-events-none absolute bottom-0 right-0 h-96 w-96 rounded-full bg-brand-secondary/20 blur-[120px]" />
+          {/* ambient ember glow — matches the site hero */}
+          <div className="pointer-events-none absolute -top-40 left-1/2 h-[28rem] w-[28rem] -translate-x-1/2 rounded-full bg-brand-primary/20 blur-[130px]" />
+          <div className="pointer-events-none absolute bottom-0 right-10 h-80 w-80 rounded-full bg-brand-accent/10 blur-[130px]" />
 
-          <div className="relative mx-auto flex min-h-screen max-w-6xl flex-col items-center justify-center px-4 py-12">
+          <div className="relative mx-auto flex min-h-screen max-w-5xl flex-col items-center justify-center px-4 py-14">
             <motion.div
-              initial={{ y: 20, opacity: 0 }}
+              initial={{ y: 18, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
-              transition={{ delay: 0.1 }}
+              transition={{ delay: 0.08 }}
               className="mb-10 text-center"
             >
-              <div className="mb-3 text-5xl">🍕</div>
-              <h1 className="font-display text-3xl font-extrabold text-white sm:text-4xl">
+              <p className="mb-3 text-xs font-bold uppercase tracking-[0.3em] text-brand-primary">
+                Vitajte
+              </p>
+              <h1 className="font-heading text-4xl uppercase tracking-tight text-white sm:text-5xl">
                 Vyberte si prevádzku
               </h1>
-              <p className="mt-2 text-white/60">
+              <p className="mx-auto mt-3 max-w-md text-[15px] text-white/55">
                 Každá prevádzka má vlastné menu, ceny a rozvozové zóny.
               </p>
               {!askedLocation && (
                 <button
                   onClick={requestLocation}
-                  className="mt-4 inline-flex items-center gap-2 rounded-full border border-white/20 px-4 py-2 text-sm text-white/80 transition-colors hover:bg-white/10"
+                  className="mt-5 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.04] px-4 py-2 text-sm text-white/80 backdrop-blur-md transition-colors hover:bg-white/[0.08]"
                 >
-                  <Navigation className="h-4 w-4" />
+                  <Navigation className="h-4 w-4 text-brand-primary" />
                   Povoliť polohu pre vzdialenosť
                 </button>
               )}
@@ -83,96 +85,126 @@ export function RestaurantModal() {
                 return (
                   <motion.button
                     key={r.id}
-                    initial={{ y: 30, opacity: 0 }}
+                    initial={{ y: 26, opacity: 0 }}
                     animate={{ y: 0, opacity: 1 }}
-                    transition={{ delay: 0.15 + i * 0.1 }}
+                    transition={{ delay: 0.14 + i * 0.1 }}
                     whileHover={{ y: -6 }}
                     onClick={() => setRestaurant(r.id)}
-                    className="group overflow-hidden rounded-3xl bg-white text-left shadow-2xl ring-1 ring-white/10"
+                    style={{ ["--accent" as string]: r.accent }}
+                    className="group relative overflow-hidden rounded-3xl border border-white/[0.08] bg-[#131313] text-left transition-colors hover:border-[var(--accent)]/50"
                   >
-                    <div className="relative h-52 overflow-hidden">
+                    <div
+                      className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full opacity-40 blur-3xl transition-opacity group-hover:opacity-70"
+                      style={{ background: r.accent }}
+                    />
+                    <div className="relative h-44 overflow-hidden">
                       <Image
                         src={r.image}
                         alt={r.name}
                         fill
                         sizes="(max-width: 768px) 100vw, 50vw"
-                        className="object-cover transition-transform duration-700 group-hover:scale-110"
+                        className="object-cover transition-transform duration-700 group-hover:scale-105"
                         priority={i === 0}
                       />
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
+                      <div className="absolute inset-0 bg-gradient-to-t from-[#131313] via-[#131313]/40 to-transparent" />
                       <div className="absolute left-4 top-4">
                         <span
-                          className={`chip ${
-                            state.open
-                              ? "bg-brand-success text-white"
-                              : "bg-brand-error text-white"
-                          }`}
+                          className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold text-white backdrop-blur-md"
+                          style={{
+                            backgroundColor: state.open
+                              ? "rgba(34,197,94,0.85)"
+                              : "rgba(0,0,0,0.55)",
+                          }}
                         >
                           <span className="relative flex h-2 w-2">
-                            <span
-                              className={`absolute inline-flex h-full w-full rounded-full opacity-75 ${
-                                state.open ? "animate-ping bg-white" : ""
-                              }`}
-                            />
+                            {state.open && (
+                              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white/80" />
+                            )}
                             <span className="relative inline-flex h-2 w-2 rounded-full bg-white" />
                           </span>
-                          {state.label}
+                          {state.open ? "Otvorené" : "Zatvorené"}
                         </span>
                       </div>
-                      <div className="absolute bottom-4 left-5 right-5">
-                        <h2 className="font-display text-2xl font-extrabold text-white">
-                          {r.name}
-                        </h2>
-                        <p className="text-sm text-white/80">{r.tagline}</p>
-                      </div>
+                      {/* brand logo */}
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={r.logo}
+                        alt={r.name}
+                        className="absolute bottom-3 left-5 h-10 w-auto object-contain drop-shadow-lg"
+                        onError={(e) => {
+                          (e.currentTarget as HTMLImageElement).style.display =
+                            "none";
+                        }}
+                      />
                     </div>
 
-                    <div className="space-y-3 p-5">
-                      <div className="flex items-start gap-2 text-sm text-neutral-600">
-                        <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-brand-primary" />
+                    <div className="space-y-4 p-5">
+                      <div>
+                        <h2 className="font-heading text-2xl uppercase tracking-tight text-white">
+                          {r.name}
+                        </h2>
+                        <p className="text-sm text-white/50">{r.tagline}</p>
+                      </div>
+
+                      <div className="flex items-start gap-2 text-sm text-white/70">
+                        <MapPin
+                          className="mt-0.5 h-4 w-4 shrink-0"
+                          style={{ color: r.accent }}
+                        />
                         <span>
                           {r.address}
                           <br />
-                          <span className="font-medium text-neutral-800">
+                          <span className="font-medium text-white/90">
                             {r.city}
                           </span>
                         </span>
                       </div>
 
                       <div className="grid grid-cols-2 gap-3 text-sm">
-                        <div className="flex items-center gap-2 rounded-xl bg-brand-bg px-3 py-2 text-neutral-700">
-                          <Clock className="h-4 w-4 text-brand-secondary" />
+                        <div className="flex items-center gap-2 rounded-xl bg-white/[0.04] px-3 py-2 text-white/70">
+                          <Clock
+                            className="h-4 w-4"
+                            style={{ color: r.accent }}
+                          />
                           {state.open
                             ? `Do ${state.closesAt}`
                             : state.opensAt
                             ? `Otvára ${state.opensAt}`
                             : "Dnes zatvorené"}
                         </div>
-                        <div className="flex items-center gap-2 rounded-xl bg-brand-bg px-3 py-2 text-neutral-700">
-                          <Timer className="h-4 w-4 text-brand-secondary" />
-                          ~{r.prepTimeMinutes} min príprava
+                        <div className="flex items-center gap-2 rounded-xl bg-white/[0.04] px-3 py-2 text-white/70">
+                          <Timer
+                            className="h-4 w-4"
+                            style={{ color: r.accent }}
+                          />
+                          ~{r.prepTimeMinutes} min
                         </div>
                       </div>
 
                       {dist !== null && (
-                        <div className="flex items-center gap-2 text-sm text-neutral-500">
-                          <Navigation className="h-4 w-4 text-brand-primary" />
+                        <div className="flex items-center gap-2 text-sm text-white/50">
+                          <Navigation
+                            className="h-4 w-4"
+                            style={{ color: r.accent }}
+                          />
                           Vzdialenosť ~{dist.toFixed(1)} km od vás
                         </div>
                       )}
 
-                      <div className="pt-1">
-                        <span className="btn-primary w-full">
-                          Vybrať túto prevádzku
-                        </span>
-                      </div>
+                      <span
+                        className="mt-1 flex w-full items-center justify-center gap-2 rounded-full py-3 text-[15px] font-semibold text-white transition-transform group-hover:gap-3"
+                        style={{ backgroundColor: r.accent }}
+                      >
+                        Vybrať túto prevádzku
+                        <ArrowRight className="h-4 w-4" />
+                      </span>
                     </div>
                   </motion.button>
                 );
               })}
             </div>
 
-            <p className="mt-8 text-center text-xs text-white/40">
+            <p className="mt-8 text-center text-xs text-white/35">
               Výber môžete kedykoľvek zmeniť v hornom menu.
             </p>
           </div>

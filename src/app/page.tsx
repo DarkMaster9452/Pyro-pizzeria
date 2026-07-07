@@ -50,10 +50,11 @@ const FEATURES = [
 
 export default function HomePage() {
   const restaurantId = useApp((s) => s.restaurantId);
+  const dbProducts = useApp((s) => s.dbProducts);
   const r = RESTAURANTS.find((x) => x.id === restaurantId);
   if (!r) return null; // selection modal covers screen
 
-  const popular = PRODUCTS.filter(
+  const popular = (dbProducts ?? PRODUCTS).filter(
     (p) => p.restaurantId === r.id && p.badges.includes("bestseller")
   );
   const reviews = REVIEWS.filter((rev) => rev.restaurantId === r.id);

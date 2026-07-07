@@ -1,11 +1,20 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { AccountDashboard } from "@/components/AccountDashboard";
 import { Footer } from "@/components/Footer";
-import { LogIn, UserPlus, ShieldCheck } from "lucide-react";
+import { LogIn, UserPlus } from "lucide-react";
 
 export default async function AccountPage() {
   const session = await auth();
+
+  // Admins have no customer profile — send them straight to administration.
+  if (
+    session?.user?.role === "admin" ||
+    session?.user?.role === "super_admin"
+  ) {
+    redirect("/admin");
+  }
 
   if (!session?.user) {
     return (
@@ -31,20 +40,8 @@ export default async function AccountPage() {
     );
   }
 
-  const isAdmin = session.user.role === "admin";
-
   return (
     <main className="section py-10">
-      {isAdmin && (
-        <Link
-          href="/admin"
-          className="mb-6 flex items-center gap-3 rounded-2xl border border-brand-primary/30 bg-brand-primary/10 p-4 text-sm font-semibold text-brand-primary"
-        >
-          <ShieldCheck className="h-5 w-5" />
-          Ste prihlásený ako administrátor —{" "}
-          <span className="underline">otvoriť administráciu</span>
-        </Link>
-      )}
       <AccountDashboard
         name={session.user.name ?? ""}
         email={session.user.email ?? ""}

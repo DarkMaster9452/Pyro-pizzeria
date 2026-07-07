@@ -32,12 +32,15 @@ function Logo({ restaurant }: { restaurant?: Restaurant }) {
   if (restaurant?.logo && imgOk) {
     return (
       <Link href="/" className="flex items-center">
+        {/* Round brand badge — larger and readable, but sized to fit inside the
+            84px navbar (it never grows the header). object-cover crops the
+            square logo tile into a clean circle. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={restaurant.logo}
           alt={restaurant.name}
           onError={() => setImgOk(false)}
-          className="h-12 w-auto object-contain"
+          className="h-[72px] w-[72px] shrink-0 rounded-full object-cover ring-1 ring-white/10"
         />
       </Link>
     );
