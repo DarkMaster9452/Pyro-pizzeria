@@ -6,52 +6,275 @@ import { registerUser, getSessionVersion } from "./users";
 import {
   RESTAURANTS,
   PRODUCTS,
+  COUPONS,
   EXTRA_INGREDIENTS,
   EXTRA_CHEESE_PRICE,
   STUFFED_CRUST_PRICE,
 } from "./data";
 import { computeTotals } from "./pricing";
-import { estimatedWait, shortId, findZone } from "./utils";
+import { estimatedWait, shortId } from "./utils";
 import { orderInputSchema, firstError } from "./validation";
 import { rateLimit, audit, clientIp } from "./security";
-import type { CartLine, DeliveryZone } from "./types";
+import type {
+  CartLine,
+  DeliveryZone,
+  Product,
+  Coupon,
+  CategoryId,
+  ProductSize,
+  Badge,
+} from "./types";
 
-const PIZZA_IDS = new Set(
-  PRODUCTS.filter((p) => p.category === "pizza").map((p) => p.id)
-);
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
-function pizzaCount(lines: CartLine[]): number {
+function pizzaIds(products: Product[]): Set<string> {
+  return new Set(
+    products.filter((p) => p.category === "pizza").map((p) => p.id)
+  );
+}
+
+function pizzaCount(lines: CartLine[], pizza: Set<string>): number {
   return lines.reduce(
-    (n, l) => n + (PIZZA_IDS.has(l.productId) ? l.quantity : 0),
+    (n, l) => n + (pizza.has(l.productId) ? l.quantity : 0),
     0
   );
 }
 
-// Re-price a cart line from the DATABASE/menu — the client's unitPrice is
-// discarded. Returns null for an unknown product.
-function repriceLine(line: CartLine, restaurantId: string): CartLine | null {
-  const product = PRODUCTS.find(
-    (p) => p.id === line.productId && p.restaurantId === restaurantId
-  );
-  if (!product || !product.available) return null;
-  const size =
-    product.sizes.find((s) => s.id === line.sizeId) ?? product.sizes[0];
-  let unit = product.basePrice + size.priceDelta;
-  if (line.extraCheese) unit += EXTRA_CHEESE_PRICE;
-  if (line.stuffedCrust) unit += STUFFED_CRUST_PRICE;
-  for (const name of line.addedIngredients) {
-    const ing = EXTRA_INGREDIENTS.find((i) => i.name === name);
-    if (ing) unit += ing.price;
-  }
+// ---------------------------------------------------------------------------
+// Content tables (products / coupons / delivery zones) — created and seeded
+// lazily so the app is self-bootstrapping. After the first seed the database
+// is the source of truth and admins edit it directly.
+// ---------------------------------------------------------------------------
+let seedPromise: Promise<void> | null = null;
+
+async function ensureContent(): Promise<void> {
+  if (seedPromise) return seedPromise;
+  seedPromise = (async () => {
+    await sql`
+      CREATE TABLE IF NOT EXISTS products (
+        id text PRIMARY KEY,
+        restaurant_id text NOT NULL,
+        category text NOT NULL,
+        name text NOT NULL,
+        description text NOT NULL DEFAULT '',
+        image text NOT NULL DEFAULT '',
+        base_price numeric(8,2) NOT NULL DEFAULT 0,
+        sizes jsonb NOT NULL DEFAULT '[]'::jsonb,
+        ingredients jsonb NOT NULL DEFAULT '[]'::jsonb,
+        allergens jsonb NOT NULL DEFAULT '[]'::jsonb,
+        badges jsonb NOT NULL DEFAULT '[]'::jsonb,
+        available boolean NOT NULL DEFAULT true,
+        sort int NOT NULL DEFAULT 0,
+        updated_at timestamptz NOT NULL DEFAULT now()
+      )`;
+    await sql`CREATE INDEX IF NOT EXISTS products_restaurant_idx ON products (restaurant_id, sort)`;
+    await sql`
+      CREATE TABLE IF NOT EXISTS coupons (
+        code text PRIMARY KEY,
+        restaurant_id text NOT NULL DEFAULT 'all',
+        type text NOT NULL,
+        value numeric(8,2) NOT NULL DEFAULT 0,
+        min_subtotal numeric(8,2) NOT NULL DEFAULT 0,
+        label text NOT NULL DEFAULT '',
+        active boolean NOT NULL DEFAULT true,
+        created_at timestamptz NOT NULL DEFAULT now()
+      )`;
+    await sql`
+      CREATE TABLE IF NOT EXISTS delivery_zones (
+        id text PRIMARY KEY,
+        restaurant_id text NOT NULL,
+        name text NOT NULL,
+        minimum_order numeric(8,2) NOT NULL DEFAULT 0,
+        delivery_fee numeric(8,2) NOT NULL DEFAULT 0,
+        estimated_minutes int NOT NULL DEFAULT 45,
+        areas jsonb NOT NULL DEFAULT '[]'::jsonb,
+        sort int NOT NULL DEFAULT 0
+      )`;
+    await sql`CREATE INDEX IF NOT EXISTS delivery_zones_restaurant_idx ON delivery_zones (restaurant_id, sort)`;
+
+    const pc = (await sql`SELECT COUNT(*)::int AS n FROM products`) as {
+      n: number;
+    }[];
+    if ((pc[0]?.n ?? 0) === 0) {
+      let i = 0;
+      for (const p of PRODUCTS) {
+        await sql`
+          INSERT INTO products (id, restaurant_id, category, name, description,
+            image, base_price, sizes, ingredients, allergens, badges, available, sort)
+          VALUES (${p.id}, ${p.restaurantId}, ${p.category}, ${p.name},
+            ${p.description}, ${p.image}, ${p.basePrice},
+            ${JSON.stringify(p.sizes)}, ${JSON.stringify(p.ingredients)},
+            ${JSON.stringify(p.allergens)}, ${JSON.stringify(p.badges)},
+            ${p.available}, ${i++})
+          ON CONFLICT (id) DO NOTHING`;
+      }
+    }
+
+    const cc = (await sql`SELECT COUNT(*)::int AS n FROM coupons`) as {
+      n: number;
+    }[];
+    if ((cc[0]?.n ?? 0) === 0) {
+      for (const c of COUPONS) {
+        await sql`
+          INSERT INTO coupons (code, restaurant_id, type, value, min_subtotal, label)
+          VALUES (${c.code}, ${c.restaurantId}, ${c.type}, ${c.value},
+            ${c.minSubtotal}, ${c.label})
+          ON CONFLICT (code) DO NOTHING`;
+      }
+    }
+
+    const zc = (await sql`SELECT COUNT(*)::int AS n FROM delivery_zones`) as {
+      n: number;
+    }[];
+    if ((zc[0]?.n ?? 0) === 0) {
+      for (const r of RESTAURANTS) {
+        let zi = 0;
+        for (const z of r.deliveryZones) {
+          await sql`
+            INSERT INTO delivery_zones (id, restaurant_id, name, minimum_order,
+              delivery_fee, estimated_minutes, areas, sort)
+            VALUES (${z.id}, ${r.id}, ${z.name}, 0, ${z.deliveryFee},
+              ${z.estimatedMinutes}, ${JSON.stringify(z.areas)}, ${zi++})
+            ON CONFLICT (id) DO NOTHING`;
+        }
+      }
+    }
+  })().catch((e) => {
+    // allow a later retry if bootstrap failed
+    seedPromise = null;
+    throw e;
+  });
+  return seedPromise;
+}
+
+interface ProductRow {
+  id: string;
+  restaurant_id: string;
+  category: string;
+  name: string;
+  description: string;
+  image: string;
+  base_price: string;
+  sizes: ProductSize[];
+  ingredients: string[];
+  allergens: string[];
+  badges: Badge[];
+  available: boolean;
+}
+
+function rowToProduct(r: ProductRow): Product {
   return {
-    ...line,
-    name: product.name,
-    image: product.image,
-    sizeLabel: size.label,
-    unitPrice: round2(unit),
-    quantity: Math.min(50, Math.max(1, Math.floor(line.quantity))),
+    id: r.id,
+    restaurantId: r.restaurant_id,
+    category: r.category as CategoryId,
+    name: r.name,
+    description: r.description,
+    image: r.image,
+    basePrice: Number(r.base_price),
+    sizes: Array.isArray(r.sizes) ? r.sizes : [],
+    ingredients: Array.isArray(r.ingredients) ? r.ingredients : [],
+    allergens: Array.isArray(r.allergens) ? r.allergens : [],
+    badges: Array.isArray(r.badges) ? r.badges : [],
+    available: r.available,
   };
+}
+
+interface ZoneRow {
+  id: string;
+  restaurant_id: string;
+  name: string;
+  minimum_order: string;
+  delivery_fee: string;
+  estimated_minutes: number;
+  areas: string[];
+}
+
+function rowToZone(z: ZoneRow): DeliveryZone {
+  return {
+    id: z.id,
+    name: z.name,
+    minimumOrder: Number(z.minimum_order),
+    deliveryFee: Number(z.delivery_fee),
+    estimatedMinutes: z.estimated_minutes,
+    areas: Array.isArray(z.areas) ? z.areas : [],
+  };
+}
+
+interface CouponRow {
+  code: string;
+  restaurant_id: string;
+  type: string;
+  value: string;
+  min_subtotal: string;
+  label: string;
+}
+
+function rowToCoupon(c: CouponRow): Coupon {
+  return {
+    code: c.code,
+    restaurantId: c.restaurant_id as Coupon["restaurantId"],
+    type: c.type as Coupon["type"],
+    value: Number(c.value),
+    minSubtotal: Number(c.min_subtotal),
+    label: c.label,
+  };
+}
+
+async function loadProducts(): Promise<Product[]> {
+  const rows = (await sql`
+    SELECT id, restaurant_id, category, name, description, image, base_price,
+           sizes, ingredients, allergens, badges, available
+    FROM products ORDER BY restaurant_id, sort`) as ProductRow[];
+  return rows.map(rowToProduct);
+}
+
+// -------- Public storefront snapshot (menu, zones, coupons) --------
+export interface Storefront {
+  products: Product[];
+  coupons: Coupon[];
+  zones: Record<string, DeliveryZone[]>;
+}
+
+export async function getStorefront(): Promise<Storefront> {
+  try {
+    await ensureContent();
+    const products = await loadProducts();
+    const couponRows = (await sql`
+      SELECT code, restaurant_id, type, value, min_subtotal, label
+      FROM coupons WHERE active = true`) as CouponRow[];
+    const zoneRows = (await sql`
+      SELECT id, restaurant_id, name, minimum_order, delivery_fee,
+             estimated_minutes, areas
+      FROM delivery_zones ORDER BY restaurant_id, sort`) as ZoneRow[];
+    const zones: Record<string, DeliveryZone[]> = {};
+    for (const z of zoneRows) {
+      (zones[z.restaurant_id] ??= []).push(rowToZone(z));
+    }
+    return {
+      products: products.length ? products : PRODUCTS,
+      coupons: couponRows.map(rowToCoupon),
+      zones,
+    };
+  } catch {
+    // Fall back to the static seed so the storefront always renders.
+    const zones: Record<string, DeliveryZone[]> = {};
+    for (const r of RESTAURANTS) zones[r.id] = r.deliveryZones;
+    return { products: PRODUCTS, coupons: COUPONS, zones };
+  }
+}
+
+function matchZone(zones: DeliveryZone[], query: string): DeliveryZone | null {
+  const norm = (s: string) =>
+    s.trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  const q = norm(query);
+  if (!q) return null;
+  for (const zone of zones) {
+    for (const area of zone.areas) {
+      const a = norm(area);
+      if (a && (q.includes(a) || a.includes(q))) return zone;
+    }
+  }
+  return null;
 }
 
 // -------- Registration (also used by the register form action) --------
@@ -99,15 +322,43 @@ export interface CreateOrderResult {
   eta?: number;
 }
 
+// Re-price a cart line from the DATABASE menu — the client's unitPrice is
+// discarded. Returns null for an unknown / unavailable product.
+function repriceLine(
+  line: CartLine,
+  products: Product[],
+  restaurantId: string
+): CartLine | null {
+  const product = products.find(
+    (p) => p.id === line.productId && p.restaurantId === restaurantId
+  );
+  if (!product || !product.available) return null;
+  const size =
+    product.sizes.find((s) => s.id === line.sizeId) ?? product.sizes[0];
+  let unit = product.basePrice + (size?.priceDelta ?? 0);
+  if (line.extraCheese) unit += EXTRA_CHEESE_PRICE;
+  if (line.stuffedCrust) unit += STUFFED_CRUST_PRICE;
+  for (const name of line.addedIngredients) {
+    const ing = EXTRA_INGREDIENTS.find((i) => i.name === name);
+    if (ing) unit += ing.price;
+  }
+  return {
+    ...line,
+    name: product.name,
+    image: product.image,
+    sizeLabel: size?.label ?? line.sizeLabel,
+    unitPrice: round2(unit),
+    quantity: Math.min(50, Math.max(1, Math.floor(line.quantity))),
+  };
+}
+
 export async function createOrder(
   input: NewOrderInput
 ): Promise<CreateOrderResult> {
-  // 1) validate shape
   const parsed = orderInputSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: firstError(parsed.error) };
   const data = parsed.data;
 
-  // 2) rate limit
   const ip = await clientIp();
   const rl = await rateLimit("order", ip, 12, 10 * 60);
   if (!rl.allowed)
@@ -117,53 +368,67 @@ export async function createOrder(
   if (!restaurant) return { ok: false, error: "Neznáma prevádzka." };
 
   try {
-    // 3) sold-out (authoritative, from DB)
+    await ensureContent();
+
+    // sold-out (authoritative, from DB)
     const state = (await sql`
       SELECT sold_out FROM restaurant_state WHERE id = ${data.restaurantId} LIMIT 1
     `) as { sold_out: boolean }[];
     if (state[0]?.sold_out)
       return { ok: false, error: "Prevádzka je momentálne vypredaná." };
 
-    // 4) re-price every line from the menu (ignore client prices)
+    const products = await loadProducts();
+    const pizza = pizzaIds(products.length ? products : PRODUCTS);
+
+    // re-price every line from the menu (ignore client prices)
     const lines: CartLine[] = [];
     for (const l of data.lines) {
-      const priced = repriceLine(l as CartLine, data.restaurantId);
+      const priced = repriceLine(
+        l as CartLine,
+        products.length ? products : PRODUCTS,
+        data.restaurantId
+      );
       if (!priced)
         return { ok: false, error: "Niektorý produkt už nie je dostupný." };
       lines.push(priced);
     }
 
-    // 5) resolve delivery zone + fee server-side
+    // resolve delivery zone + fee server-side (from DB zones)
     let zone: DeliveryZone | null = null;
     if (data.fulfillment === "delivery") {
       if (!data.address)
         return { ok: false, error: "Chýba adresa doručenia." };
-      zone = findZone(
-        restaurant,
-        `${data.address.street} ${data.address.city}`
-      ).zone;
+      const restaurantZones = (await sql`
+        SELECT id, restaurant_id, name, minimum_order, delivery_fee,
+               estimated_minutes, areas
+        FROM delivery_zones WHERE restaurant_id = ${data.restaurantId}
+        ORDER BY sort`) as ZoneRow[];
+      const usable = restaurantZones.length
+        ? restaurantZones.map(rowToZone)
+        : restaurant.deliveryZones;
+      zone = matchZone(usable, `${data.address.street} ${data.address.city}`);
       if (!zone)
         return { ok: false, error: "Na túto adresu nedoručujeme." };
     }
 
-    // 6) authoritative totals (server-computed discounts/fees/total)
+    // coupons from DB
+    const couponRows = (await sql`
+      SELECT code, restaurant_id, type, value, min_subtotal, label
+      FROM coupons WHERE active = true`) as CouponRow[];
+    const coupons = couponRows.length
+      ? couponRows.map(rowToCoupon)
+      : COUPONS;
+
     const totals = computeTotals(
       lines,
       data.restaurantId,
       zone,
       data.fulfillment,
-      data.couponCode ?? null
+      data.couponCode ?? null,
+      coupons
     );
 
-    // 7) enforce delivery minimum
-    if (zone && totals.subtotal < zone.minimumOrder) {
-      return {
-        ok: false,
-        error: `Minimálna objednávka pre rozvoz je ${zone.minimumOrder} €.`,
-      };
-    }
-
-    // 8) ETA from current kitchen load
+    // ETA from current kitchen load
     const pending = (await sql`
       SELECT COALESCE(SUM(pizza_count),0)::int AS p FROM orders
       WHERE restaurant_id = ${data.restaurantId}
@@ -171,7 +436,7 @@ export async function createOrder(
     `) as { p: number }[];
     const wait = estimatedWait(
       restaurant.prepTimeMinutes,
-      (pending[0]?.p ?? 0) + pizzaCount(lines)
+      (pending[0]?.p ?? 0) + pizzaCount(lines, pizza)
     );
     const eta = zone ? Math.max(zone.estimatedMinutes, wait) : wait;
 
@@ -185,7 +450,8 @@ export async function createOrder(
         ${id}, ${data.restaurantId}, 'received', ${data.fulfillment},
         ${data.customerName}, ${data.phone}, ${data.email || null},
         ${data.address ? JSON.stringify(data.address) : null},
-        ${zone?.name ?? null}, ${JSON.stringify(lines)}, ${pizzaCount(lines)},
+        ${zone?.name ?? null}, ${JSON.stringify(lines)},
+        ${pizzaCount(lines, pizza)},
         ${totals.subtotal}, ${totals.deliveryFee}, ${totals.discount},
         ${totals.total},
         ${data.fulfillment === "delivery" ? "Platba pri doručení" : "Platba pri odbere"},
@@ -233,7 +499,6 @@ async function requireAdmin(restaurantId: string) {
     throw new Error("Unauthorized");
   if (session.user.restaurantId !== restaurantId)
     throw new Error("Forbidden");
-  // enforce "logout from all devices" revocation
   const current = await getSessionVersion(session.user.id);
   if (current !== null && current !== session.user.sessionVersion)
     throw new Error("Session revoked");
@@ -259,8 +524,12 @@ export interface AdminSummary {
   soldToday: number;
   ordersToday: number;
   revenueToday: number;
+  week: { label: string; value: number }[];
+  topProducts: { name: string; value: number }[];
   orders: AdminOrderRow[];
 }
+
+const DAY_LABELS = ["Ne", "Po", "Ut", "St", "Št", "Pi", "So"];
 
 export async function getAdminSummary(
   restaurantId: string
@@ -294,6 +563,36 @@ export async function getAdminSummary(
     [restaurantId]
   )) as { pizzas: number; cnt: number; revenue: number }[];
 
+  // real 7-day revenue (for the dashboard bar chart)
+  const weekRows = (await sql`
+    SELECT EXTRACT(DOW FROM (created_at AT TIME ZONE 'Europe/Bratislava'))::int AS dow,
+           (date_trunc('day', (created_at AT TIME ZONE 'Europe/Bratislava')))::date AS d,
+           COALESCE(SUM(total),0)::float AS revenue
+    FROM orders
+    WHERE restaurant_id = ${restaurantId} AND status <> 'cancelled'
+      AND created_at >= now() - interval '7 days'
+    GROUP BY 1, 2
+  `) as { dow: number; d: string; revenue: number }[];
+  const revByDate = new Map(weekRows.map((r) => [r.d, r.revenue]));
+  const week: { label: string; value: number }[] = [];
+  for (let i = 6; i >= 0; i--) {
+    const dt = new Date();
+    dt.setDate(dt.getDate() - i);
+    const key = dt.toISOString().slice(0, 10);
+    week.push({
+      label: DAY_LABELS[dt.getDay()],
+      value: Math.round(revByDate.get(key) ?? 0),
+    });
+  }
+
+  // real top products (by quantity across all non-cancelled orders)
+  const topRows = (await sql`
+    SELECT l->>'name' AS name, SUM((l->>'quantity')::int)::int AS qty
+    FROM orders, jsonb_array_elements(lines) AS l
+    WHERE restaurant_id = ${restaurantId} AND status <> 'cancelled'
+    GROUP BY 1 ORDER BY qty DESC LIMIT 5
+  `) as { name: string; qty: number }[];
+
   const orderRows = (await sql`
     SELECT id, status, fulfillment, customer_name, total::float AS total,
            pizza_count, lines,
@@ -301,7 +600,7 @@ export async function getAdminSummary(
     FROM orders
     WHERE restaurant_id = ${restaurantId}
     ORDER BY created_at DESC
-    LIMIT 30
+    LIMIT 40
   `) as Array<{
     id: string;
     status: string;
@@ -326,6 +625,8 @@ export async function getAdminSummary(
     soldToday: today[0]?.pizzas ?? 0,
     ordersToday: today[0]?.cnt ?? 0,
     revenueToday: Math.round((today[0]?.revenue ?? 0) * 100) / 100,
+    week,
+    topProducts: topRows.map((t) => ({ name: t.name, value: t.qty })),
     orders: orderRows.map((o) => ({
       id: o.id,
       status: o.status,
@@ -336,6 +637,85 @@ export async function getAdminSummary(
       minsAgo: Math.max(0, Math.round(o.mins_ago)),
       lines: Array.isArray(o.lines) ? o.lines : [],
     })),
+  };
+}
+
+// -------- Order detail (full) --------
+export interface OrderDetail {
+  id: string;
+  status: string;
+  fulfillment: string;
+  customerName: string;
+  phone: string;
+  email: string | null;
+  address: {
+    street: string;
+    houseNumber: string;
+    city: string;
+    zip: string;
+  } | null;
+  zoneName: string | null;
+  lines: CartLine[];
+  subtotal: number;
+  deliveryFee: number;
+  discount: number;
+  total: number;
+  payment: string;
+  note: string | null;
+  eta: number;
+  createdAt: string;
+}
+
+export async function getOrderDetail(
+  restaurantId: string,
+  id: string
+): Promise<OrderDetail | null> {
+  await requireAdmin(restaurantId);
+  const rows = (await sql`
+    SELECT id, status, fulfillment, customer_name, phone, email, address,
+           zone_name, lines, subtotal::float AS subtotal,
+           delivery_fee::float AS delivery_fee, discount::float AS discount,
+           total::float AS total, payment, note, eta, created_at
+    FROM orders WHERE id = ${id} AND restaurant_id = ${restaurantId} LIMIT 1
+  `) as Array<{
+    id: string;
+    status: string;
+    fulfillment: string;
+    customer_name: string;
+    phone: string;
+    email: string | null;
+    address: OrderDetail["address"];
+    zone_name: string | null;
+    lines: CartLine[];
+    subtotal: number;
+    delivery_fee: number;
+    discount: number;
+    total: number;
+    payment: string;
+    note: string | null;
+    eta: number;
+    created_at: string;
+  }>;
+  const o = rows[0];
+  if (!o) return null;
+  return {
+    id: o.id,
+    status: o.status,
+    fulfillment: o.fulfillment,
+    customerName: o.customer_name,
+    phone: o.phone,
+    email: o.email,
+    address: o.address ?? null,
+    zoneName: o.zone_name,
+    lines: Array.isArray(o.lines) ? o.lines : [],
+    subtotal: o.subtotal,
+    deliveryFee: o.delivery_fee,
+    discount: o.discount,
+    total: o.total,
+    payment: o.payment,
+    note: o.note,
+    eta: o.eta,
+    createdAt: o.created_at,
   };
 }
 
@@ -384,6 +764,230 @@ export async function setOrderStatus(
     restaurantId,
     target: id,
     meta: { status },
+  });
+  return { ok: true };
+}
+
+// ===========================================================================
+// Admin content management (products / coupons / zones) — persisted to DB
+// ===========================================================================
+
+// -------- Products --------
+export async function adminGetProducts(
+  restaurantId: string
+): Promise<Product[]> {
+  await requireAdmin(restaurantId);
+  await ensureContent();
+  const rows = (await sql`
+    SELECT id, restaurant_id, category, name, description, image, base_price,
+           sizes, ingredients, allergens, badges, available
+    FROM products WHERE restaurant_id = ${restaurantId} ORDER BY sort, name
+  `) as ProductRow[];
+  return rows.map(rowToProduct);
+}
+
+export interface ProductInput {
+  id?: string;
+  category: CategoryId;
+  name: string;
+  description: string;
+  image: string;
+  basePrice: number;
+  weight: string;
+  ingredients: string[];
+  allergens: string[];
+  badges: Badge[];
+  available: boolean;
+}
+
+export async function saveProduct(
+  restaurantId: string,
+  input: ProductInput
+): Promise<{ ok: boolean; id?: string; error?: string }> {
+  const session = await requireAdmin(restaurantId);
+  await ensureContent();
+  const name = input.name.trim();
+  if (!name) return { ok: false, error: "Zadajte názov produktu." };
+  const price = Math.max(0, round2(Number(input.basePrice) || 0));
+  const sizes: ProductSize[] = [
+    { id: "std", label: input.weight.trim() || "1 ks", priceDelta: 0 },
+  ];
+  const id = input.id ?? `${restaurantId}-${shortId().toLowerCase()}`;
+
+  await sql`
+    INSERT INTO products (id, restaurant_id, category, name, description, image,
+      base_price, sizes, ingredients, allergens, badges, available, updated_at)
+    VALUES (${id}, ${restaurantId}, ${input.category}, ${name},
+      ${input.description}, ${input.image}, ${price},
+      ${JSON.stringify(sizes)}, ${JSON.stringify(input.ingredients)},
+      ${JSON.stringify(input.allergens)}, ${JSON.stringify(input.badges)},
+      ${input.available}, now())
+    ON CONFLICT (id) DO UPDATE SET
+      category = EXCLUDED.category, name = EXCLUDED.name,
+      description = EXCLUDED.description, image = EXCLUDED.image,
+      base_price = EXCLUDED.base_price, sizes = EXCLUDED.sizes,
+      ingredients = EXCLUDED.ingredients, allergens = EXCLUDED.allergens,
+      badges = EXCLUDED.badges, available = EXCLUDED.available,
+      updated_at = now()
+  `;
+  await audit({
+    action: "product.saved",
+    actorId: session.user.id,
+    actorEmail: session.user.email,
+    restaurantId,
+    target: id,
+  });
+  return { ok: true, id };
+}
+
+export async function setProductAvailable(
+  restaurantId: string,
+  id: string,
+  available: boolean
+): Promise<{ ok: boolean }> {
+  await requireAdmin(restaurantId);
+  await sql`
+    UPDATE products SET available = ${available}, updated_at = now()
+    WHERE id = ${id} AND restaurant_id = ${restaurantId}
+  `;
+  return { ok: true };
+}
+
+export async function deleteProduct(
+  restaurantId: string,
+  id: string
+): Promise<{ ok: boolean }> {
+  const session = await requireAdmin(restaurantId);
+  await sql`DELETE FROM products WHERE id = ${id} AND restaurant_id = ${restaurantId}`;
+  await audit({
+    action: "product.deleted",
+    actorId: session.user.id,
+    actorEmail: session.user.email,
+    restaurantId,
+    target: id,
+  });
+  return { ok: true };
+}
+
+// -------- Coupons --------
+export async function adminGetCoupons(
+  restaurantId: string
+): Promise<Coupon[]> {
+  await requireAdmin(restaurantId);
+  await ensureContent();
+  const rows = (await sql`
+    SELECT code, restaurant_id, type, value, min_subtotal, label
+    FROM coupons WHERE restaurant_id IN ('all', ${restaurantId})
+    ORDER BY created_at DESC
+  `) as CouponRow[];
+  return rows.map(rowToCoupon);
+}
+
+export async function createCoupon(
+  restaurantId: string,
+  input: {
+    code: string;
+    type: "percentage" | "fixed" | "free_delivery";
+    value: number;
+    minSubtotal: number;
+    label: string;
+    forAll: boolean;
+  }
+): Promise<{ ok: boolean; error?: string }> {
+  const session = await requireAdmin(restaurantId);
+  await ensureContent();
+  const code = input.code.trim().toUpperCase().replace(/\s+/g, "");
+  if (!/^[A-Z0-9]{3,40}$/.test(code))
+    return { ok: false, error: "Kód: 3–40 znakov (písmená/čísla)." };
+  const existing = (await sql`SELECT 1 FROM coupons WHERE code = ${code} LIMIT 1`) as unknown[];
+  if (existing.length) return { ok: false, error: "Kupón s týmto kódom už existuje." };
+  const owner = input.forAll ? "all" : restaurantId;
+  await sql`
+    INSERT INTO coupons (code, restaurant_id, type, value, min_subtotal, label)
+    VALUES (${code}, ${owner}, ${input.type}, ${Math.max(0, input.value)},
+      ${Math.max(0, input.minSubtotal)}, ${input.label.trim() || code})
+  `;
+  await audit({
+    action: "coupon.created",
+    actorId: session.user.id,
+    actorEmail: session.user.email,
+    restaurantId,
+    target: code,
+  });
+  return { ok: true };
+}
+
+export async function deleteCoupon(
+  restaurantId: string,
+  code: string
+): Promise<{ ok: boolean }> {
+  const session = await requireAdmin(restaurantId);
+  // an admin may only delete their own or global coupons
+  await sql`
+    DELETE FROM coupons
+    WHERE code = ${code} AND restaurant_id IN ('all', ${restaurantId})
+  `;
+  await audit({
+    action: "coupon.deleted",
+    actorId: session.user.id,
+    actorEmail: session.user.email,
+    restaurantId,
+    target: code,
+  });
+  return { ok: true };
+}
+
+// -------- Delivery zones --------
+export async function adminGetZones(
+  restaurantId: string
+): Promise<DeliveryZone[]> {
+  await requireAdmin(restaurantId);
+  await ensureContent();
+  const rows = (await sql`
+    SELECT id, restaurant_id, name, minimum_order, delivery_fee,
+           estimated_minutes, areas
+    FROM delivery_zones WHERE restaurant_id = ${restaurantId} ORDER BY sort
+  `) as ZoneRow[];
+  return rows.map(rowToZone);
+}
+
+export async function saveZones(
+  restaurantId: string,
+  zones: DeliveryZone[]
+): Promise<{ ok: boolean }> {
+  const session = await requireAdmin(restaurantId);
+  await ensureContent();
+  const ids = zones.map((z) => z.id);
+  // remove zones that were deleted in the UI
+  if (ids.length) {
+    await sql.query(
+      `DELETE FROM delivery_zones WHERE restaurant_id = $1 AND NOT (id = ANY($2::text[]))`,
+      [restaurantId, ids]
+    );
+  } else {
+    await sql`DELETE FROM delivery_zones WHERE restaurant_id = ${restaurantId}`;
+  }
+  let i = 0;
+  for (const z of zones) {
+    await sql`
+      INSERT INTO delivery_zones (id, restaurant_id, name, minimum_order,
+        delivery_fee, estimated_minutes, areas, sort)
+      VALUES (${z.id}, ${restaurantId}, ${z.name}, ${Math.max(0, z.minimumOrder)},
+        ${Math.max(0, z.deliveryFee)}, ${Math.max(5, z.estimatedMinutes)},
+        ${JSON.stringify(z.areas)}, ${i++})
+      ON CONFLICT (id) DO UPDATE SET
+        name = EXCLUDED.name, minimum_order = EXCLUDED.minimum_order,
+        delivery_fee = EXCLUDED.delivery_fee,
+        estimated_minutes = EXCLUDED.estimated_minutes,
+        areas = EXCLUDED.areas, sort = EXCLUDED.sort
+    `;
+  }
+  await audit({
+    action: "zones.saved",
+    actorId: session.user.id,
+    actorEmail: session.user.email,
+    restaurantId,
+    meta: { count: zones.length },
   });
   return { ok: true };
 }

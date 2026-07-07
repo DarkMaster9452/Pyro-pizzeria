@@ -77,7 +77,7 @@ export const RESTAURANTS: Restaurant[] = [
       {
         id: "pyro-a",
         name: "Kamenná Poruba a okolie",
-        minimumOrder: 10,
+        minimumOrder: 0,
         deliveryFee: 0,
         estimatedMinutes: 45,
         areas: ["Kamenná Poruba", "Poluvsie", "Hlavná", "Školská", "Záhradná"],
@@ -85,7 +85,7 @@ export const RESTAURANTS: Restaurant[] = [
       {
         id: "pyro-rajec",
         name: "Rajec a okolie",
-        minimumOrder: 15,
+        minimumOrder: 0,
         deliveryFee: 0,
         estimatedMinutes: 45,
         areas: [
@@ -141,7 +141,7 @@ export const RESTAURANTS: Restaurant[] = [
       {
         id: "polo-a",
         name: "Stráňavy a okolie",
-        minimumOrder: 10,
+        minimumOrder: 0,
         deliveryFee: 0,
         estimatedMinutes: 40,
         areas: ["Stráňavy", "Nová", "Pri Potoku", "Fatranská"],
@@ -149,7 +149,7 @@ export const RESTAURANTS: Restaurant[] = [
       {
         id: "polo-b",
         name: "Strečno · Varín · okolie",
-        minimumOrder: 15,
+        minimumOrder: 0,
         deliveryFee: 0,
         estimatedMinutes: 50,
         areas: [

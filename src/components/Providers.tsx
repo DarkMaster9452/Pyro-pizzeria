@@ -17,22 +17,31 @@ export function Providers({ children }: { children: React.ReactNode }) {
   const isAdmin = pathname?.startsWith("/admin");
 
   const setSoldOut = useApp((s) => s.setSoldOut);
+  const setStorefront = useApp((s) => s.setStorefront);
 
   useEffect(() => setMounted(true), []);
 
-  // Hydrate sold-out state from the database (set by admins) on load.
+  // Hydrate sold-out state + live menu/coupons/zones from the database
+  // (edited by admins) on load, so the storefront reflects real data.
   useEffect(() => {
     let active = true;
-    import("@/lib/server-actions").then(({ getRestaurantStates }) =>
-      getRestaurantStates().then((states) => {
-        if (!active) return;
-        for (const [id, value] of Object.entries(states)) setSoldOut(id, value);
-      })
+    import("@/lib/server-actions").then(
+      ({ getRestaurantStates, getStorefront }) => {
+        getRestaurantStates().then((states) => {
+          if (!active) return;
+          for (const [id, value] of Object.entries(states))
+            setSoldOut(id, value);
+        });
+        getStorefront().then((data) => {
+          if (!active) return;
+          setStorefront(data);
+        });
+      }
     );
     return () => {
       active = false;
     };
-  }, [setSoldOut]);
+  }, [setSoldOut, setStorefront]);
 
   // The public site is always dark. Light/dark mode only applies inside the
   // admin panel, where it follows the theme toggle.

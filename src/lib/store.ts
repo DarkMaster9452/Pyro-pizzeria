@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { CartLine, Order } from "./types";
+import type { CartLine, Order, Product, Coupon, DeliveryZone } from "./types";
 
 interface AppState {
   // restaurant selection
@@ -41,6 +41,17 @@ interface AppState {
   setSoldOut: (restaurantId: string, value: boolean) => void;
   kitchenQueue: Record<string, number>; // pizzas currently in the queue
   setKitchenQueue: (restaurantId: string, count: number) => void;
+
+  // live storefront snapshot loaded from the database (menu/coupons/zones).
+  // Not persisted — refreshed on every load so admin edits show up.
+  dbProducts: Product[] | null;
+  dbCoupons: Coupon[] | null;
+  dbZones: Record<string, DeliveryZone[]> | null;
+  setStorefront: (data: {
+    products: Product[];
+    coupons: Coupon[];
+    zones: Record<string, DeliveryZone[]>;
+  }) => void;
 }
 
 export const useApp = create<AppState>()(
@@ -95,7 +106,23 @@ export const useApp = create<AppState>()(
         set((s) => ({
           kitchenQueue: { ...s.kitchenQueue, [restaurantId]: Math.max(0, count) },
         })),
+
+      dbProducts: null,
+      dbCoupons: null,
+      dbZones: null,
+      setStorefront: ({ products, coupons, zones }) =>
+        set({ dbProducts: products, dbCoupons: coupons, dbZones: zones }),
     }),
-    { name: "pyro-platform" }
+    {
+      name: "pyro-platform",
+      // Never persist the live storefront snapshot — it is refetched on load.
+      partialize: (s) => {
+        const { dbProducts, dbCoupons, dbZones, ...rest } = s;
+        void dbProducts;
+        void dbCoupons;
+        void dbZones;
+        return rest;
+      },
+    }
   )
 );

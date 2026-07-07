@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useApp } from "@/lib/store";
-import { RESTAURANTS } from "@/lib/data";
-import { computeTotals, subtotal } from "@/lib/pricing";
+import { RESTAURANTS, COUPONS } from "@/lib/data";
+import { computeTotals } from "@/lib/pricing";
 import { createOrder } from "@/lib/server-actions";
 import { eur, shortId, cn, estimatedWait } from "@/lib/utils";
 import {
@@ -44,6 +44,8 @@ export default function CheckoutPage() {
   const clearCart = useApp((s) => s.clearCart);
   const soldOut = useApp((s) => (restaurantId ? s.soldOut[restaurantId] ?? false : false));
   const queue = useApp((s) => (restaurantId ? s.kitchenQueue[restaurantId] ?? 0 : 0));
+  const dbCoupons = useApp((s) => s.dbCoupons);
+  const dbZones = useApp((s) => s.dbZones);
 
   const r = RESTAURANTS.find((x) => x.id === restaurantId);
   const [fulfillment, setFulfillment] = useState<FulfillmentType>("delivery");
@@ -58,13 +60,18 @@ export default function CheckoutPage() {
 
   if (!r) return null;
 
-  const sub = subtotal(cart);
   const zone = fulfillment === "delivery" ? verify?.zone ?? null : null;
-  const totals = computeTotals(cart, restaurantId, zone, fulfillment, coupon);
+  const totals = computeTotals(
+    cart,
+    restaurantId,
+    zone,
+    fulfillment,
+    coupon,
+    dbCoupons ?? COUPONS
+  );
 
-  const deliveryOk =
-    fulfillment === "pickup" ||
-    (verify?.zone != null && sub >= verify.zone.minimumOrder);
+  // No minimum order — delivery only needs a valid (in-range) address.
+  const deliveryOk = fulfillment === "pickup" || verify?.zone != null;
   const detailsOk = name.trim() && phone.trim();
   const canOrder = cart.length > 0 && deliveryOk && detailsOk && !soldOut;
 
@@ -190,7 +197,7 @@ export default function CheckoutPage() {
             <Panel title="Adresa doručenia">
               <AddressVerification
                 restaurant={r}
-                subtotal={sub}
+                zones={dbZones?.[r.id]}
                 onResult={setVerify}
               />
             </Panel>
@@ -317,7 +324,7 @@ export default function CheckoutPage() {
             )}
             {fulfillment === "delivery" && !deliveryOk && (
               <p className="mt-3 text-xs text-brand-error">
-                Overte adresu a splňte minimálnu objednávku.
+                Zadajte a overte adresu doručenia.
               </p>
             )}
 

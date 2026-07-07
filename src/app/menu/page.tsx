@@ -20,6 +20,7 @@ const FILTERS: { id: Badge; label: string }[] = [
 function MenuInner() {
   const params = useSearchParams();
   const restaurantId = useApp((s) => s.restaurantId);
+  const dbProducts = useApp((s) => s.dbProducts);
   const initialCat = (params.get("cat") as CategoryId) || "pizza";
   const [activeCat, setActiveCat] = useState<CategoryId>(initialCat);
   const [query, setQuery] = useState("");
@@ -28,8 +29,9 @@ function MenuInner() {
     "default"
   );
 
+  const source = dbProducts ?? PRODUCTS;
   const products = useMemo(() => {
-    let list = PRODUCTS.filter(
+    let list = source.filter(
       (p) => p.restaurantId === restaurantId && p.category === activeCat
     );
     if (query) {
@@ -46,7 +48,7 @@ function MenuInner() {
     if (sort === "price-asc") list = [...list].sort((a, b) => a.basePrice - b.basePrice);
     if (sort === "price-desc") list = [...list].sort((a, b) => b.basePrice - a.basePrice);
     return list;
-  }, [restaurantId, activeCat, query, filters, sort]);
+  }, [source, restaurantId, activeCat, query, filters, sort]);
 
   if (!restaurantId) return null;
 

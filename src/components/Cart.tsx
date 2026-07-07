@@ -32,14 +32,14 @@ export function Cart() {
   const [couponError, setCouponError] = useState("");
 
   const soldOut = useApp((s) => (restaurantId ? s.soldOut[restaurantId] : false));
+  const dbCoupons = useApp((s) => s.dbCoupons);
   const restaurant = RESTAURANTS.find((r) => r.id === restaurantId);
-  const totals = computeTotals(cart, restaurantId, null, "pickup", coupon);
+  const coupons = dbCoupons ?? COUPONS;
+  const totals = computeTotals(cart, restaurantId, null, "pickup", coupon, coupons);
   const sub = subtotal(cart);
-  const minOrder = restaurant?.deliveryZones[0]?.minimumOrder ?? 10;
-  const belowMin = sub < minOrder;
 
   function applyCoupon() {
-    const c = COUPONS.find(
+    const c = coupons.find(
       (x) =>
         x.code.toUpperCase() === code.toUpperCase() &&
         (x.restaurantId === "all" || x.restaurantId === restaurantId)
@@ -206,6 +206,11 @@ export function Cart() {
                               value={code}
                               onChange={(e) => setCode(e.target.value)}
                               placeholder="Zľavový kód"
+                              name="pyro-coupon"
+                              autoComplete="off"
+                              autoCorrect="off"
+                              autoCapitalize="characters"
+                              spellCheck={false}
                               className="w-full bg-transparent py-2 text-sm outline-none"
                             />
                           </div>
@@ -221,9 +226,6 @@ export function Cart() {
                             {couponError}
                           </p>
                         )}
-                        <p className="mt-1 text-xs text-neutral-400">
-                          Skúste: PYRO10, FREEDELIVERY, HAPPY5
-                        </p>
                       </div>
                     )}
                   </div>
@@ -235,13 +237,6 @@ export function Cart() {
                     <Clock className="h-4 w-4" />
                     Odhadovaná príprava ~{restaurant?.prepTimeMinutes ?? 25} min
                   </div>
-
-                  {belowMin && (
-                    <div className="rounded-xl bg-brand-accent/15 px-3 py-2 text-sm font-medium text-amber-700 dark:text-brand-accent">
-                      Do minimálnej objednávky ({eur(minOrder)}) vám chýba{" "}
-                      {eur(minOrder - sub)}.
-                    </div>
-                  )}
 
                   <div className="space-y-1 text-sm">
                     <div className="flex justify-between text-neutral-500">

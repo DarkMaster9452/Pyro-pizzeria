@@ -13,9 +13,12 @@ import { Truck, MapPin } from "lucide-react";
 
 export default function DeliveryPage() {
   const restaurantId = useApp((s) => s.restaurantId);
+  const dbZones = useApp((s) => s.dbZones);
   const r = RESTAURANTS.find((x) => x.id === restaurantId);
   const [, setResult] = useState<VerifyResult | null>(null);
   if (!r) return null;
+
+  const zones = dbZones?.[r.id] ?? r.deliveryZones;
 
   return (
     <main className="section py-10">
@@ -33,7 +36,7 @@ export default function DeliveryPage() {
 
       <div className="grid gap-8 lg:grid-cols-[1fr_400px]">
         <div className="space-y-4">
-          {r.deliveryZones.map((z, i) => (
+          {zones.map((z, i) => (
             <div
               key={z.id}
               className="flex items-center gap-4 rounded-2xl bg-white p-5 shadow-card dark:bg-[#1e1e1e]"
@@ -48,8 +51,7 @@ export default function DeliveryPage() {
                 </p>
               </div>
               <div className="text-right text-sm">
-                <p className="font-semibold">min. {eur(z.minimumOrder)}</p>
-                <p className="text-neutral-500">
+                <p className="font-semibold">
                   {z.deliveryFee === 0 ? "doprava zdarma" : `doprava ${eur(z.deliveryFee)}`}
                 </p>
                 <p className="text-neutral-400">~{z.estimatedMinutes} min</p>
@@ -69,7 +71,7 @@ export default function DeliveryPage() {
             <h2 className="mb-4 font-display text-lg font-bold">
               Overte svoju adresu
             </h2>
-            <AddressVerification restaurant={r} subtotal={0} onResult={setResult} />
+            <AddressVerification restaurant={r} zones={zones} onResult={setResult} />
           </div>
         </div>
       </div>

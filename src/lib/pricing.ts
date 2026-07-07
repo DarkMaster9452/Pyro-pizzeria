@@ -1,4 +1,4 @@
-import type { CartLine, DeliveryZone } from "./types";
+import type { CartLine, DeliveryZone, Coupon } from "./types";
 import { COUPONS } from "./data";
 
 export function lineTotal(l: CartLine): number {
@@ -22,7 +22,8 @@ export function computeTotals(
   restaurantId: string | null,
   zone: DeliveryZone | null,
   fulfillment: "delivery" | "pickup",
-  couponCode: string | null
+  couponCode: string | null,
+  coupons: Coupon[] = COUPONS
 ): Totals {
   const sub = subtotal(cart);
   let deliveryFee =
@@ -31,7 +32,7 @@ export function computeTotals(
   let freeDelivery = false;
 
   if (couponCode) {
-    const c = COUPONS.find(
+    const c = coupons.find(
       (x) =>
         x.code.toUpperCase() === couponCode.toUpperCase() &&
         (x.restaurantId === "all" || x.restaurantId === restaurantId) &&
