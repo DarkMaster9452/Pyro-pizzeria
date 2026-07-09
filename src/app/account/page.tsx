@@ -16,6 +16,11 @@ export default async function AccountPage() {
     redirect("/admin");
   }
 
+  // Drivers ("brigádnici") have no customer account — open the driver board.
+  if (session?.user?.role === "driver") {
+    redirect("/rozvoz");
+  }
+
   if (!session?.user) {
     return (
       <main className="section flex min-h-[80vh] items-center justify-center py-16">

@@ -9,7 +9,9 @@ import {
   releaseDispatchOrder,
   markDispatchDelivering,
   markDispatchPaid,
+  getEditableOrder,
   type DispatchOrder,
+  type EditableOrder,
 } from "@/lib/server-actions";
 import { logoutAction } from "@/lib/auth-actions";
 import { StaffOrderForm } from "@/components/StaffOrderForm";
@@ -31,6 +33,7 @@ import {
   Hand,
   RotateCcw,
   RefreshCw,
+  Pencil,
   Plus,
   X,
 } from "lucide-react";
@@ -66,6 +69,8 @@ export function DriverApp({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [showNew, setShowNew] = useState(false);
+  const [editData, setEditData] = useState<EditableOrder | null>(null);
+  const [editLoading, setEditLoading] = useState(false);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const refresh = useCallback(() => {
@@ -97,6 +102,18 @@ export function DriverApp({
       refresh();
     } finally {
       setBusyId(null);
+    }
+  }
+
+  async function openEdit(id: string) {
+    setError("");
+    setEditLoading(true);
+    try {
+      const data = await getEditableOrder(id);
+      if (!data) setError("Objednávku sa nepodarilo načítať.");
+      else setEditData(data);
+    } finally {
+      setEditLoading(false);
     }
   }
 
@@ -223,6 +240,8 @@ export function DriverApp({
                   onRelease={(id) => run(id, releaseDispatchOrder)}
                   onDelivering={(id) => run(id, markDispatchDelivering)}
                   onPaid={(id) => run(id, markDispatchPaid)}
+                  onEdit={openEdit}
+                  editBusy={editLoading}
                 />
               ))}
             </Section>
@@ -243,6 +262,8 @@ export function DriverApp({
                   onRelease={(id) => run(id, releaseDispatchOrder)}
                   onDelivering={(id) => run(id, markDispatchDelivering)}
                   onPaid={(id) => run(id, markDispatchPaid)}
+                  onEdit={openEdit}
+                  editBusy={editLoading}
                 />
               ))}
             </Section>
@@ -264,6 +285,8 @@ export function DriverApp({
                     onRelease={(id) => run(id, releaseDispatchOrder)}
                     onDelivering={(id) => run(id, markDispatchDelivering)}
                     onPaid={(id) => run(id, markDispatchPaid)}
+                    onEdit={openEdit}
+                    editBusy={editLoading}
                   />
                 ))}
               </Section>
@@ -287,6 +310,8 @@ export function DriverApp({
                       onRelease={(id) => run(id, releaseDispatchOrder)}
                       onDelivering={(id) => run(id, markDispatchDelivering)}
                       onPaid={(id) => run(id, markDispatchPaid)}
+                      onEdit={openEdit}
+                      editBusy={editLoading}
                     />
                   ))}
                 </AnimatePresence>
@@ -299,6 +324,54 @@ export function DriverApp({
           Výdaj z prevádzky: {restaurantName} · {restaurantAddress}
         </p>
       </div>
+
+      {/* edit-order modal */}
+      <AnimatePresence>
+        {editData && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setEditData(null)}
+            className="fixed inset-0 z-[95] flex items-end justify-center bg-black/60 p-0 backdrop-blur-sm sm:items-center sm:p-4"
+          >
+            <motion.div
+              initial={{ y: 24, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              onClick={(e) => e.stopPropagation()}
+              className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-t-3xl bg-[#141414] p-5 sm:rounded-3xl"
+            >
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="font-heading text-lg font-extrabold">
+                  Upraviť objednávku #{editData.id}
+                </h3>
+                <button
+                  onClick={() => setEditData(null)}
+                  className="rounded-full p-2 text-white/50 hover:bg-white/10"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <StaffOrderForm
+                restaurantId={restaurantId}
+                orderId={editData.id}
+                initial={{
+                  fulfillment: editData.fulfillment,
+                  name: editData.customerName,
+                  phone: editData.phone,
+                  address: editData.address,
+                  note: editData.note,
+                  items: editData.items,
+                }}
+                onSaved={() => {
+                  setEditData(null);
+                  refresh();
+                }}
+              />
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </main>
   );
 }
@@ -340,6 +413,8 @@ function OrderCard({
   onRelease,
   onDelivering,
   onPaid,
+  onEdit,
+  editBusy,
 }: {
   o: DispatchOrder;
   userId: string;
@@ -349,6 +424,8 @@ function OrderCard({
   onRelease: (id: string) => void;
   onDelivering: (id: string) => void;
   onPaid: (id: string) => void;
+  onEdit: (id: string) => void;
+  editBusy: boolean;
 }) {
   const isMine = o.driverId === userId;
   const isOther = o.driverId != null && !isMine;
@@ -501,6 +578,16 @@ function OrderCard({
               className="inline-flex items-center gap-1.5 rounded-full border border-white/15 px-3 py-2 text-xs font-semibold text-white/60 transition-colors hover:bg-white/5 disabled:opacity-50"
             >
               <RotateCcw className="h-4 w-4" /> Uvoľniť
+            </button>
+          )}
+
+          {canAct && (
+            <button
+              disabled={editBusy}
+              onClick={() => onEdit(o.id)}
+              className="inline-flex items-center gap-1.5 rounded-full border border-white/15 px-3 py-2 text-xs font-semibold text-white/80 transition-colors hover:bg-white/5 disabled:opacity-50"
+            >
+              <Pencil className="h-4 w-4" /> Upraviť
             </button>
           )}
         </div>
