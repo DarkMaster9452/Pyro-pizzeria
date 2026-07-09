@@ -1,15 +1,24 @@
 "use client";
 
-import { Suspense, useEffect } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useApp } from "@/lib/store";
 import { RESTAURANTS } from "@/lib/data";
-import { eur } from "@/lib/utils";
+import { eur, formatAddress } from "@/lib/utils";
+import { getOrderStatus, type PublicOrderStatus } from "@/lib/server-actions";
 import type { OrderStatus } from "@/lib/types";
 import { Footer } from "@/components/Footer";
-import { Check, Clock, ChefHat, Package, Truck, Home } from "lucide-react";
+import {
+  Check,
+  Clock,
+  ChefHat,
+  Package,
+  Truck,
+  Home,
+  CheckCheck,
+} from "lucide-react";
 
 const STEPS: { id: OrderStatus; label: string; icon: React.ReactNode }[] = [
   { id: "received", label: "Prijaté", icon: <Clock className="h-5 w-5" /> },
@@ -27,9 +36,27 @@ function TrackInner() {
   const updateOrderStatus = useApp((s) => s.updateOrderStatus);
   const order = orders.find((o) => o.id === id) ?? orders[0];
 
-  // Simulate live status progression
+  // Live status from the database (authoritative — reflects the kitchen and the
+  // courier). Falls back to the local simulation if the DB is unreachable.
+  const [db, setDb] = useState<PublicOrderStatus | null>(null);
   useEffect(() => {
     if (!order) return;
+    let active = true;
+    const poll = () =>
+      getOrderStatus(order.id)
+        .then((s) => active && setDb(s))
+        .catch(() => {});
+    poll();
+    const t = setInterval(poll, 5000);
+    return () => {
+      active = false;
+      clearInterval(t);
+    };
+  }, [order?.id]);
+
+  // Local simulation — only runs while the DB has no record (e.g. demo mode).
+  useEffect(() => {
+    if (!order || db) return;
     const seq: OrderStatus[] =
       order.fulfillment === "delivery"
         ? ["received", "accepted", "preparing", "ready", "delivering", "delivered"]
@@ -40,7 +67,7 @@ function TrackInner() {
       updateOrderStatus(order.id, seq[idx + 1]);
     }, 6000);
     return () => clearTimeout(t);
-  }, [order, updateOrderStatus]);
+  }, [order, updateOrderStatus, db]);
 
   if (!order) {
     return (
@@ -58,10 +85,12 @@ function TrackInner() {
   }
 
   const r = RESTAURANTS.find((x) => x.id === order.restaurantId);
+  const status = db?.status ?? order.status;
+  const paid = db?.paid ?? false;
   const steps = STEPS.filter(
     (s) => order.fulfillment === "delivery" || s.id !== "delivering"
   );
-  const currentIdx = steps.findIndex((s) => s.id === order.status);
+  const currentIdx = steps.findIndex((s) => s.id === status);
 
   return (
     <main className="section py-10">
@@ -75,6 +104,20 @@ function TrackInner() {
               · odhad ~{order.eta} min
             </p>
           </div>
+
+          {paid && (
+            <div className="flex items-center gap-3 border-b border-black/5 bg-brand-success/10 px-6 py-4 text-brand-success dark:border-white/10">
+              <CheckCheck className="h-6 w-6 shrink-0" />
+              <div>
+                <p className="font-display font-bold">
+                  Objednávka je zaplatená a vybavená
+                </p>
+                <p className="text-sm text-brand-success/80">
+                  Ďakujeme! Uvidíme sa nabudúce. 🔥
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* stepper */}
           <div className="p-6">
@@ -150,8 +193,7 @@ function TrackInner() {
             </div>
             {order.address && (
               <p className="mt-4 text-sm text-neutral-500">
-                Doručenie: {order.address.street} {order.address.houseNumber},{" "}
-                {order.address.city}
+                Doručenie: {formatAddress(order.address)}
               </p>
             )}
             <p className="mt-1 text-sm text-neutral-500">

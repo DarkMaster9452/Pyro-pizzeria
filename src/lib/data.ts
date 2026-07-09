@@ -1168,16 +1168,88 @@ export const COUPONS: Coupon[] = [
   },
 ];
 
-export const EXTRA_INGREDIENTS = [
-  { name: "Extra mozzarella", price: 1.2 },
-  { name: "Slanina", price: 1.5 },
-  { name: "Šunka", price: 1.4 },
-  { name: "Kukurica", price: 0.9 },
-  { name: "Jalapeño", price: 0.9 },
-  { name: "Cibuľa", price: 0.7 },
-  { name: "Olivy", price: 1.0 },
-  { name: "Rukola", price: 1.1 },
+// Master list of paid extras — the single source of truth for pricing. The
+// server re-prices every added extra against this list, so the client can never
+// influence the price. Prices follow the printed flyer (PRÍLOHY).
+export const EXTRA_INGREDIENTS: { name: string; price: number }[] = [
+  // 1,50 € skupina
+  { name: "Cibuľa", price: 1.5 },
+  { name: "Cesnak", price: 1.5 },
+  { name: "Feferóny", price: 1.5 },
+  { name: "Chilli omáčka", price: 1.5 },
+  { name: "Vajce", price: 1.5 },
+  { name: "Oregano", price: 1.5 },
+  { name: "Bazalka", price: 1.5 },
+  { name: "Pol / pol", price: 1.5 },
+  // 2,00 € skupina
+  { name: "Kukurica", price: 2.0 },
+  { name: "Olivy", price: 2.0 },
+  { name: "Šampiňóny", price: 2.0 },
+  { name: "Artičoky", price: 2.0 },
+  { name: "Kyslá kapusta", price: 2.0 },
+  { name: "Paradajka", price: 2.0 },
+  { name: "Jalapeño papričky", price: 2.0 },
+  // 2,50 € skupina
+  { name: "Šunka", price: 2.5 },
+  { name: "Saláma", price: 2.5 },
+  { name: "Klobása", price: 2.5 },
+  { name: "Údené mäso", price: 2.5 },
+  { name: "Prosciutto", price: 2.5 },
+  { name: "Kuracie prsia", price: 2.5 },
+  { name: "Slanina", price: 2.5 },
+  { name: "Tuniak", price: 2.5 },
+  { name: "Eidam", price: 2.5 },
+  { name: "Niva", price: 2.5 },
+  { name: "Encián", price: 2.5 },
+  { name: "Mozzarella", price: 2.5 },
+  { name: "Bryndza", price: 2.5 },
+  { name: "Korbáčik", price: 2.5 },
+  { name: "Parmezán", price: 2.5 },
+  { name: "Smotana", price: 2.5 },
+  { name: "Údený syr", price: 2.5 },
+  { name: "Rukola", price: 2.5 },
+  // langošové prílohy / omáčky
+  { name: "Tatárska omáčka", price: 0.6 },
+  { name: "Kečup", price: 0.6 },
+  { name: "Syrový posyp", price: 0.6 },
+  { name: "Cesnaková omáčka", price: 1.5 },
+  { name: "Jarná cibuľka", price: 0.5 },
 ];
+
+const EXTRA_PRICE = Object.fromEntries(
+  EXTRA_INGREDIENTS.map((e) => [e.name, e.price])
+) as Record<string, number>;
+
+function resolveExtras(names: string[]): { name: string; price: number }[] {
+  return names.map((n) => ({ name: n, price: EXTRA_PRICE[n] ?? 0 }));
+}
+
+// Pizza extras exactly as on the flyer (PRÍLOHY).
+export const PIZZA_EXTRAS = resolveExtras([
+  "Cibuľa", "Cesnak", "Feferóny", "Chilli omáčka", "Vajce", "Oregano",
+  "Bazalka", "Pol / pol",
+  "Kukurica", "Olivy", "Šampiňóny", "Artičoky", "Kyslá kapusta", "Paradajka",
+  "Jalapeño papričky",
+  "Šunka", "Saláma", "Klobása", "Údené mäso", "Prosciutto", "Kuracie prsia",
+  "Slanina", "Tuniak", "Eidam", "Niva", "Encián", "Mozzarella", "Bryndza",
+  "Korbáčik", "Parmezán", "Smotana", "Údený syr", "Rukola",
+]);
+
+// Langoš toppings — "s čím bude": sauces and cheese/topping options.
+export const LANGOS_EXTRAS = resolveExtras([
+  "Tatárska omáčka", "Kečup", "Syrový posyp", "Cesnaková omáčka",
+  "Smotana", "Bryndza", "Slanina", "Údený syr", "Jarná cibuľka", "Šunka",
+]);
+
+// Which extras apply to a product (null = not customisable).
+export function extrasForProduct(product: {
+  category: string;
+  name: string;
+}): { name: string; price: number }[] | null {
+  if (product.name.toLowerCase().includes("langoš")) return LANGOS_EXTRAS;
+  if (product.category === "pizza") return PIZZA_EXTRAS;
+  return null;
+}
 
 export const EXTRA_CHEESE_PRICE = 1.5;
 export const STUFFED_CRUST_PRICE = 2.5;

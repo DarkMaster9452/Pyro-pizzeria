@@ -13,6 +13,36 @@ export function eur(n: number): string {
   }).format(n);
 }
 
+// Flyer-style numbering: pizzas are numbered 1..N in their menu (sort) order,
+// keyed by product id so the number stays fixed regardless of sorting/filters.
+export function pizzaNumbers(
+  products: { id: string; category: string; restaurantId: string }[],
+  restaurantId: string | null
+): Record<string, number> {
+  const map: Record<string, number> = {};
+  let n = 0;
+  for (const p of products) {
+    if (p.restaurantId === restaurantId && p.category === "pizza")
+      map[p.id] = ++n;
+  }
+  return map;
+}
+
+// Join address parts, skipping the empty ones (staff may type a single line).
+export function formatAddress(
+  a?: {
+    street?: string;
+    houseNumber?: string;
+    city?: string;
+    zip?: string;
+  } | null
+): string {
+  if (!a) return "";
+  const line1 = [a.street, a.houseNumber].filter(Boolean).join(" ").trim();
+  const line2 = [a.zip, a.city].filter(Boolean).join(" ").trim();
+  return [line1, line2].filter(Boolean).join(", ");
+}
+
 // JS getDay(): 0=Sun..6=Sat -> convert to our 0=Mon..6=Sun
 export function jsDayToIndex(jsDay: number): number {
   return (jsDay + 6) % 7;

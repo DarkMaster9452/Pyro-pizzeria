@@ -7,7 +7,7 @@ import { useApp } from "@/lib/store";
 import { PRODUCTS, CATEGORIES } from "@/lib/data";
 import type { Badge, CategoryId } from "@/lib/types";
 import { ProductCard } from "@/components/ProductCard";
-import { cn } from "@/lib/utils";
+import { cn, pizzaNumbers } from "@/lib/utils";
 import { Search, SlidersHorizontal } from "lucide-react";
 
 const FILTERS: { id: Badge; label: string }[] = [
@@ -17,12 +17,18 @@ const FILTERS: { id: Badge; label: string }[] = [
   { id: "bestseller", label: "Populárne" },
 ];
 
+// "Všetko" is a virtual category shown first and selected by default.
+const CATEGORY_TABS: { id: CategoryId | "all"; name: string; icon: string }[] = [
+  { id: "all", name: "Všetko", icon: "🍽️" },
+  ...CATEGORIES,
+];
+
 function MenuInner() {
   const params = useSearchParams();
   const restaurantId = useApp((s) => s.restaurantId);
   const dbProducts = useApp((s) => s.dbProducts);
-  const initialCat = (params.get("cat") as CategoryId) || "pizza";
-  const [activeCat, setActiveCat] = useState<CategoryId>(initialCat);
+  const initialCat = (params.get("cat") as CategoryId | "all") || "all";
+  const [activeCat, setActiveCat] = useState<CategoryId | "all">(initialCat);
   const [query, setQuery] = useState("");
   const [filters, setFilters] = useState<Badge[]>([]);
   const [sort, setSort] = useState<"default" | "price-asc" | "price-desc">(
@@ -30,9 +36,17 @@ function MenuInner() {
   );
 
   const source = dbProducts ?? PRODUCTS;
+  // Flyer numbers, computed from the canonical (unsorted) list so they stay
+  // fixed even when the customer sorts by price.
+  const numberMap = useMemo(
+    () => pizzaNumbers(source, restaurantId),
+    [source, restaurantId]
+  );
   const products = useMemo(() => {
     let list = source.filter(
-      (p) => p.restaurantId === restaurantId && p.category === activeCat
+      (p) =>
+        p.restaurantId === restaurantId &&
+        (activeCat === "all" || p.category === activeCat)
     );
     if (query) {
       const q = query.toLowerCase();
@@ -95,7 +109,7 @@ function MenuInner() {
           </div>
 
           <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4">
-            {CATEGORIES.map((c) => (
+            {CATEGORY_TABS.map((c) => (
               <button
                 key={c.id}
                 onClick={() => setActiveCat(c.id)}
@@ -135,7 +149,7 @@ function MenuInner() {
       </div>
 
       {/* grid */}
-      <div className="section py-8">
+      <div className="section py-8 pb-32 lg:pb-8">
         {products.length === 0 ? (
           <div className="flex flex-col items-center gap-3 py-20 text-center">
             <div className="text-5xl">🔍</div>
@@ -147,10 +161,10 @@ function MenuInner() {
         ) : (
           <motion.div
             layout
-            className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+            className="grid grid-cols-2 gap-4 sm:gap-5 lg:grid-cols-3 xl:grid-cols-4"
           >
             {products.map((p) => (
-              <ProductCard key={p.id} product={p} />
+              <ProductCard key={p.id} product={p} number={numberMap[p.id]} />
             ))}
           </motion.div>
         )}

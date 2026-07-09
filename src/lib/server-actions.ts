@@ -147,6 +147,26 @@ async function ensureContent(): Promise<void> {
   return seedPromise;
 }
 
+// The `orders` table predates the delivery-dispatch feature, so add the extra
+// columns lazily (idempotent). Memoised so the ALTERs run at most once.
+let orderColumnsPromise: Promise<void> | null = null;
+async function ensureOrderColumns(): Promise<void> {
+  if (orderColumnsPromise) return orderColumnsPromise;
+  orderColumnsPromise = (async () => {
+    await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS user_id text`;
+    await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS driver_id text`;
+    await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS driver_name text`;
+    await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS paid boolean NOT NULL DEFAULT false`;
+    await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS paid_at timestamptz`;
+    await sql`CREATE INDEX IF NOT EXISTS orders_driver_idx ON orders (driver_id)`;
+    await sql`CREATE INDEX IF NOT EXISTS orders_user_idx ON orders (user_id)`;
+  })().catch((e) => {
+    orderColumnsPromise = null;
+    throw e;
+  });
+  return orderColumnsPromise;
+}
+
 interface ProductRow {
   id: string;
   restaurant_id: string;
@@ -369,6 +389,12 @@ export async function createOrder(
 
   try {
     await ensureContent();
+    await ensureOrderColumns();
+
+    // Link the order to the signed-in customer's account (if any) so it shows
+    // up in their order history.
+    const session = await auth();
+    const userId = session?.user?.id ?? null;
 
     // sold-out (authoritative, from DB)
     const state = (await sql`
@@ -445,7 +471,7 @@ export async function createOrder(
       INSERT INTO orders (
         id, restaurant_id, status, fulfillment, customer_name, phone, email,
         address, zone_name, lines, pizza_count, subtotal, delivery_fee,
-        discount, total, payment, note, eta
+        discount, total, payment, note, eta, user_id
       ) VALUES (
         ${id}, ${data.restaurantId}, 'received', ${data.fulfillment},
         ${data.customerName}, ${data.phone}, ${data.email || null},
@@ -455,7 +481,7 @@ export async function createOrder(
         ${totals.subtotal}, ${totals.deliveryFee}, ${totals.discount},
         ${totals.total},
         ${data.fulfillment === "delivery" ? "Platba pri doručení" : "Platba pri odbere"},
-        ${data.note || null}, ${eta}
+        ${data.note || null}, ${eta}, ${userId}
       )
     `;
     await audit({
@@ -513,6 +539,8 @@ export interface AdminOrderRow {
   total: number;
   pizzaCount: number;
   minsAgo: number;
+  paid: boolean;
+  driverName: string | null;
   lines: { name: string; quantity: number }[];
 }
 
@@ -535,6 +563,7 @@ export async function getAdminSummary(
   restaurantId: string
 ): Promise<AdminSummary> {
   await requireAdmin(restaurantId);
+  await ensureOrderColumns();
   const base =
     RESTAURANTS.find((r) => r.id === restaurantId)?.prepTimeMinutes ?? 45;
 
@@ -595,7 +624,7 @@ export async function getAdminSummary(
 
   const orderRows = (await sql`
     SELECT id, status, fulfillment, customer_name, total::float AS total,
-           pizza_count, lines,
+           pizza_count, lines, COALESCE(paid, false) AS paid, driver_name,
            EXTRACT(EPOCH FROM (now() - created_at))/60 AS mins_ago
     FROM orders
     WHERE restaurant_id = ${restaurantId}
@@ -609,6 +638,8 @@ export async function getAdminSummary(
     total: number;
     pizza_count: number;
     lines: { name: string; quantity: number }[];
+    paid: boolean;
+    driver_name: string | null;
     mins_ago: number;
   }>;
 
@@ -635,6 +666,8 @@ export async function getAdminSummary(
       total: o.total,
       pizzaCount: o.pizza_count,
       minsAgo: Math.max(0, Math.round(o.mins_ago)),
+      paid: o.paid,
+      driverName: o.driver_name,
       lines: Array.isArray(o.lines) ? o.lines : [],
     })),
   };
@@ -990,4 +1023,475 @@ export async function saveZones(
     meta: { count: zones.length },
   });
   return { ok: true };
+}
+
+// ===========================================================================
+// Customer-facing order status (used by the /track page) — no auth: the short
+// order id is the shareable secret, same as a courier tracking link.
+// ===========================================================================
+export interface PublicOrderStatus {
+  id: string;
+  restaurantId: string;
+  status: string;
+  fulfillment: string;
+  paid: boolean;
+  total: number;
+  eta: number;
+}
+
+export async function getOrderStatus(
+  id: string
+): Promise<PublicOrderStatus | null> {
+  if (!id) return null;
+  try {
+    await ensureOrderColumns();
+    const rows = (await sql`
+      SELECT id, restaurant_id, status, fulfillment,
+             COALESCE(paid, false) AS paid, total::float AS total, eta
+      FROM orders WHERE id = ${id} LIMIT 1
+    `) as Array<{
+      id: string;
+      restaurant_id: string;
+      status: string;
+      fulfillment: string;
+      paid: boolean;
+      total: number;
+      eta: number;
+    }>;
+    const o = rows[0];
+    if (!o) return null;
+    return {
+      id: o.id,
+      restaurantId: o.restaurant_id,
+      status: o.status,
+      fulfillment: o.fulfillment,
+      paid: o.paid,
+      total: o.total,
+      eta: o.eta,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// -------- Signed-in customer's order history --------
+export interface MyOrderRow {
+  id: string;
+  restaurantId: string;
+  status: string;
+  fulfillment: string;
+  paid: boolean;
+  total: number;
+  createdAt: string;
+  lines: { name: string; quantity: number }[];
+}
+
+export async function getMyOrders(): Promise<MyOrderRow[]> {
+  const session = await auth();
+  if (!session?.user?.id) return [];
+  try {
+    await ensureOrderColumns();
+    const rows = (await sql`
+      SELECT id, restaurant_id, status, fulfillment,
+             COALESCE(paid, false) AS paid, total::float AS total,
+             created_at, lines
+      FROM orders WHERE user_id = ${session.user.id}
+      ORDER BY created_at DESC LIMIT 40
+    `) as Array<{
+      id: string;
+      restaurant_id: string;
+      status: string;
+      fulfillment: string;
+      paid: boolean;
+      total: number;
+      created_at: string;
+      lines: { name: string; quantity: number }[];
+    }>;
+    return rows.map((o) => ({
+      id: o.id,
+      restaurantId: o.restaurant_id,
+      status: o.status,
+      fulfillment: o.fulfillment,
+      paid: o.paid,
+      total: o.total,
+      createdAt: o.created_at,
+      lines: Array.isArray(o.lines) ? o.lines : [],
+    }));
+  } catch {
+    return [];
+  }
+}
+
+// ===========================================================================
+// Delivery dispatch — drivers ("brigádnici") and admins.
+// Orders appear here only once the kitchen marks them `ready`. Drivers claim
+// an order, navigate (Mapy.cz), call the customer, then mark it paid — which
+// finalises it (delivered + paid) and drops it off the board shortly after.
+// ===========================================================================
+
+// Guard: a dispatcher is a driver, admin or super_admin bound to a restaurant.
+async function requireDispatcher(): Promise<{
+  userId: string;
+  name: string;
+  email: string | null;
+  role: string;
+  restaurantId: string;
+}> {
+  const session = await auth();
+  if (!session?.user) throw new Error("Unauthorized");
+  const role = session.user.role;
+  if (role !== "driver" && role !== "admin" && role !== "super_admin")
+    throw new Error("Unauthorized");
+  if (!session.user.restaurantId) throw new Error("Forbidden");
+  const current = await getSessionVersion(session.user.id);
+  if (current !== null && current !== session.user.sessionVersion)
+    throw new Error("Session revoked");
+  return {
+    userId: session.user.id,
+    name: session.user.name ?? "Kuriér",
+    email: session.user.email ?? null,
+    role,
+    restaurantId: session.user.restaurantId,
+  };
+}
+
+export interface DispatchOrder {
+  id: string;
+  status: string;
+  fulfillment: string;
+  customerName: string;
+  phone: string;
+  address: CustomerAddressLike | null;
+  zoneName: string | null;
+  total: number;
+  payment: string;
+  note: string | null;
+  driverId: string | null;
+  driverName: string | null;
+  paid: boolean;
+  minsAgo: number;
+  lines: { name: string; quantity: number }[];
+}
+
+type CustomerAddressLike = {
+  street: string;
+  houseNumber: string;
+  city: string;
+  zip: string;
+};
+
+export interface DispatchContext {
+  role: string;
+  name: string;
+  restaurantId: string;
+  restaurantName: string;
+  restaurantAddress: string;
+  userId: string;
+}
+
+export async function getDispatchContext(): Promise<DispatchContext | null> {
+  const session = await auth();
+  const role = session?.user?.role;
+  if (
+    !session?.user ||
+    (role !== "driver" && role !== "admin" && role !== "super_admin") ||
+    !session.user.restaurantId
+  )
+    return null;
+  const r = RESTAURANTS.find((x) => x.id === session.user.restaurantId);
+  return {
+    role: role!,
+    name: session.user.name ?? "Kuriér",
+    restaurantId: session.user.restaurantId,
+    restaurantName: r?.name ?? "Prevádzka",
+    restaurantAddress: r?.address ?? "",
+    userId: session.user.id,
+  };
+}
+
+// The dispatch board: orders the kitchen has finished (`ready`) or that are
+// already on the way (`delivering`), plus just-paid ones kept for a short
+// grace window so the driver sees the confirmation before they disappear.
+export async function getDispatchBoard(): Promise<DispatchOrder[]> {
+  const ctx = await requireDispatcher();
+  await ensureOrderColumns();
+  const rows = (await sql`
+    SELECT id, status, fulfillment, customer_name, phone, address, zone_name,
+           total::float AS total, payment, note, driver_id, driver_name,
+           COALESCE(paid, false) AS paid, lines,
+           EXTRACT(EPOCH FROM (now() - created_at))/60 AS mins_ago
+    FROM orders
+    WHERE restaurant_id = ${ctx.restaurantId}
+      AND (
+        status IN ('ready', 'delivering')
+        OR (COALESCE(paid, false) = true
+            AND paid_at > now() - interval '3 minutes')
+      )
+    ORDER BY
+      CASE WHEN COALESCE(paid, false) THEN 1 ELSE 0 END,
+      created_at ASC
+  `) as Array<{
+    id: string;
+    status: string;
+    fulfillment: string;
+    customer_name: string;
+    phone: string;
+    address: CustomerAddressLike | null;
+    zone_name: string | null;
+    total: number;
+    payment: string;
+    note: string | null;
+    driver_id: string | null;
+    driver_name: string | null;
+    paid: boolean;
+    lines: { name: string; quantity: number }[];
+    mins_ago: number;
+  }>;
+  return rows.map((o) => ({
+    id: o.id,
+    status: o.status,
+    fulfillment: o.fulfillment,
+    customerName: o.customer_name,
+    phone: o.phone,
+    address: o.address ?? null,
+    zoneName: o.zone_name,
+    total: o.total,
+    payment: o.payment,
+    note: o.note,
+    driverId: o.driver_id,
+    driverName: o.driver_name,
+    paid: o.paid,
+    minsAgo: Math.max(0, Math.round(o.mins_ago)),
+    lines: Array.isArray(o.lines) ? o.lines : [],
+  }));
+}
+
+// Claim an unassigned order (atomic: only succeeds if nobody else has it).
+export async function claimDispatchOrder(
+  id: string
+): Promise<{ ok: boolean; error?: string }> {
+  const ctx = await requireDispatcher();
+  await ensureOrderColumns();
+  const rows = (await sql`
+    UPDATE orders SET driver_id = ${ctx.userId}, driver_name = ${ctx.name}
+    WHERE id = ${id} AND restaurant_id = ${ctx.restaurantId}
+      AND driver_id IS NULL
+    RETURNING id
+  `) as { id: string }[];
+  if (!rows.length)
+    return { ok: false, error: "Objednávku už prevzal iný kuriér." };
+  await audit({
+    action: "dispatch.claimed",
+    actorId: ctx.userId,
+    actorEmail: ctx.email,
+    restaurantId: ctx.restaurantId,
+    target: id,
+  });
+  return { ok: true };
+}
+
+// Release an order the current dispatcher holds (admins can release any).
+export async function releaseDispatchOrder(
+  id: string
+): Promise<{ ok: boolean; error?: string }> {
+  const ctx = await requireDispatcher();
+  await ensureOrderColumns();
+  const isAdmin = ctx.role === "admin" || ctx.role === "super_admin";
+  const rows = isAdmin
+    ? ((await sql`
+        UPDATE orders SET driver_id = NULL, driver_name = NULL
+        WHERE id = ${id} AND restaurant_id = ${ctx.restaurantId}
+          AND COALESCE(paid, false) = false
+        RETURNING id`) as { id: string }[])
+    : ((await sql`
+        UPDATE orders SET driver_id = NULL, driver_name = NULL
+        WHERE id = ${id} AND restaurant_id = ${ctx.restaurantId}
+          AND driver_id = ${ctx.userId} AND COALESCE(paid, false) = false
+        RETURNING id`) as { id: string }[]);
+  if (!rows.length) return { ok: false, error: "Nedá sa uvoľniť." };
+  return { ok: true };
+}
+
+// Mark an order as on the way. Auto-claims for the current dispatcher if the
+// order is still unassigned.
+export async function markDispatchDelivering(
+  id: string
+): Promise<{ ok: boolean; error?: string }> {
+  const ctx = await requireDispatcher();
+  await ensureOrderColumns();
+  const rows = (await sql`
+    UPDATE orders
+    SET status = 'delivering',
+        driver_id = COALESCE(driver_id, ${ctx.userId}),
+        driver_name = COALESCE(driver_name, ${ctx.name})
+    WHERE id = ${id} AND restaurant_id = ${ctx.restaurantId}
+      AND status IN ('ready', 'delivering')
+    RETURNING id
+  `) as { id: string }[];
+  if (!rows.length) return { ok: false, error: "Nedá sa aktualizovať." };
+  await audit({
+    action: "dispatch.delivering",
+    actorId: ctx.userId,
+    actorEmail: ctx.email,
+    restaurantId: ctx.restaurantId,
+    target: id,
+  });
+  return { ok: true };
+}
+
+// Mark the order paid — the terminal step. Finalises it as delivered + paid.
+// A driver may only settle an order assigned to them; admins may settle any
+// (covers pickups when no courier is present).
+export async function markDispatchPaid(
+  id: string
+): Promise<{ ok: boolean; error?: string }> {
+  const ctx = await requireDispatcher();
+  await ensureOrderColumns();
+  const isAdmin = ctx.role === "admin" || ctx.role === "super_admin";
+  const rows = isAdmin
+    ? ((await sql`
+        UPDATE orders
+        SET paid = true, paid_at = now(), status = 'delivered',
+            driver_id = COALESCE(driver_id, ${ctx.userId}),
+            driver_name = COALESCE(driver_name, ${ctx.name})
+        WHERE id = ${id} AND restaurant_id = ${ctx.restaurantId}
+          AND COALESCE(paid, false) = false
+        RETURNING id`) as { id: string }[])
+    : ((await sql`
+        UPDATE orders
+        SET paid = true, paid_at = now(), status = 'delivered'
+        WHERE id = ${id} AND restaurant_id = ${ctx.restaurantId}
+          AND driver_id = ${ctx.userId} AND COALESCE(paid, false) = false
+        RETURNING id`) as { id: string }[]);
+  if (!rows.length)
+    return {
+      ok: false,
+      error: "Objednávku môže ako zaplatenú označiť len jej kuriér.",
+    };
+  await audit({
+    action: "dispatch.paid",
+    actorId: ctx.userId,
+    actorEmail: ctx.email,
+    restaurantId: ctx.restaurantId,
+    target: id,
+    meta: { role: ctx.role },
+  });
+  return { ok: true };
+}
+
+// ===========================================================================
+// Staff order entry — the primary intake is still by phone, so admins and
+// drivers can key an order straight into the system. It flows through the
+// kitchen and dispatch exactly like an online order.
+// ===========================================================================
+export interface StaffOrderInput {
+  restaurantId: string;
+  fulfillment: "delivery" | "pickup";
+  customerName: string;
+  phone: string;
+  address?: { street: string; houseNumber: string; city: string; zip: string };
+  lines: CartLine[];
+  note?: string;
+}
+
+export async function createStaffOrder(
+  input: StaffOrderInput
+): Promise<CreateOrderResult> {
+  const ctx = await requireDispatcher();
+  if (input.restaurantId !== ctx.restaurantId)
+    return { ok: false, error: "Nesprávna prevádzka." };
+
+  // Staff key the order themselves — name and phone are optional.
+  const phone = (input.phone ?? "").trim();
+  const name = (input.customerName ?? "").trim() || phone || "Objednávka";
+  if (!Array.isArray(input.lines) || input.lines.length === 0)
+    return { ok: false, error: "Pridajte aspoň jednu položku." };
+
+  const restaurant = RESTAURANTS.find((r) => r.id === input.restaurantId);
+  if (!restaurant) return { ok: false, error: "Neznáma prevádzka." };
+
+  try {
+    await ensureContent();
+    await ensureOrderColumns();
+
+    const products = await loadProducts();
+    const usableProducts = products.length ? products : PRODUCTS;
+    const pizza = pizzaIds(usableProducts);
+
+    const lines: CartLine[] = [];
+    for (const l of input.lines) {
+      const priced = repriceLine(l as CartLine, usableProducts, input.restaurantId);
+      if (!priced)
+        return { ok: false, error: "Niektorý produkt už nie je dostupný." };
+      lines.push(priced);
+    }
+
+    // Best-effort delivery-zone match (staff can deliver anywhere they choose).
+    let zone: DeliveryZone | null = null;
+    if (input.fulfillment === "delivery" && input.address) {
+      const zoneRows = (await sql`
+        SELECT id, restaurant_id, name, minimum_order, delivery_fee,
+               estimated_minutes, areas
+        FROM delivery_zones WHERE restaurant_id = ${input.restaurantId}
+        ORDER BY sort`) as ZoneRow[];
+      const usable = zoneRows.length
+        ? zoneRows.map(rowToZone)
+        : restaurant.deliveryZones;
+      zone = matchZone(usable, `${input.address.street} ${input.address.city}`);
+    }
+
+    const totals = computeTotals(
+      lines,
+      input.restaurantId,
+      zone,
+      input.fulfillment,
+      null,
+      COUPONS
+    );
+
+    const pending = (await sql`
+      SELECT COALESCE(SUM(pizza_count),0)::int AS p FROM orders
+      WHERE restaurant_id = ${input.restaurantId}
+        AND status IN ('received','accepted','preparing')
+    `) as { p: number }[];
+    const wait = estimatedWait(
+      restaurant.prepTimeMinutes,
+      (pending[0]?.p ?? 0) + pizzaCount(lines, pizza)
+    );
+    const eta = zone ? Math.max(zone.estimatedMinutes, wait) : wait;
+
+    const id = shortId();
+    const note = input.note?.trim()
+      ? `Telefón: ${input.note.trim()}`
+      : "Telefonická objednávka";
+    await sql`
+      INSERT INTO orders (
+        id, restaurant_id, status, fulfillment, customer_name, phone, email,
+        address, zone_name, lines, pizza_count, subtotal, delivery_fee,
+        discount, total, payment, note, eta, user_id
+      ) VALUES (
+        ${id}, ${input.restaurantId}, 'received', ${input.fulfillment},
+        ${name}, ${phone}, ${null},
+        ${input.address ? JSON.stringify(input.address) : null},
+        ${zone?.name ?? null}, ${JSON.stringify(lines)},
+        ${pizzaCount(lines, pizza)},
+        ${totals.subtotal}, ${totals.deliveryFee}, ${totals.discount},
+        ${totals.total},
+        ${input.fulfillment === "delivery" ? "Platba pri doručení" : "Platba pri odbere"},
+        ${note}, ${eta}, ${null}
+      )
+    `;
+    await audit({
+      action: "order.staff_created",
+      actorId: ctx.userId,
+      actorEmail: ctx.email,
+      restaurantId: input.restaurantId,
+      target: id,
+      meta: { total: totals.total, fulfillment: input.fulfillment, role: ctx.role },
+    });
+    return { ok: true, id, total: totals.total, eta };
+  } catch (e) {
+    console.error("createStaffOrder failed", e);
+    return { ok: false, error: "Objednávku sa nepodarilo uložiť." };
+  }
 }
