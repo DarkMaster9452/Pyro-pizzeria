@@ -19,6 +19,7 @@ export default async function DispatchPage() {
     <DriverApp
       role={role}
       name={session.user.name ?? "Kuriér"}
+      restaurantId={session.user.restaurantId}
       restaurantName={r?.name ?? "Prevádzka"}
       restaurantAddress={r?.address ?? ""}
       userId={session.user.id}

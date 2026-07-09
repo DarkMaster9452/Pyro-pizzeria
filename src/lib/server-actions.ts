@@ -1378,3 +1378,121 @@ export async function markDispatchPaid(
   });
   return { ok: true };
 }
+
+// ===========================================================================
+// Staff order entry — the primary intake is still by phone, so admins and
+// drivers can key an order straight into the system. It flows through the
+// kitchen and dispatch exactly like an online order.
+// ===========================================================================
+export interface StaffOrderInput {
+  restaurantId: string;
+  fulfillment: "delivery" | "pickup";
+  customerName: string;
+  phone: string;
+  address?: { street: string; houseNumber: string; city: string; zip: string };
+  lines: CartLine[];
+  note?: string;
+}
+
+export async function createStaffOrder(
+  input: StaffOrderInput
+): Promise<CreateOrderResult> {
+  const ctx = await requireDispatcher();
+  if (input.restaurantId !== ctx.restaurantId)
+    return { ok: false, error: "Nesprávna prevádzka." };
+
+  const name = input.customerName.trim();
+  const phone = input.phone.trim();
+  if (name.length < 2) return { ok: false, error: "Zadajte meno zákazníka." };
+  if (phone.length < 6) return { ok: false, error: "Zadajte telefón." };
+  if (!Array.isArray(input.lines) || input.lines.length === 0)
+    return { ok: false, error: "Pridajte aspoň jednu položku." };
+
+  const restaurant = RESTAURANTS.find((r) => r.id === input.restaurantId);
+  if (!restaurant) return { ok: false, error: "Neznáma prevádzka." };
+
+  try {
+    await ensureContent();
+    await ensureOrderColumns();
+
+    const products = await loadProducts();
+    const usableProducts = products.length ? products : PRODUCTS;
+    const pizza = pizzaIds(usableProducts);
+
+    const lines: CartLine[] = [];
+    for (const l of input.lines) {
+      const priced = repriceLine(l as CartLine, usableProducts, input.restaurantId);
+      if (!priced)
+        return { ok: false, error: "Niektorý produkt už nie je dostupný." };
+      lines.push(priced);
+    }
+
+    // Best-effort delivery-zone match (staff can deliver anywhere they choose).
+    let zone: DeliveryZone | null = null;
+    if (input.fulfillment === "delivery" && input.address) {
+      const zoneRows = (await sql`
+        SELECT id, restaurant_id, name, minimum_order, delivery_fee,
+               estimated_minutes, areas
+        FROM delivery_zones WHERE restaurant_id = ${input.restaurantId}
+        ORDER BY sort`) as ZoneRow[];
+      const usable = zoneRows.length
+        ? zoneRows.map(rowToZone)
+        : restaurant.deliveryZones;
+      zone = matchZone(usable, `${input.address.street} ${input.address.city}`);
+    }
+
+    const totals = computeTotals(
+      lines,
+      input.restaurantId,
+      zone,
+      input.fulfillment,
+      null,
+      COUPONS
+    );
+
+    const pending = (await sql`
+      SELECT COALESCE(SUM(pizza_count),0)::int AS p FROM orders
+      WHERE restaurant_id = ${input.restaurantId}
+        AND status IN ('received','accepted','preparing')
+    `) as { p: number }[];
+    const wait = estimatedWait(
+      restaurant.prepTimeMinutes,
+      (pending[0]?.p ?? 0) + pizzaCount(lines, pizza)
+    );
+    const eta = zone ? Math.max(zone.estimatedMinutes, wait) : wait;
+
+    const id = shortId();
+    const note = input.note?.trim()
+      ? `Telefón: ${input.note.trim()}`
+      : "Telefonická objednávka";
+    await sql`
+      INSERT INTO orders (
+        id, restaurant_id, status, fulfillment, customer_name, phone, email,
+        address, zone_name, lines, pizza_count, subtotal, delivery_fee,
+        discount, total, payment, note, eta, user_id
+      ) VALUES (
+        ${id}, ${input.restaurantId}, 'received', ${input.fulfillment},
+        ${name}, ${phone}, ${null},
+        ${input.address ? JSON.stringify(input.address) : null},
+        ${zone?.name ?? null}, ${JSON.stringify(lines)},
+        ${pizzaCount(lines, pizza)},
+        ${totals.subtotal}, ${totals.deliveryFee}, ${totals.discount},
+        ${totals.total},
+        ${input.fulfillment === "delivery" ? "Platba pri doručení" : "Platba pri odbere"},
+        ${note}, ${eta}, ${null}
+      )
+    `;
+    await audit({
+      action: "order.staff_created",
+      actorId: ctx.userId,
+      actorEmail: ctx.email,
+      restaurantId: input.restaurantId,
+      target: id,
+      meta: { total: totals.total, fulfillment: input.fulfillment, role: ctx.role },
+    });
+    return { ok: true, id, total: totals.total, eta };
+  } catch (e) {
+    console.error("createStaffOrder failed", e);
+    return { ok: false, error: "Objednávku sa nepodarilo uložiť." };
+  }
+}

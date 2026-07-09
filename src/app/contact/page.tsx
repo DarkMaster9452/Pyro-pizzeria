@@ -1,10 +1,21 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useApp } from "@/lib/store";
 import { RESTAURANTS, DAY_NAMES } from "@/lib/data";
 import { getOpenState } from "@/lib/utils";
 import { Footer } from "@/components/Footer";
 import { Phone, Mail, MapPin, Clock, Navigation, Car } from "lucide-react";
+
+// MapLibre needs the browser — load client-side only.
+const MapView = dynamic(() => import("@/components/MapView"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-full min-h-[400px] w-full items-center justify-center text-sm text-neutral-500">
+      Načítavam mapu…
+    </div>
+  ),
+});
 
 export default function ContactPage() {
   const restaurantId = useApp((s) => s.restaurantId);
@@ -104,15 +115,11 @@ export default function ContactPage() {
 
         {/* map */}
         <div className="card overflow-hidden">
-          <iframe
-            title="Mapa"
-            className="h-full min-h-[400px] w-full"
-            loading="lazy"
-            src={`https://www.openstreetmap.org/export/embed.html?bbox=${
-              r.lng - 0.02
-            }%2C${r.lat - 0.01}%2C${r.lng + 0.02}%2C${
-              r.lat + 0.01
-            }&layer=mapnik&marker=${r.lat}%2C${r.lng}`}
+          <MapView
+            lat={r.lat}
+            lng={r.lng}
+            label={r.name}
+            accent={r.accent}
           />
         </div>
       </div>

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -11,11 +12,13 @@ import {
   type DispatchOrder,
 } from "@/lib/server-actions";
 import { logoutAction } from "@/lib/auth-actions";
+import { StaffOrderForm } from "@/components/StaffOrderForm";
 import { eur } from "@/lib/utils";
 import {
   Bike,
   Navigation,
   Phone,
+  PhoneCall,
   Check,
   CheckCheck,
   Package,
@@ -23,10 +26,13 @@ import {
   Store,
   MapPin,
   Clock,
+  Home,
   LogOut,
   Hand,
   RotateCcw,
   RefreshCw,
+  Plus,
+  X,
 } from "lucide-react";
 
 function navUrl(o: DispatchOrder): string | null {
@@ -42,12 +48,14 @@ function telUrl(phone: string): string {
 export function DriverApp({
   role,
   name,
+  restaurantId,
   restaurantName,
   restaurantAddress,
   userId,
 }: {
   role: string;
   name: string;
+  restaurantId: string;
   restaurantName: string;
   restaurantAddress: string;
   userId: string;
@@ -57,6 +65,7 @@ export function DriverApp({
   const [loaded, setLoaded] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [showNew, setShowNew] = useState(false);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const refresh = useCallback(() => {
@@ -125,6 +134,14 @@ export function DriverApp({
             >
               <RefreshCw className="h-4 w-4" />
             </button>
+            <Link
+              href="/"
+              title="Späť na web (bez odhlásenia)"
+              className="flex items-center gap-1.5 rounded-full border border-white/10 px-3 py-2 text-xs font-semibold text-white/70 transition-colors hover:bg-white/5"
+            >
+              <Home className="h-4 w-4" />
+              <span className="hidden sm:inline">Web</span>
+            </Link>
             <form action={logoutAction}>
               <button className="flex items-center gap-1.5 rounded-full border border-white/10 px-3 py-2 text-xs font-semibold text-white/70 transition-colors hover:bg-white/5">
                 <LogOut className="h-4 w-4" /> Odhlásiť
@@ -140,6 +157,43 @@ export function DriverApp({
             {error}
           </div>
         )}
+
+        {/* phone-order entry */}
+        <div className="mb-6 rounded-2xl border border-white/10 bg-white/[0.02]">
+          <button
+            onClick={() => setShowNew((v) => !v)}
+            className="flex w-full items-center justify-between px-4 py-3 text-left"
+          >
+            <span className="flex items-center gap-2 font-semibold">
+              <PhoneCall className="h-4 w-4 text-brand-primary" /> Nová
+              telefonická objednávka
+            </span>
+            {showNew ? (
+              <X className="h-4 w-4 text-white/50" />
+            ) : (
+              <Plus className="h-4 w-4 text-white/50" />
+            )}
+          </button>
+          <AnimatePresence>
+            {showNew && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                className="overflow-hidden"
+              >
+                <div className="border-t border-white/10 p-4">
+                  <StaffOrderForm
+                    restaurantId={restaurantId}
+                    onCreated={() => {
+                      refresh();
+                    }}
+                  />
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
 
         {!loaded ? (
           <p className="py-20 text-center text-white/40">Načítavam…</p>
