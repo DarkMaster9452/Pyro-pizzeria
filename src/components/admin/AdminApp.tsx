@@ -211,21 +211,23 @@ export function AdminApp({
         </Link>
       </aside>
 
-      {/* mobile tabs */}
-      <div className="fixed inset-x-0 bottom-0 z-40 flex justify-around border-t border-black/10 bg-white p-1 dark:border-white/10 dark:bg-[#161616] md:hidden">
-        {NAV.slice(0, 5).map((n) => (
-          <button
-            key={n.id}
-            onClick={() => setTab(n.id)}
-            className={cn(
-              "flex flex-col items-center gap-0.5 rounded-lg p-2 text-[10px]",
-              tab === n.id ? "text-brand-secondary" : "text-neutral-500"
-            )}
-          >
-            {n.icon}
-            {n.label.split(" ")[0]}
-          </button>
-        ))}
+      {/* mobile tabs — all sections reachable via horizontal scroll */}
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-black/10 bg-white dark:border-white/10 dark:bg-[#161616] md:hidden">
+        <div className="no-scrollbar flex gap-1 overflow-x-auto px-1 py-1">
+          {NAV.map((n) => (
+            <button
+              key={n.id}
+              onClick={() => setTab(n.id)}
+              className={cn(
+                "flex shrink-0 flex-col items-center gap-0.5 rounded-lg px-3 py-1.5 text-[10px]",
+                tab === n.id ? "text-brand-secondary" : "text-neutral-500"
+              )}
+            >
+              {n.icon}
+              {n.label.split(" ")[0]}
+            </button>
+          ))}
+        </div>
       </div>
 
       <main className="flex-1 overflow-x-hidden p-5 pb-24 md:p-8 md:pb-8">

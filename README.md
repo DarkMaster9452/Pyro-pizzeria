@@ -95,16 +95,19 @@ npm run dev        # http://localhost:3000
 npm run build && npm run start
 ```
 
-## 🔑 Demo prístupy — rozvoz (Pyro)
+## 🔑 Demo prístupy
 
-Jednoduché demo účty pre panel rozvozcu (`/rozvoz`). Po prihlásení sa kuriérovi
-otvorí rovno panel rozvozu.
+Jednoduché demo účty. Podľa roly sa po prihlásení otvorí správne rozhranie
+(zákazník → účet, kuriér → `/rozvoz`, admin → `/admin`).
 
-| Meno            | Prihlásenie (email) | Heslo    |
-| --------------- | ------------------- | -------- |
-| Daniel Pekný    | `daniel@pyro.sk`    | `daniel` |
-| Tomáš Kavecký   | `tomas@pyro.sk`     | `tomas`  |
-| Martin Straňanek| `martin@pyro.sk`    | `martin` |
+| Rola     | Meno              | Prihlásenie (email)  | Heslo      |
+| -------- | ----------------- | -------------------- | ---------- |
+| Admin    | Pyro Admin        | `admin@pyro.sk`      | `admin`    |
+| Admin    | Polomárik Admin   | `admin@polomarik.sk` | `admin`    |
+| Zákazník | Demo Zákazník     | `zakaznik@pyro.sk`   | `zakaznik` |
+| Rozvoz   | Daniel Pekný      | `daniel@pyro.sk`     | `daniel`   |
+| Rozvoz   | Tomáš Kavecký     | `tomas@pyro.sk`      | `tomas`    |
+| Rozvoz   | Martin Straňanek  | `martin@pyro.sk`     | `martin`   |
 
 > Iba na ukážku — pred ostrým nasadením heslá zmeňte.
 
