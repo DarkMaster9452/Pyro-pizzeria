@@ -27,10 +27,17 @@ export const authConfig: NextAuthConfig = {
   callbacks: {
     authorized({ auth, request }) {
       const { pathname } = request.nextUrl;
-      const isAdminArea = pathname.startsWith("/admin");
-      if (!isAdminArea) return true;
       const role = auth?.user?.role;
-      return role === "admin" || role === "super_admin";
+      if (pathname.startsWith("/admin")) {
+        return role === "admin" || role === "super_admin";
+      }
+      // Driver dispatch board — drivers and admins only.
+      if (pathname.startsWith("/rozvoz")) {
+        return (
+          role === "driver" || role === "admin" || role === "super_admin"
+        );
+      }
+      return true;
     },
     jwt({ token, user }) {
       if (user) {
@@ -48,6 +55,7 @@ export const authConfig: NextAuthConfig = {
         session.user.role = token.role as
           | "customer"
           | "employee"
+          | "driver"
           | "admin"
           | "super_admin";
         session.user.restaurantId =

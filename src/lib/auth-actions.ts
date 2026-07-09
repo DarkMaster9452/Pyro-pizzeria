@@ -50,7 +50,13 @@ export async function loginAction(
     actorEmail: parsed.data.email,
     meta: { ip },
   });
-  redirect(role === "admin" || role === "super_admin" ? "/admin" : "/account");
+  redirect(
+    role === "admin" || role === "super_admin"
+      ? "/admin"
+      : role === "driver"
+      ? "/rozvoz"
+      : "/account"
+  );
 }
 
 export async function registerFormAction(

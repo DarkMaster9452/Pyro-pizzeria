@@ -263,7 +263,7 @@ function Hero({ r }: { r: Restaurant }) {
           transition={{ duration: 0.8, ease, delay: 0.4 }}
           className="absolute right-[6%] top-[16%] z-10"
         >
-          <Seal />
+          <Seal logo={r.logo} label={r.name} />
         </motion.div>
 
         {/* feature strip pinned to the bottom of the hero */}
@@ -285,7 +285,7 @@ function Hero({ r }: { r: Restaurant }) {
           />
           <div className="absolute inset-0 bg-gradient-to-t from-[#090909] via-[#090909]/20 to-[#090909]/60" />
           <div className="absolute right-5 top-24">
-            <Seal className="scale-[0.8]" />
+            <Seal className="scale-[0.8]" logo={r.logo} label={r.name} />
           </div>
         </div>
         <motion.div

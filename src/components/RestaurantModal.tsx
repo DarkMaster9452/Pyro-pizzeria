@@ -125,21 +125,24 @@ export function RestaurantModal() {
                           {state.open ? "Otvorené" : "Zatvorené"}
                         </span>
                       </div>
-                      {/* brand logo */}
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={r.logo}
-                        alt={r.name}
-                        className="absolute bottom-3 left-5 h-10 w-auto object-contain drop-shadow-lg"
-                        onError={(e) => {
-                          (e.currentTarget as HTMLImageElement).style.display =
-                            "none";
-                        }}
-                      />
                     </div>
 
+                    {/* large round brand logo — sits to the right of the name
+                        and overlaps up into the pizza photo */}
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={r.logo}
+                      alt={r.name}
+                      className="absolute right-5 top-[148px] z-10 h-24 w-24 rounded-full border-2 border-white/20 object-cover shadow-xl ring-2 ring-black/30"
+                      style={{ boxShadow: `0 10px 30px -6px ${r.accent}66` }}
+                      onError={(e) => {
+                        (e.currentTarget as HTMLImageElement).style.display =
+                          "none";
+                      }}
+                    />
+
                     <div className="space-y-4 p-5">
-                      <div>
+                      <div className="pr-24">
                         <h2 className="font-heading text-2xl uppercase tracking-tight text-white">
                           {r.name}
                         </h2>

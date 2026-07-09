@@ -5,13 +5,14 @@ import Link from "next/link";
 import { useApp } from "@/lib/store";
 import { PRODUCTS, RESTAURANTS } from "@/lib/data";
 import { eur } from "@/lib/utils";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   logoutAction,
   logoutAllDevicesAction,
   deleteAccountAction,
   exportAccountAction,
 } from "@/lib/auth-actions";
+import { getMyOrders, type MyOrderRow } from "@/lib/server-actions";
 import {
   Heart,
   Clock,
@@ -23,6 +24,16 @@ import {
   MonitorSmartphone,
 } from "lucide-react";
 
+const ORDER_STATUS_LABEL: Record<string, string> = {
+  received: "Prijaté",
+  accepted: "Potvrdené",
+  preparing: "Pripravuje sa",
+  ready: "Pripravené",
+  delivering: "Na ceste",
+  delivered: "Doručené",
+  cancelled: "Zrušené",
+};
+
 export function AccountDashboard({
   name,
   email,
@@ -30,10 +41,38 @@ export function AccountDashboard({
   name: string;
   email: string;
 }) {
-  const orders = useApp((s) => s.orders);
+  const localOrders = useApp((s) => s.orders);
   const favorites = useApp((s) => s.favorites);
   const favProducts = PRODUCTS.filter((p) => favorites.includes(p.id));
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [dbOrders, setDbOrders] = useState<MyOrderRow[] | null>(null);
+
+  useEffect(() => {
+    getMyOrders()
+      .then(setDbOrders)
+      .catch(() => setDbOrders([]));
+  }, []);
+
+  // Prefer the account-linked orders from the database (they persist across
+  // devices); fall back to the locally-stored ones until they load.
+  const orders =
+    dbOrders && dbOrders.length
+      ? dbOrders.map((o) => ({
+          id: o.id,
+          restaurantId: o.restaurantId,
+          total: o.total,
+          lineCount: o.lines.length,
+          status: o.status,
+          paid: o.paid,
+        }))
+      : localOrders.map((o) => ({
+          id: o.id,
+          restaurantId: o.restaurantId,
+          total: o.total,
+          lineCount: o.lines.length,
+          status: o.status,
+          paid: false,
+        }));
 
   async function exportData() {
     const data = await exportAccountAction();
@@ -85,9 +124,20 @@ export function AccountDashboard({
                     className="flex items-center justify-between rounded-xl bg-white/[0.03] p-3"
                   >
                     <div>
-                      <p className="font-semibold text-white">#{o.id}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="font-semibold text-white">#{o.id}</p>
+                        {o.paid ? (
+                          <span className="rounded-full bg-brand-success/20 px-2 py-0.5 text-[11px] font-semibold text-brand-success">
+                            Zaplatené
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] font-semibold text-white/60">
+                            {ORDER_STATUS_LABEL[o.status] ?? o.status}
+                          </span>
+                        )}
+                      </div>
                       <p className="text-xs text-neutral-400">
-                        {r?.name} · {o.lines.length} položiek
+                        {r?.name} · {o.lineCount} položiek
                       </p>
                     </div>
                     <div className="text-right">

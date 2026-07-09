@@ -30,6 +30,7 @@ import {
   LayoutDashboard,
   ShoppingBag,
   Pizza,
+  Truck,
   Store,
   MapPin,
   Ticket,
@@ -190,6 +191,12 @@ export function AdminApp({
             </button>
           ))}
         </nav>
+        <Link
+          href="/rozvoz"
+          className="mx-3 mt-3 flex items-center gap-2 rounded-xl bg-brand-primary/10 px-3 py-2.5 text-sm font-semibold text-brand-primary hover:bg-brand-primary/15"
+        >
+          <Truck className="h-4 w-4" /> Výdaj / Rozvoz
+        </Link>
         <Link
           href="/"
           className="m-3 flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm text-neutral-400 hover:bg-black/5 dark:hover:bg-white/5"
@@ -595,9 +602,16 @@ function Orders({
               </td>
               <td className="p-4 font-semibold">{eur(r.total)}</td>
               <td className="p-4">
-                <span className="chip bg-brand-primary/15 text-brand-primary">
-                  {STATUS_LABEL[r.status] ?? r.status}
-                </span>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="chip bg-brand-primary/15 text-brand-primary">
+                    {STATUS_LABEL[r.status] ?? r.status}
+                  </span>
+                  {r.paid && (
+                    <span className="chip bg-brand-success/15 text-brand-success">
+                      Zaplatené
+                    </span>
+                  )}
+                </div>
               </td>
               <td className="p-4 text-right text-xs font-semibold text-brand-secondary">
                 Detail →
