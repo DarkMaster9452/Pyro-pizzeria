@@ -12,7 +12,7 @@ import {
   STUFFED_CRUST_PRICE,
 } from "./data";
 import { computeTotals } from "./pricing";
-import { estimatedWait, shortId } from "./utils";
+import { estimatedWait, shortId, formatAddress } from "./utils";
 import { orderInputSchema, firstError } from "./validation";
 import { rateLimit, audit, clientIp } from "./security";
 import type {
@@ -1493,5 +1493,158 @@ export async function createStaffOrder(
   } catch (e) {
     console.error("createStaffOrder failed", e);
     return { ok: false, error: "Objednávku sa nepodarilo uložiť." };
+  }
+}
+
+// -------- Edit an existing order (dispatcher / admin) --------
+export interface EditableOrder {
+  id: string;
+  fulfillment: "delivery" | "pickup";
+  customerName: string;
+  phone: string;
+  address: string;
+  note: string;
+  paid: boolean;
+  items: { productId: string; quantity: number }[];
+}
+
+export async function getEditableOrder(
+  id: string
+): Promise<EditableOrder | null> {
+  const ctx = await requireDispatcher();
+  await ensureOrderColumns();
+  const rows = (await sql`
+    SELECT id, fulfillment, customer_name, phone, address, note, lines,
+           COALESCE(paid, false) AS paid
+    FROM orders WHERE id = ${id} AND restaurant_id = ${ctx.restaurantId} LIMIT 1
+  `) as Array<{
+    id: string;
+    fulfillment: string;
+    customer_name: string;
+    phone: string;
+    address: CustomerAddressLike | null;
+    note: string | null;
+    lines: CartLine[];
+    paid: boolean;
+  }>;
+  const o = rows[0];
+  if (!o) return null;
+
+  const agg: Record<string, number> = {};
+  for (const l of Array.isArray(o.lines) ? o.lines : [])
+    agg[l.productId] = (agg[l.productId] ?? 0) + l.quantity;
+
+  let note = o.note ?? "";
+  if (note === "Telefonická objednávka") note = "";
+  else if (note.startsWith("Telefón: ")) note = note.slice("Telefón: ".length);
+
+  return {
+    id: o.id,
+    fulfillment: o.fulfillment === "delivery" ? "delivery" : "pickup",
+    customerName: o.customer_name,
+    phone: o.phone ?? "",
+    address: formatAddress(o.address),
+    note,
+    paid: o.paid,
+    items: Object.entries(agg).map(([productId, quantity]) => ({
+      productId,
+      quantity,
+    })),
+  };
+}
+
+export async function updateStaffOrder(
+  id: string,
+  input: StaffOrderInput
+): Promise<CreateOrderResult> {
+  const ctx = await requireDispatcher();
+  if (input.restaurantId !== ctx.restaurantId)
+    return { ok: false, error: "Nesprávna prevádzka." };
+  if (!Array.isArray(input.lines) || input.lines.length === 0)
+    return { ok: false, error: "Objednávka musí mať aspoň jednu položku." };
+
+  try {
+    await ensureContent();
+    await ensureOrderColumns();
+    const isAdmin = ctx.role === "admin" || ctx.role === "super_admin";
+
+    const existing = (await sql`
+      SELECT driver_id, COALESCE(paid, false) AS paid
+      FROM orders WHERE id = ${id} AND restaurant_id = ${ctx.restaurantId} LIMIT 1
+    `) as { driver_id: string | null; paid: boolean }[];
+    const ex = existing[0];
+    if (!ex) return { ok: false, error: "Objednávka sa nenašla." };
+    if (ex.paid)
+      return { ok: false, error: "Zaplatenú objednávku nie je možné upraviť." };
+    if (!isAdmin && ex.driver_id !== ctx.userId)
+      return {
+        ok: false,
+        error: "Upraviť môžete len objednávku, ktorú máte pridelenú.",
+      };
+
+    const products = await loadProducts();
+    const usable = products.length ? products : PRODUCTS;
+    const pizza = pizzaIds(usable);
+
+    const lines: CartLine[] = [];
+    for (const l of input.lines) {
+      const priced = repriceLine(l as CartLine, usable, input.restaurantId);
+      if (!priced)
+        return { ok: false, error: "Niektorý produkt už nie je dostupný." };
+      lines.push(priced);
+    }
+
+    let zone: DeliveryZone | null = null;
+    if (input.fulfillment === "delivery" && input.address) {
+      const zoneRows = (await sql`
+        SELECT id, restaurant_id, name, minimum_order, delivery_fee,
+               estimated_minutes, areas
+        FROM delivery_zones WHERE restaurant_id = ${input.restaurantId}
+        ORDER BY sort`) as ZoneRow[];
+      const usableZones = zoneRows.length
+        ? zoneRows.map(rowToZone)
+        : RESTAURANTS.find((r) => r.id === input.restaurantId)
+            ?.deliveryZones ?? [];
+      zone = matchZone(usableZones, `${input.address.street} ${input.address.city}`);
+    }
+
+    const totals = computeTotals(
+      lines,
+      input.restaurantId,
+      zone,
+      input.fulfillment,
+      null,
+      COUPONS
+    );
+    const phone = (input.phone ?? "").trim();
+    const name = (input.customerName ?? "").trim() || phone || "Objednávka";
+    const note = input.note?.trim() ? input.note.trim() : null;
+
+    await sql`
+      UPDATE orders SET
+        fulfillment = ${input.fulfillment},
+        customer_name = ${name}, phone = ${phone},
+        address = ${input.address ? JSON.stringify(input.address) : null},
+        zone_name = ${zone?.name ?? null},
+        lines = ${JSON.stringify(lines)}, pizza_count = ${pizzaCount(lines, pizza)},
+        subtotal = ${totals.subtotal}, delivery_fee = ${totals.deliveryFee},
+        discount = ${totals.discount}, total = ${totals.total},
+        payment = ${input.fulfillment === "delivery" ? "Platba pri doručení" : "Platba pri odbere"},
+        note = ${note}
+      WHERE id = ${id} AND restaurant_id = ${ctx.restaurantId}
+        AND COALESCE(paid, false) = false
+    `;
+    await audit({
+      action: "order.staff_updated",
+      actorId: ctx.userId,
+      actorEmail: ctx.email,
+      restaurantId: input.restaurantId,
+      target: id,
+      meta: { total: totals.total, role: ctx.role },
+    });
+    return { ok: true, id, total: totals.total };
+  } catch (e) {
+    console.error("updateStaffOrder failed", e);
+    return { ok: false, error: "Zmeny sa nepodarilo uložiť." };
   }
 }

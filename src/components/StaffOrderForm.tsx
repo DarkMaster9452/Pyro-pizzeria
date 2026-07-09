@@ -4,11 +4,21 @@ import { useEffect, useMemo, useState } from "react";
 import {
   getStorefront,
   createStaffOrder,
+  updateStaffOrder,
   type StaffOrderInput,
 } from "@/lib/server-actions";
 import { CATEGORIES } from "@/lib/data";
 import { eur, cn, shortId, pizzaNumbers } from "@/lib/utils";
 import type { Product, CartLine } from "@/lib/types";
+
+export interface StaffOrderInitial {
+  fulfillment: "delivery" | "pickup";
+  name: string;
+  phone: string;
+  address: string;
+  note: string;
+  items: { productId: string; quantity: number }[];
+}
 import {
   Search,
   Plus,
@@ -24,22 +34,34 @@ import {
 export function StaffOrderForm({
   restaurantId,
   onCreated,
+  onSaved,
+  orderId,
+  initial,
   compact,
 }: {
   restaurantId: string;
   onCreated?: (id: string) => void;
+  onSaved?: () => void;
+  orderId?: string;
+  initial?: StaffOrderInitial;
   compact?: boolean;
 }) {
+  const editing = orderId != null;
   const [products, setProducts] = useState<Product[] | null>(null);
-  const [qty, setQty] = useState<Record<string, number>>({});
+  const [qty, setQty] = useState<Record<string, number>>(() => {
+    const m: Record<string, number> = {};
+    for (const it of initial?.items ?? [])
+      m[it.productId] = (m[it.productId] ?? 0) + it.quantity;
+    return m;
+  });
   const [q, setQ] = useState("");
   const [fulfillment, setFulfillment] = useState<"delivery" | "pickup">(
-    "pickup"
+    initial?.fulfillment ?? "pickup"
   );
-  const [name, setName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [address, setAddress] = useState("");
-  const [note, setNote] = useState("");
+  const [name, setName] = useState(initial?.name ?? "");
+  const [phone, setPhone] = useState(initial?.phone ?? "");
+  const [address, setAddress] = useState(initial?.address ?? "");
+  const [note, setNote] = useState(initial?.note ?? "");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [okId, setOkId] = useState<string | null>(null);
@@ -122,9 +144,16 @@ export function StaffOrderForm({
     };
 
     setSubmitting(true);
-    const res = await createStaffOrder(payload);
+    const res = editing
+      ? await updateStaffOrder(orderId!, payload)
+      : await createStaffOrder(payload);
     setSubmitting(false);
     if (!res.ok) return setError(res.error ?? "Nepodarilo sa uložiť.");
+
+    if (editing) {
+      onSaved?.();
+      return;
+    }
     setOkId(res.id ?? null);
     setQty({});
     setName("");
@@ -303,10 +332,16 @@ export function StaffOrderForm({
         >
           {submitting ? (
             <Loader2 className="h-4 w-4 animate-spin" />
+          ) : editing ? (
+            <Check className="h-4 w-4" />
           ) : (
             <Phone className="h-4 w-4" />
           )}
-          {submitting ? "Ukladám…" : "Vytvoriť objednávku"}
+          {submitting
+            ? "Ukladám…"
+            : editing
+            ? "Uložiť zmeny"
+            : "Vytvoriť objednávku"}
         </button>
       </div>
     </div>
