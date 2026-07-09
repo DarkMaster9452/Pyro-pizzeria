@@ -5,7 +5,7 @@ import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { RESTAURANTS, CATEGORIES, ALLERGENS } from "@/lib/data";
 import type { DeliveryZone, Product, Coupon, CategoryId, Badge } from "@/lib/types";
-import { eur, cn } from "@/lib/utils";
+import { eur, cn, formatAddress } from "@/lib/utils";
 import { useApp } from "@/lib/store";
 import { BarChart } from "@/components/admin/AdminCharts";
 import { logoutAction } from "@/lib/auth-actions";
@@ -776,7 +776,7 @@ function OrderDetailModal({
               {detail.fulfillment === "delivery" && detail.address && (
                 <Info
                   label="Adresa"
-                  value={`${detail.address.street} ${detail.address.houseNumber}, ${detail.address.zip} ${detail.address.city}`}
+                  value={formatAddress(detail.address)}
                   wide
                 />
               )}

@@ -7,7 +7,7 @@ import {
   type StaffOrderInput,
 } from "@/lib/server-actions";
 import { CATEGORIES } from "@/lib/data";
-import { eur, cn, shortId } from "@/lib/utils";
+import { eur, cn, shortId, pizzaNumbers } from "@/lib/utils";
 import type { Product, CartLine } from "@/lib/types";
 import {
   Search,
@@ -38,10 +38,7 @@ export function StaffOrderForm({
   );
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
-  const [street, setStreet] = useState("");
-  const [house, setHouse] = useState("");
-  const [city, setCity] = useState("");
-  const [zip, setZip] = useState("");
+  const [address, setAddress] = useState("");
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -50,14 +47,17 @@ export function StaffOrderForm({
   useEffect(() => {
     getStorefront()
       .then((s) =>
-        setProducts(
-          s.products.filter(
-            (p) => p.restaurantId === restaurantId && p.available
-          )
-        )
+        setProducts(s.products.filter((p) => p.restaurantId === restaurantId))
       )
       .catch(() => setProducts([]));
   }, [restaurantId]);
+
+  // Flyer numbers, computed over the whole menu (incl. unavailable) so they
+  // match the printed leaflet regardless of availability.
+  const numberMap = useMemo(
+    () => pizzaNumbers(products ?? [], restaurantId),
+    [products, restaurantId]
+  );
 
   const filtered = useMemo(() => {
     const list = products ?? [];
@@ -107,8 +107,6 @@ export function StaffOrderForm({
       }));
 
     if (lines.length === 0) return setError("Pridajte aspoň jednu položku.");
-    if (name.trim().length < 2) return setError("Zadajte meno zákazníka.");
-    if (phone.trim().length < 6) return setError("Zadajte telefón.");
 
     const payload: StaffOrderInput = {
       restaurantId,
@@ -118,8 +116,8 @@ export function StaffOrderForm({
       lines,
       note,
       address:
-        fulfillment === "delivery"
-          ? { street, houseNumber: house, city, zip }
+        fulfillment === "delivery" && address.trim()
+          ? { street: address.trim(), houseNumber: "", city: "", zip: "" }
           : undefined,
     };
 
@@ -131,10 +129,7 @@ export function StaffOrderForm({
     setQty({});
     setName("");
     setPhone("");
-    setStreet("");
-    setHouse("");
-    setCity("");
-    setZip("");
+    setAddress("");
     setNote("");
     onCreated?.(res.id ?? "");
   }
@@ -162,7 +157,9 @@ export function StaffOrderForm({
         ) : (
           <div className="max-h-[420px] space-y-1.5 overflow-y-auto pr-1">
             {CATEGORIES.map((cat) => {
-              const items = filtered.filter((p) => p.category === cat.id);
+              const items = filtered.filter(
+                (p) => p.category === cat.id && p.available
+              );
               if (items.length === 0) return null;
               return (
                 <div key={cat.id}>
@@ -183,6 +180,11 @@ export function StaffOrderForm({
                       >
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-medium text-neutral-900 dark:text-white">
+                            {numberMap[p.id] != null && (
+                              <span className="text-brand-primary">
+                                {numberMap[p.id]}.{" "}
+                              </span>
+                            )}
                             {p.name}
                           </p>
                           <p className="text-xs text-neutral-500">
@@ -248,7 +250,7 @@ export function StaffOrderForm({
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="Meno zákazníka *"
+          placeholder="Meno (nepovinné)"
           className={inputCls}
         />
         <div className="relative">
@@ -256,39 +258,20 @@ export function StaffOrderForm({
           <input
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
-            placeholder="Telefón *"
+            placeholder="Telefón (nepovinné)"
             inputMode="tel"
             className={cn(inputCls, "pl-9")}
           />
         </div>
 
         {fulfillment === "delivery" && (
-          <div className="grid grid-cols-2 gap-2">
-            <input
-              value={street}
-              onChange={(e) => setStreet(e.target.value)}
-              placeholder="Ulica"
-              className={cn(inputCls, "col-span-2")}
-            />
-            <input
-              value={house}
-              onChange={(e) => setHouse(e.target.value)}
-              placeholder="Číslo"
-              className={inputCls}
-            />
-            <input
-              value={zip}
-              onChange={(e) => setZip(e.target.value)}
-              placeholder="PSČ"
-              className={inputCls}
-            />
-            <input
-              value={city}
-              onChange={(e) => setCity(e.target.value)}
-              placeholder="Obec / mesto"
-              className={cn(inputCls, "col-span-2")}
-            />
-          </div>
+          <textarea
+            value={address}
+            onChange={(e) => setAddress(e.target.value)}
+            rows={2}
+            placeholder="Adresa doručenia (napíšte celú adresu)"
+            className={cn(inputCls, "resize-none")}
+          />
         )}
 
         <textarea

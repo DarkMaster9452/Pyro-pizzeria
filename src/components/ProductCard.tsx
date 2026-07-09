@@ -10,7 +10,13 @@ import { useApp } from "@/lib/store";
 import { eur, shortId } from "@/lib/utils";
 import { Heart, Plus } from "lucide-react";
 
-export function ProductCard({ product }: { product: Product }) {
+export function ProductCard({
+  product,
+  number,
+}: {
+  product: Product;
+  number?: number;
+}) {
   const [open, setOpen] = useState(false);
   const favorites = useApp((s) => s.favorites);
   const toggleFavorite = useApp((s) => s.toggleFavorite);
@@ -82,6 +88,9 @@ export function ProductCard({ product }: { product: Product }) {
 
         <div className="flex flex-1 flex-col p-4">
           <h3 className="font-display text-lg font-bold leading-tight">
+            {number != null && (
+              <span className="text-brand-primary">{number}. </span>
+            )}
             {product.name}
           </h3>
           <p className="mt-1 line-clamp-2 flex-1 text-sm text-neutral-500 dark:text-neutral-400">

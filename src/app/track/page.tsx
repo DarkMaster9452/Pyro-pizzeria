@@ -6,7 +6,7 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import { useApp } from "@/lib/store";
 import { RESTAURANTS } from "@/lib/data";
-import { eur } from "@/lib/utils";
+import { eur, formatAddress } from "@/lib/utils";
 import { getOrderStatus, type PublicOrderStatus } from "@/lib/server-actions";
 import type { OrderStatus } from "@/lib/types";
 import { Footer } from "@/components/Footer";
@@ -193,8 +193,7 @@ function TrackInner() {
             </div>
             {order.address && (
               <p className="mt-4 text-sm text-neutral-500">
-                Doručenie: {order.address.street} {order.address.houseNumber},{" "}
-                {order.address.city}
+                Doručenie: {formatAddress(order.address)}
               </p>
             )}
             <p className="mt-1 text-sm text-neutral-500">

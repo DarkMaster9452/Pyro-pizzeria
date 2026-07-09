@@ -7,7 +7,7 @@ import { useApp } from "@/lib/store";
 import { PRODUCTS, CATEGORIES } from "@/lib/data";
 import type { Badge, CategoryId } from "@/lib/types";
 import { ProductCard } from "@/components/ProductCard";
-import { cn } from "@/lib/utils";
+import { cn, pizzaNumbers } from "@/lib/utils";
 import { Search, SlidersHorizontal } from "lucide-react";
 
 const FILTERS: { id: Badge; label: string }[] = [
@@ -30,6 +30,12 @@ function MenuInner() {
   );
 
   const source = dbProducts ?? PRODUCTS;
+  // Flyer numbers, computed from the canonical (unsorted) list so they stay
+  // fixed even when the customer sorts by price.
+  const numberMap = useMemo(
+    () => pizzaNumbers(source, restaurantId),
+    [source, restaurantId]
+  );
   const products = useMemo(() => {
     let list = source.filter(
       (p) => p.restaurantId === restaurantId && p.category === activeCat
@@ -150,7 +156,7 @@ function MenuInner() {
             className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
           >
             {products.map((p) => (
-              <ProductCard key={p.id} product={p} />
+              <ProductCard key={p.id} product={p} number={numberMap[p.id]} />
             ))}
           </motion.div>
         )}

@@ -1401,10 +1401,9 @@ export async function createStaffOrder(
   if (input.restaurantId !== ctx.restaurantId)
     return { ok: false, error: "Nesprávna prevádzka." };
 
-  const name = input.customerName.trim();
-  const phone = input.phone.trim();
-  if (name.length < 2) return { ok: false, error: "Zadajte meno zákazníka." };
-  if (phone.length < 6) return { ok: false, error: "Zadajte telefón." };
+  // Staff key the order themselves — name and phone are optional.
+  const phone = (input.phone ?? "").trim();
+  const name = (input.customerName ?? "").trim() || phone || "Objednávka";
   if (!Array.isArray(input.lines) || input.lines.length === 0)
     return { ok: false, error: "Pridajte aspoň jednu položku." };
 

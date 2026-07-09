@@ -13,7 +13,7 @@ import {
 } from "@/lib/server-actions";
 import { logoutAction } from "@/lib/auth-actions";
 import { StaffOrderForm } from "@/components/StaffOrderForm";
-import { eur } from "@/lib/utils";
+import { eur, formatAddress } from "@/lib/utils";
 import {
   Bike,
   Navigation,
@@ -36,9 +36,9 @@ import {
 } from "lucide-react";
 
 function navUrl(o: DispatchOrder): string | null {
-  if (!o.address) return null;
-  const q = `${o.address.street} ${o.address.houseNumber}, ${o.address.zip} ${o.address.city}`;
-  return `https://mapy.cz/zakladni?q=${encodeURIComponent(q.trim())}`;
+  const q = formatAddress(o.address);
+  if (!q) return null;
+  return `https://mapy.cz/zakladni?q=${encodeURIComponent(q)}`;
 }
 
 function telUrl(phone: string): string {
@@ -355,9 +355,7 @@ function OrderCard({
   const isDelivery = o.fulfillment === "delivery";
   const canAct = isMine || isAdmin;
   const nav = navUrl(o);
-  const addr = o.address
-    ? `${o.address.street} ${o.address.houseNumber}, ${o.address.zip} ${o.address.city}`
-    : null;
+  const addr = formatAddress(o.address) || null;
 
   return (
     <motion.div
