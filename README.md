@@ -95,6 +95,19 @@ npm run dev        # http://localhost:3000
 npm run build && npm run start
 ```
 
+## 🔑 Demo prístupy — rozvoz (Pyro)
+
+Jednoduché demo účty pre panel rozvozcu (`/rozvoz`). Po prihlásení sa kuriérovi
+otvorí rovno panel rozvozu.
+
+| Meno            | Prihlásenie (email) | Heslo    |
+| --------------- | ------------------- | -------- |
+| Daniel Pekný    | `daniel@pyro.sk`    | `daniel` |
+| Tomáš Kavecký   | `tomas@pyro.sk`     | `tomas`  |
+| Martin Straňanek| `martin@pyro.sk`    | `martin` |
+
+> Iba na ukážku — pred ostrým nasadením heslá zmeňte.
+
 ## 🔌 Wiring the real backend (optional)
 
 Everything below is scaffolded and documented rather than hard-wired, so the
