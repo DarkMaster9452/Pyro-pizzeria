@@ -7,6 +7,7 @@ import type { Product } from "@/lib/types";
 import { BadgeRow } from "./Badges";
 import { PizzaCustomizer } from "./PizzaCustomizer";
 import { useApp } from "@/lib/store";
+import { extrasForProduct } from "@/lib/data";
 import { eur, shortId } from "@/lib/utils";
 import { Heart, Plus } from "lucide-react";
 
@@ -24,6 +25,7 @@ export function ProductCard({
   const soldOut = useApp((s) => s.soldOut[product.restaurantId] ?? false);
   const isFav = favorites.includes(product.id);
   const orderable = product.available && !soldOut;
+  const customizable = extrasForProduct(product) != null;
 
   function quickAdd() {
     const size = product.sizes[0];
@@ -117,7 +119,7 @@ export function ProductCard({
               >
                 {soldOut ? "Vypredané" : "Aktuálne nedostupná"}
               </button>
-            ) : product.category === "pizza" ? (
+            ) : customizable ? (
               <button
                 onClick={() => setOpen(true)}
                 className="btn-primary px-5 py-2.5 text-sm"

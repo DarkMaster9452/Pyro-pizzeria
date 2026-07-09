@@ -14,7 +14,6 @@ import {
   type VerifyResult,
 } from "@/components/AddressVerification";
 import type { FulfillmentType, Order } from "@/lib/types";
-import { Footer } from "@/components/Footer";
 import {
   Truck,
   Store,
@@ -343,7 +342,6 @@ export default function CheckoutPage() {
           </div>
         </div>
       </div>
-      <Footer />
     </main>
   );
 }

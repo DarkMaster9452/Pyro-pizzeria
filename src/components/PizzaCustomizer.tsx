@@ -4,11 +4,7 @@ import Image from "next/image";
 import { useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import type { Product } from "@/lib/types";
-import {
-  EXTRA_INGREDIENTS,
-  EXTRA_CHEESE_PRICE,
-  STUFFED_CRUST_PRICE,
-} from "@/lib/data";
+import { extrasForProduct } from "@/lib/data";
 import { useApp } from "@/lib/store";
 import { eur, shortId, cn } from "@/lib/utils";
 import { Check, Minus, Plus, X } from "lucide-react";
@@ -22,34 +18,27 @@ export function PizzaCustomizer({
 }) {
   const addLine = useApp((s) => s.addLine);
   const [sizeId, setSizeId] = useState(product.sizes[0].id);
-  const [extraCheese, setExtraCheese] = useState(false);
-  const [stuffedCrust, setStuffedCrust] = useState(false);
   const [added, setAdded] = useState<string[]>([]);
-  const [removed, setRemoved] = useState<string[]>([]);
   const [qty, setQty] = useState(1);
   const [note, setNote] = useState("");
 
   const size = product.sizes.find((s) => s.id === sizeId)!;
+  const extras = extrasForProduct(product) ?? [];
+  const isLangos = product.name.toLowerCase().includes("langoš");
+  const hasSizes = product.sizes.length > 1;
 
   const unitPrice = useMemo(() => {
     let p = product.basePrice + size.priceDelta;
-    if (extraCheese) p += EXTRA_CHEESE_PRICE;
-    if (stuffedCrust) p += STUFFED_CRUST_PRICE;
     for (const name of added) {
-      const ing = EXTRA_INGREDIENTS.find((i) => i.name === name);
+      const ing = extras.find((i) => i.name === name);
       if (ing) p += ing.price;
     }
     return Math.round(p * 100) / 100;
-  }, [product.basePrice, size.priceDelta, extraCheese, stuffedCrust, added]);
+  }, [product.basePrice, size.priceDelta, added, extras]);
 
   function toggleAdd(name: string) {
     setAdded((a) =>
       a.includes(name) ? a.filter((x) => x !== name) : [...a, name]
-    );
-  }
-  function toggleRemove(name: string) {
-    setRemoved((r) =>
-      r.includes(name) ? r.filter((x) => x !== name) : [...r, name]
     );
   }
 
@@ -64,10 +53,10 @@ export function PizzaCustomizer({
       sizeLabel: size.label,
       unitPrice,
       quantity: qty,
-      extraCheese,
-      stuffedCrust,
+      extraCheese: false,
+      stuffedCrust: false,
       addedIngredients: added,
-      removedIngredients: removed,
+      removedIngredients: [],
       note: note || undefined,
     });
     onClose();
@@ -115,90 +104,58 @@ export function PizzaCustomizer({
           </div>
 
           <div className="flex-1 space-y-5 overflow-y-auto p-5">
-            {/* size */}
-            <Section title="Veľkosť">
-              <div className="grid grid-cols-3 gap-2">
-                {product.sizes.map((s) => (
-                  <button
-                    key={s.id}
-                    onClick={() => setSizeId(s.id)}
-                    className={cn(
-                      "rounded-2xl border-2 p-3 text-center transition-all",
-                      sizeId === s.id
-                        ? "border-brand-primary bg-brand-primary/5"
-                        : "border-transparent bg-white dark:bg-[#262626]"
-                    )}
-                  >
-                    <p className="font-semibold">{s.label}</p>
-                    <p className="text-xs text-neutral-500">
-                      {s.priceDelta > 0 ? `+${eur(s.priceDelta)}` : "základ"}
-                    </p>
-                  </button>
-                ))}
-              </div>
-            </Section>
+            {/* size (only when there is a real choice) */}
+            {hasSizes && (
+              <Section title="Veľkosť">
+                <div className="grid grid-cols-3 gap-2">
+                  {product.sizes.map((s) => (
+                    <button
+                      key={s.id}
+                      onClick={() => setSizeId(s.id)}
+                      className={cn(
+                        "rounded-2xl border-2 p-3 text-center transition-all",
+                        sizeId === s.id
+                          ? "border-brand-primary bg-brand-primary/5"
+                          : "border-transparent bg-white dark:bg-[#262626]"
+                      )}
+                    >
+                      <p className="font-semibold">{s.label}</p>
+                      <p className="text-xs text-neutral-500">
+                        {s.priceDelta > 0 ? `+${eur(s.priceDelta)}` : "základ"}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              </Section>
+            )}
 
-            {/* toggles */}
-            <Section title="Úpravy">
-              <div className="grid gap-2">
-                <ToggleRow
-                  label="Extra syr"
-                  price={EXTRA_CHEESE_PRICE}
-                  active={extraCheese}
-                  onClick={() => setExtraCheese((v) => !v)}
-                />
-                <ToggleRow
-                  label="Plnený okraj"
-                  price={STUFFED_CRUST_PRICE}
-                  active={stuffedCrust}
-                  onClick={() => setStuffedCrust((v) => !v)}
-                />
-              </div>
-            </Section>
-
-            {/* extra ingredients */}
-            <Section title="Extra ingrediencie">
-              <div className="flex flex-wrap gap-2">
-                {EXTRA_INGREDIENTS.map((ing) => (
-                  <button
-                    key={ing.name}
-                    onClick={() => toggleAdd(ing.name)}
-                    className={cn(
-                      "chip border transition-colors",
-                      added.includes(ing.name)
-                        ? "border-brand-primary bg-brand-primary/10 text-brand-primary"
-                        : "border-black/10 bg-white text-neutral-600 dark:border-white/10 dark:bg-[#262626] dark:text-neutral-300"
-                    )}
-                  >
-                    {added.includes(ing.name) && <Check className="h-3 w-3" />}
-                    {ing.name}
-                    <span className="text-neutral-400">
-                      +{eur(ing.price)}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </Section>
-
-            {/* remove ingredients */}
-            <Section title="Odobrať ingrediencie">
-              <div className="flex flex-wrap gap-2">
-                {product.ingredients.map((ing) => (
-                  <button
-                    key={ing}
-                    onClick={() => toggleRemove(ing)}
-                    className={cn(
-                      "chip border transition-colors",
-                      removed.includes(ing)
-                        ? "border-brand-error bg-brand-error/10 text-brand-error line-through"
-                        : "border-black/10 bg-white text-neutral-600 dark:border-white/10 dark:bg-[#262626] dark:text-neutral-300"
-                    )}
-                  >
-                    {ing}
-                  </button>
-                ))}
-              </div>
-            </Section>
+            {/* extras (flyer PRÍLOHY / langoš toppings) */}
+            {extras.length > 0 && (
+              <Section
+                title={isLangos ? "S čím to bude? (prílohy)" : "Prílohy"}
+              >
+                <div className="flex flex-wrap gap-2">
+                  {extras.map((ing) => (
+                    <button
+                      key={ing.name}
+                      onClick={() => toggleAdd(ing.name)}
+                      className={cn(
+                        "chip border transition-colors",
+                        added.includes(ing.name)
+                          ? "border-brand-primary bg-brand-primary/10 text-brand-primary"
+                          : "border-black/10 bg-white text-neutral-600 dark:border-white/10 dark:bg-[#262626] dark:text-neutral-300"
+                      )}
+                    >
+                      {added.includes(ing.name) && <Check className="h-3 w-3" />}
+                      {ing.name}
+                      <span className="text-neutral-400">
+                        +{eur(ing.price)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </Section>
+            )}
 
             {/* note */}
             <Section title="Poznámka pre kuchyňu">
@@ -253,44 +210,5 @@ function Section({
       </h4>
       {children}
     </div>
-  );
-}
-
-function ToggleRow({
-  label,
-  price,
-  active,
-  onClick,
-}: {
-  label: string;
-  price: number;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={cn(
-        "flex items-center justify-between rounded-2xl border-2 p-3 transition-all",
-        active
-          ? "border-brand-primary bg-brand-primary/5"
-          : "border-transparent bg-white dark:bg-[#262626]"
-      )}
-    >
-      <span className="font-medium">{label}</span>
-      <span className="flex items-center gap-2 text-sm text-neutral-500">
-        +{eur(price)}
-        <span
-          className={cn(
-            "flex h-5 w-5 items-center justify-center rounded-full border-2",
-            active
-              ? "border-brand-primary bg-brand-primary text-white"
-              : "border-neutral-300"
-          )}
-        >
-          {active && <Check className="h-3 w-3" />}
-        </span>
-      </span>
-    </button>
   );
 }
