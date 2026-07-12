@@ -1550,11 +1550,11 @@ export async function markDispatchPaid(
 // Kitchen (KDS) + counter handover
 // ---------------------------------------------------------------------------
 // Split of duties:
-//  • cooks ("kuchár") advance an order through prep (received → preparing →
-//    ready) and may pull a not-yet-taken order back into prep; they can never
-//    take payment or hand an order over.
-//  • admins watch the kitchen read-only and run the counter handover ("výdaj")
-//    for pickup orders — they mark them paid, which finalises them.
+//  • cooks ("kuchár") and admins advance an order through prep (received →
+//    preparing → ready) and may pull a not-yet-taken order back into prep. The
+//    admin UI confirms each step to avoid mis-taps. Neither takes payment here.
+//  • admins run the counter handover ("výdaj") for pickup orders — they mark
+//    them paid, which finalises them.
 //  • delivery orders go to the driver board once ready; pickups appear on the
 //    admin handover panel.
 // ===========================================================================
@@ -1581,15 +1581,6 @@ async function requireKitchen(): Promise<{
     role,
     restaurantId: session.user.restaurantId,
   };
-}
-
-// Guard for CHANGING prep status: only cooks (and the super admin owner).
-// A plain admin watches the kitchen but cannot move orders through it.
-async function requireCook() {
-  const ctx = await requireKitchen();
-  if (ctx.role !== "kuchar" && ctx.role !== "super_admin")
-    throw new Error("Forbidden");
-  return ctx;
 }
 
 export interface KitchenOrder {
@@ -1678,7 +1669,7 @@ export async function getKitchenBoard(): Promise<KitchenOrder[]> {
 export async function advanceKitchenOrder(
   id: string
 ): Promise<{ ok: boolean; error?: string }> {
-  const ctx = await requireCook();
+  const ctx = await requireKitchen();
   await ensureOrderColumns();
   const rows = (await sql`
     UPDATE orders
@@ -1706,7 +1697,7 @@ export async function advanceKitchenOrder(
 export async function returnKitchenOrder(
   id: string
 ): Promise<{ ok: boolean; error?: string }> {
-  const ctx = await requireCook();
+  const ctx = await requireKitchen();
   await ensureOrderColumns();
   const rows = (await sql`
     UPDATE orders SET status = 'preparing'

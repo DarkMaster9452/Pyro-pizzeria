@@ -24,6 +24,8 @@ import {
   saveZones,
   getHandoverBoard,
   markDispatchPaid,
+  advanceKitchenOrder,
+  returnKitchenOrder,
   type AdminSummary,
   type OrderDetail,
   type CouponInput,
@@ -306,6 +308,7 @@ export function AdminApp({
               <Kitchen
                 summary={summary}
                 restaurantId={restaurantId}
+                refresh={refresh}
                 onOpen={setOpenOrderId}
               />
             )}
@@ -549,21 +552,45 @@ const STATUS_COLOR: Record<string, string> = {
 function Kitchen({
   summary,
   restaurantId,
+  refresh,
   onOpen,
 }: {
   summary: AdminSummary | null;
   restaurantId: string;
+  refresh: () => void;
   onOpen: (id: string) => void;
 }) {
   const active =
     summary?.orders.filter((o) =>
       ["received", "accepted", "preparing", "ready"].includes(o.status)
     ) ?? [];
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState<{
+    id: string;
+    kind: "advance" | "return";
+  } | null>(null);
+  const [error, setError] = useState("");
+
+  async function run(id: string, kind: "advance" | "return") {
+    setBusyId(id);
+    setError("");
+    try {
+      const res =
+        kind === "advance"
+          ? await advanceKitchenOrder(id)
+          : await returnKitchenOrder(id);
+      if (!res.ok) setError(res.error ?? "Akcia zlyhala.");
+      setConfirm(null);
+      refresh();
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   return (
     <div className="grid gap-6 xl:grid-cols-[1fr_360px]">
-      {/* LEFT — prep board, read-only for the admin. The cook advances orders
-          through prep from the /kuchyna board. */}
+      {/* LEFT — prep board. The admin can move orders through prep, but every
+          step asks for confirmation so nothing changes by a mis-tap. */}
       <div>
         <div className="mb-4 flex items-center justify-between gap-3">
           <p className="text-sm text-neutral-500">
@@ -572,9 +599,14 @@ function Kitchen({
           </p>
         </div>
         <p className="mb-3 text-xs text-neutral-400">
-          Stav prípravy riadi kuchár. Vy tu sledujete priebeh a vpravo vydávate
-          hotové objednávky na odber.
+          Posúvate stav prípravy (s potvrdením) — alebo to nechajte na kuchára.
+          Vpravo vydávate hotové objednávky na odber.
         </p>
+        {error && (
+          <p className="mb-3 rounded-xl bg-brand-error/10 px-3 py-2 text-xs text-brand-error">
+            {error}
+          </p>
+        )}
         {active.length === 0 ? (
           <div className={cn(CARD, "py-16 text-center text-neutral-500")}>
             <ChefHat className="mx-auto mb-3 h-10 w-10 opacity-40" />
@@ -582,42 +614,85 @@ function Kitchen({
           </div>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2">
-            {active.map((o) => (
-              <motion.div
-                layout
-                key={o.id}
-                className={cn(
-                  "rounded-2xl border-2 p-5 transition-all",
-                  STATUS_COLOR[o.status]
-                )}
-              >
-                <div className="flex items-center justify-between">
-                  <button
-                    onClick={() => onOpen(o.id)}
-                    className="font-display text-xl font-extrabold text-neutral-900 underline-offset-2 hover:underline dark:text-white"
-                  >
-                    #{o.id}
-                  </button>
-                  <span className="chip bg-black/[0.06] text-neutral-900 dark:bg-white/10 dark:text-white">
-                    {o.fulfillment === "delivery" ? "Rozvoz" : "Odber"}
-                  </span>
-                </div>
-                <p className="mt-1 flex items-center gap-1 text-xs text-neutral-400">
-                  <Clock className="h-3 w-3" /> pred {o.minsAgo} min ·{" "}
-                  {o.customerName}
-                </p>
-                <ul className="my-3 space-y-1 text-sm text-neutral-800 dark:text-neutral-200">
-                  {o.lines.map((it, i) => (
-                    <li key={i}>
-                      • {it.quantity}× {it.name}
-                    </li>
-                  ))}
-                </ul>
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-black/[0.06] px-3 py-1 text-sm font-semibold text-neutral-900 dark:bg-white/10 dark:text-white">
-                  {STATUS_LABEL[o.status]}
-                </span>
-              </motion.div>
-            ))}
+            {active.map((o) => {
+              const isConfirming = confirm?.id === o.id;
+              const advanceLabel =
+                o.status === "preparing" ? "Označiť hotové" : "Začať prípravu";
+              return (
+                <motion.div
+                  layout
+                  key={o.id}
+                  className={cn(
+                    "rounded-2xl border-2 p-5 transition-all",
+                    STATUS_COLOR[o.status]
+                  )}
+                >
+                  <div className="flex items-center justify-between">
+                    <button
+                      onClick={() => onOpen(o.id)}
+                      className="font-display text-xl font-extrabold text-neutral-900 underline-offset-2 hover:underline dark:text-white"
+                    >
+                      #{o.id}
+                    </button>
+                    <span className="chip bg-black/[0.06] text-neutral-900 dark:bg-white/10 dark:text-white">
+                      {o.fulfillment === "delivery" ? "Rozvoz" : "Odber"}
+                    </span>
+                  </div>
+                  <p className="mt-1 flex items-center gap-1 text-xs text-neutral-400">
+                    <Clock className="h-3 w-3" /> pred {o.minsAgo} min ·{" "}
+                    {o.customerName}
+                  </p>
+                  <ul className="my-3 space-y-1 text-sm text-neutral-800 dark:text-neutral-200">
+                    {o.lines.map((it, i) => (
+                      <li key={i}>
+                        • {it.quantity}× {it.name}
+                      </li>
+                    ))}
+                  </ul>
+
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-black/[0.06] px-3 py-1 text-sm font-semibold text-neutral-900 dark:bg-white/10 dark:text-white">
+                      {STATUS_LABEL[o.status]}
+                    </span>
+
+                    {isConfirming ? (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-semibold text-neutral-600 dark:text-neutral-300">
+                          Naozaj?
+                        </span>
+                        <button
+                          disabled={busyId === o.id}
+                          onClick={() => run(o.id, confirm!.kind)}
+                          className="rounded-full bg-brand-primary px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50"
+                        >
+                          Áno
+                        </button>
+                        <button
+                          onClick={() => setConfirm(null)}
+                          className="rounded-full border border-black/10 px-3 py-1.5 text-xs font-semibold dark:border-white/15"
+                        >
+                          Zrušiť
+                        </button>
+                      </div>
+                    ) : o.status === "ready" ? (
+                      <button
+                        onClick={() => setConfirm({ id: o.id, kind: "return" })}
+                        className="rounded-full border border-black/10 px-3 py-1.5 text-xs font-semibold text-neutral-600 hover:bg-black/5 dark:border-white/15 dark:text-neutral-300 dark:hover:bg-white/5"
+                      >
+                        Vrátiť do prípravy
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => setConfirm({ id: o.id, kind: "advance" })}
+                        className="rounded-full bg-neutral-900 px-3 py-1.5 text-xs font-bold text-white dark:bg-white dark:text-brand-dark"
+                      >
+                        {advanceLabel}
+                      </button>
+                    )}
+                  </div>
+                </motion.div>
+              );
+            })}
           </div>
         )}
       </div>

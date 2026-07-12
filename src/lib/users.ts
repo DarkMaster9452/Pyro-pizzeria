@@ -25,6 +25,56 @@ export async function hashPassword(password: string): Promise<string> {
   return argonHash(password, ARGON_OPTS);
 }
 
+// ---------------------------------------------------------------------------
+// Demo staff accounts. Created lazily & idempotently so every role can log in
+// out of the box (admins, cooks and drivers for both pizzerias). Existing
+// accounts are never overwritten. Passwords are for demo only — change them
+// before going live.
+// ---------------------------------------------------------------------------
+interface SeedStaff {
+  email: string;
+  name: string;
+  password: string;
+  role: DbUser["role"];
+  restaurantId: string | null;
+}
+
+export const STAFF_SEED: SeedStaff[] = [
+  { email: "admin@pyro.sk", name: "Pyro Admin", password: "admin", role: "admin", restaurantId: "pyro" },
+  { email: "admin@polomarik.sk", name: "Polomárik Admin", password: "admin", role: "admin", restaurantId: "polomarik" },
+  { email: "kuchar@pyro.sk", name: "Pyro Kuchár", password: "kuchar", role: "kuchar", restaurantId: "pyro" },
+  { email: "kuchar@polomarik.sk", name: "Polomárik Kuchár", password: "kuchar", role: "kuchar", restaurantId: "polomarik" },
+  { email: "daniel@pyro.sk", name: "Daniel Pekný", password: "daniel", role: "driver", restaurantId: "pyro" },
+  { email: "tomas@pyro.sk", name: "Tomáš Kavecký", password: "tomas", role: "driver", restaurantId: "pyro" },
+  { email: "martin@pyro.sk", name: "Martin Straňanek", password: "martin", role: "driver", restaurantId: "pyro" },
+  { email: "rozvoz@polomarik.sk", name: "Polomárik Rozvoz", password: "rozvoz", role: "driver", restaurantId: "polomarik" },
+  { email: "zakaznik@pyro.sk", name: "Demo Zákazník", password: "zakaznik", role: "customer", restaurantId: null },
+];
+
+let staffSeedPromise: Promise<void> | null = null;
+export async function ensureStaffAccounts(): Promise<void> {
+  if (staffSeedPromise) return staffSeedPromise;
+  staffSeedPromise = (async () => {
+    for (const s of STAFF_SEED) {
+      const e = s.email.toLowerCase();
+      const existing = (await sql`
+        SELECT 1 FROM users WHERE email = ${e} LIMIT 1
+      `) as unknown[];
+      if (existing.length) continue; // never overwrite an existing account
+      const pwHash = await hashPassword(s.password);
+      await sql`
+        INSERT INTO users (email, name, password_hash, role, restaurant_id, consent_at)
+        VALUES (${e}, ${s.name}, ${pwHash}, ${s.role}, ${s.restaurantId}, now())
+        ON CONFLICT (email) DO NOTHING
+      `;
+    }
+  })().catch((err) => {
+    staffSeedPromise = null; // allow a later retry
+    throw err;
+  });
+  return staffSeedPromise;
+}
+
 interface UserRow extends DbUser {
   password_hash: string;
   failed_attempts: number;
@@ -38,6 +88,11 @@ export async function verifyCredentials(
   password: string
 ): Promise<DbUser | null> {
   const e = email.toLowerCase().trim();
+  // Make sure the demo staff accounts exist before the first login. Never let a
+  // seeding hiccup block a real login.
+  await ensureStaffAccounts().catch((err) =>
+    console.error("ensureStaffAccounts failed", err)
+  );
   const rows = (await sql`
     SELECT id, email, name, role, restaurant_id, session_version,
            password_hash, failed_attempts, locked_until
