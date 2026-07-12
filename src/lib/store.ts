@@ -27,10 +27,6 @@ interface AppState {
   coupon: string | null;
   setCoupon: (code: string | null) => void;
 
-  // favorites
-  favorites: string[];
-  toggleFavorite: (productId: string) => void;
-
   // orders (order history + tracking)
   orders: Order[];
   addOrder: (order: Order) => void;
@@ -82,14 +78,6 @@ export const useApp = create<AppState>()(
 
       coupon: null,
       setCoupon: (code) => set({ coupon: code }),
-
-      favorites: [],
-      toggleFavorite: (productId) =>
-        set((s) => ({
-          favorites: s.favorites.includes(productId)
-            ? s.favorites.filter((f) => f !== productId)
-            : [...s.favorites, productId],
-        })),
 
       orders: [],
       addOrder: (order) => set((s) => ({ orders: [order, ...s.orders] })),

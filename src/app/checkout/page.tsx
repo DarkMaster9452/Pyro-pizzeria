@@ -69,8 +69,13 @@ export default function CheckoutPage() {
     dbCoupons ?? COUPONS
   );
 
-  // No minimum order — delivery only needs a valid (in-range) address.
-  const deliveryOk = fulfillment === "pickup" || verify?.zone != null;
+  // Delivery needs a valid (in-range) address AND, when the matched zone has a
+  // minimum order set by the admin, a subtotal that meets it.
+  const minOrder = zone?.minimumOrder ?? 0;
+  const meetsMinimum = totals.subtotal >= minOrder;
+  const missingForMinimum = Math.max(0, minOrder - totals.subtotal);
+  const deliveryOk =
+    fulfillment === "pickup" || (verify?.zone != null && meetsMinimum);
   const detailsOk = name.trim() && phone.trim();
   const canOrder = cart.length > 0 && deliveryOk && detailsOk && !soldOut;
 
@@ -321,11 +326,19 @@ export default function CheckoutPage() {
                 Vyplňte meno a telefón.
               </p>
             )}
-            {fulfillment === "delivery" && !deliveryOk && (
+            {fulfillment === "delivery" && verify?.zone == null && (
               <p className="mt-3 text-xs text-brand-error">
                 Zadajte a overte adresu doručenia.
               </p>
             )}
+            {fulfillment === "delivery" &&
+              verify?.zone != null &&
+              !meetsMinimum && (
+                <p className="mt-3 text-xs text-brand-error">
+                  Minimálna objednávka pre zónu {zone?.name} je {eur(minOrder)}.
+                  Pridajte ešte {eur(missingForMinimum)}.
+                </p>
+              )}
 
             {orderError && (
               <p className="mt-3 text-xs text-brand-error">{orderError}</p>

@@ -22,6 +22,9 @@ export const metadata: Metadata = {
     description: "Prémiová pizza. Rozvoz a osobný odber.",
     type: "website",
   },
+  // Neutral default; swapped client-side to the rounded logo of the pizzeria
+  // the guest is currently browsing (see Providers).
+  icons: { icon: "/icon.svg" },
 };
 
 export const viewport: Viewport = {

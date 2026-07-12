@@ -516,6 +516,17 @@ const NEXT_STATUS: Record<string, string> = {
   preparing: "ready",
   ready: "delivered",
 };
+// First-letter initials of the driver who delivered the order (e.g. "Daniel
+// Pekný" → "DP"), shown as a small avatar in the orders list and detail.
+function driverInitials(name: string): string {
+  return name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase() ?? "")
+    .join("");
+}
+
 const STATUS_LABEL: Record<string, string> = {
   received: "Nová",
   accepted: "Prijatá",
@@ -640,17 +651,19 @@ function Orders({
       <table className="w-full text-left text-sm">
         <thead className="border-b border-black/[0.08] text-neutral-500 dark:border-white/5">
           <tr>
-            {["ID", "Zákazník", "Typ", "Suma", "Stav", ""].map((h) => (
-              <th key={h} className="p-4 font-semibold">
-                {h}
-              </th>
-            ))}
+            {["ID", "Zákazník", "Typ", "Suma", "Stav", "Doručil", ""].map(
+              (h) => (
+                <th key={h} className="p-4 font-semibold">
+                  {h}
+                </th>
+              )
+            )}
           </tr>
         </thead>
         <tbody>
           {rows.length === 0 && (
             <tr>
-              <td colSpan={6} className="p-8 text-center text-neutral-500">
+              <td colSpan={7} className="p-8 text-center text-neutral-500">
                 Zatiaľ žiadne objednávky.
               </td>
             </tr>
@@ -680,6 +693,18 @@ function Orders({
                     </span>
                   )}
                 </div>
+              </td>
+              <td className="p-4">
+                {r.driverName ? (
+                  <span
+                    title={`Doručil: ${r.driverName}`}
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-brand-secondary/20 text-xs font-bold text-brand-secondary"
+                  >
+                    {driverInitials(r.driverName)}
+                  </span>
+                ) : (
+                  <span className="text-neutral-400">—</span>
+                )}
               </td>
               <td className="p-4 text-right text-xs font-semibold text-brand-secondary">
                 Detail →
@@ -784,6 +809,9 @@ function OrderDetailModal({
               )}
               {detail.zoneName && (
                 <Info label="Zóna" value={detail.zoneName} />
+              )}
+              {detail.driverName && (
+                <Info label="Doručil" value={detail.driverName} />
               )}
               {detail.note && <Info label="Poznámka" value={detail.note} wide />}
             </div>
@@ -1454,11 +1482,16 @@ function Zones({ restaurantId }: { restaurantId: string }) {
               <Trash2 className="h-3.5 w-3.5" /> Zmazať zónu
             </button>
           </div>
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <LabeledInput
               label="Názov zóny"
               value={z.name}
               onChange={(v) => update(z.id, { name: v })}
+            />
+            <LabeledNumber
+              label="Min. objednávka €"
+              value={z.minimumOrder}
+              onChange={(v) => update(z.id, { minimumOrder: v })}
             />
             <LabeledNumber
               label="Doprava €"
@@ -1471,6 +1504,10 @@ function Zones({ restaurantId }: { restaurantId: string }) {
               onChange={(v) => update(z.id, { estimatedMinutes: v })}
             />
           </div>
+          <p className="mt-2 text-xs text-neutral-500">
+            Min. objednávka 0 € = bez limitu. Napr. 20 € znamená, že do tejto
+            zóny doručíme až od 20 €.
+          </p>
           <div className="mt-4">
             <p className="mb-2 text-xs text-neutral-500">Ulice / obce</p>
             <div className="flex flex-wrap gap-2">

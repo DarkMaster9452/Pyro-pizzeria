@@ -63,6 +63,24 @@ export function Providers({ children }: { children: React.ReactNode }) {
     else root.removeAttribute("data-brand");
   }, [restaurantId, isAdmin]);
 
+  // Swap the browser-tab favicon to the rounded logo of the pizzeria the guest
+  // is currently on (falls back to the neutral brand icon before they pick one).
+  useEffect(() => {
+    const href = restaurantId
+      ? `/logos/${restaurantId}-icon.svg`
+      : "/icon.svg";
+    let link = document.querySelector<HTMLLinkElement>(
+      'link[rel="icon"]'
+    );
+    if (!link) {
+      link = document.createElement("link");
+      link.rel = "icon";
+      document.head.appendChild(link);
+    }
+    link.type = "image/svg+xml";
+    link.href = href;
+  }, [restaurantId]);
+
   // Avoid hydration flash: render children but keep interactive shell hidden until mounted
   return (
     <>

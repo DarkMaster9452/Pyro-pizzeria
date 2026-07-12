@@ -1,9 +1,8 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { useApp } from "@/lib/store";
-import { PRODUCTS, RESTAURANTS } from "@/lib/data";
+import { RESTAURANTS } from "@/lib/data";
 import { eur } from "@/lib/utils";
 import { useEffect, useState } from "react";
 import {
@@ -14,7 +13,6 @@ import {
 } from "@/lib/auth-actions";
 import { getMyOrders, type MyOrderRow } from "@/lib/server-actions";
 import {
-  Heart,
   Clock,
   Bell,
   LogOut,
@@ -42,8 +40,6 @@ export function AccountDashboard({
   email: string;
 }) {
   const localOrders = useApp((s) => s.orders);
-  const favorites = useApp((s) => s.favorites);
-  const favProducts = PRODUCTS.filter((p) => favorites.includes(p.id));
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [dbOrders, setDbOrders] = useState<MyOrderRow[] | null>(null);
 
@@ -154,36 +150,6 @@ export function AccountDashboard({
                   </div>
                 );
               })}
-            </div>
-          )}
-        </section>
-
-        <section className="rounded-3xl border border-white/[0.08] bg-[#141414] p-6">
-          <h2 className="mb-4 flex items-center gap-2 font-display text-lg font-bold text-white">
-            <Heart className="h-5 w-5 text-brand-primary" /> Obľúbené
-          </h2>
-          {favProducts.length === 0 ? (
-            <p className="text-sm text-[#B5B5B5]">
-              Zatiaľ žiadne obľúbené. Klikni na ❤︎ pri produkte.
-            </p>
-          ) : (
-            <div className="grid grid-cols-2 gap-3">
-              {favProducts.map((p) => (
-                <div
-                  key={p.id}
-                  className="flex items-center gap-2 rounded-xl bg-white/[0.03] p-2"
-                >
-                  <div className="relative h-12 w-12 overflow-hidden rounded-lg">
-                    <Image src={p.image} alt={p.name} fill className="object-cover" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold leading-tight text-white">
-                      {p.name}
-                    </p>
-                    <p className="text-xs text-brand-primary">{eur(p.basePrice)}</p>
-                  </div>
-                </div>
-              ))}
             </div>
           )}
         </section>

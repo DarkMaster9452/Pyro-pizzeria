@@ -110,7 +110,17 @@ export function AddressVerification({
                   <CheckCircle2 className="h-5 w-5" />
                   Sem doručujeme! ({result.zone.name})
                 </div>
-                <div className="mt-3 grid grid-cols-2 gap-2 text-center text-sm">
+                <div
+                  className={`mt-3 grid gap-2 text-center text-sm ${
+                    result.zone.minimumOrder > 0 ? "grid-cols-3" : "grid-cols-2"
+                  }`}
+                >
+                  {result.zone.minimumOrder > 0 && (
+                    <Stat
+                      label="Min. objednávka"
+                      value={eur(result.zone.minimumOrder)}
+                    />
+                  )}
                   <Stat
                     label="Doprava"
                     value={

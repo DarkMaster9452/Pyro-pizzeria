@@ -14,7 +14,6 @@ export const CATEGORIES: Category[] = [
   { id: "sandwiches", name: "Club Sandwich", icon: "🥪" },
   { id: "sides", name: "Ostatné", icon: "🍟" },
   { id: "sauces", name: "Dresingy / Omáčky", icon: "🥫" },
-  { id: "drinks", name: "Nápoje", icon: "🥤" },
 ];
 
 // Allergen legend as printed on the Pyro menu.
@@ -85,7 +84,7 @@ export const RESTAURANTS: Restaurant[] = [
       {
         id: "pyro-rajec",
         name: "Rajec a okolie",
-        minimumOrder: 0,
+        minimumOrder: 20,
         deliveryFee: 0,
         estimatedMinutes: 45,
         areas: [
@@ -215,10 +214,6 @@ const IMAGES: Record<CategoryId, string[]> = {
   sauces: [
     "https://images.unsplash.com/photo-1607013251379-e6eecfffe234?w=800&q=80",
     "https://images.unsplash.com/photo-1472476443507-c7a5948772fc?w=800&q=80",
-  ],
-  drinks: [
-    "https://images.unsplash.com/photo-1622483767028-3f66f32aef97?w=800&q=80",
-    "https://images.unsplash.com/photo-1560023907-5f339617ea30?w=800&q=80",
   ],
 };
 
@@ -1061,52 +1056,6 @@ const MENU: MenuItem[] = [
     desc: "Roztopený tekutý cheddar.",
     ingredients: ["Cheddar"],
     allergens: ["7"],
-    badges: [],
-  },
-
-  // ---------------- NÁPOJE (podľa aktuálnej ponuky) ----------------
-  {
-    slug: "coca-cola",
-    category: "drinks",
-    name: "Coca-Cola 0,33l",
-    weight: "0,33l",
-    price: 1.8,
-    desc: "Vychladená Coca-Cola.",
-    ingredients: ["Coca-Cola"],
-    allergens: [],
-    badges: [],
-  },
-  {
-    slug: "kofola",
-    category: "drinks",
-    name: "Kofola 0,33l",
-    weight: "0,33l",
-    price: 1.7,
-    desc: "Točená chuť v plechovke.",
-    ingredients: ["Kofola"],
-    allergens: [],
-    badges: [],
-  },
-  {
-    slug: "vinea",
-    category: "drinks",
-    name: "Vinea 0,33l",
-    weight: "0,33l",
-    price: 1.8,
-    desc: "Sýtený hroznový nápoj.",
-    ingredients: ["Vinea"],
-    allergens: ["12"],
-    badges: [],
-  },
-  {
-    slug: "minmineralka",
-    category: "drinks",
-    name: "Minerálka 0,5l",
-    weight: "0,5l",
-    price: 1.5,
-    desc: "Perlivá / neperlivá minerálna voda.",
-    ingredients: ["Minerálna voda"],
-    allergens: [],
     badges: [],
   },
 ];

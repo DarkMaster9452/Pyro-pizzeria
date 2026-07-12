@@ -244,7 +244,7 @@ async function loadProducts(): Promise<Product[]> {
   const rows = (await sql`
     SELECT id, restaurant_id, category, name, description, image, base_price,
            sizes, ingredients, allergens, badges, available
-    FROM products ORDER BY restaurant_id, sort`) as ProductRow[];
+    FROM products WHERE category <> 'drinks' ORDER BY restaurant_id, sort`) as ProductRow[];
   return rows.map(rowToProduct);
 }
 
@@ -435,6 +435,22 @@ export async function createOrder(
       zone = matchZone(usable, `${data.address.street} ${data.address.city}`);
       if (!zone)
         return { ok: false, error: "Na túto adresu nedoručujeme." };
+    }
+
+    // Enforce the zone's minimum order (admin-configurable). The subtotal is
+    // computed from server-repriced lines, so this can't be bypassed.
+    if (zone && zone.minimumOrder > 0) {
+      const lineSubtotal = lines.reduce(
+        (s, l) => s + l.unitPrice * l.quantity,
+        0
+      );
+      if (lineSubtotal < zone.minimumOrder)
+        return {
+          ok: false,
+          error: `Minimálna objednávka pre zónu ${zone.name} je ${zone.minimumOrder.toFixed(
+            2
+          )} €.`,
+        };
     }
 
     // coupons from DB
@@ -697,6 +713,7 @@ export interface OrderDetail {
   note: string | null;
   eta: number;
   createdAt: string;
+  driverName: string | null;
 }
 
 export async function getOrderDetail(
@@ -704,11 +721,12 @@ export async function getOrderDetail(
   id: string
 ): Promise<OrderDetail | null> {
   await requireAdmin(restaurantId);
+  await ensureOrderColumns();
   const rows = (await sql`
     SELECT id, status, fulfillment, customer_name, phone, email, address,
            zone_name, lines, subtotal::float AS subtotal,
            delivery_fee::float AS delivery_fee, discount::float AS discount,
-           total::float AS total, payment, note, eta, created_at
+           total::float AS total, payment, note, eta, created_at, driver_name
     FROM orders WHERE id = ${id} AND restaurant_id = ${restaurantId} LIMIT 1
   `) as Array<{
     id: string;
@@ -728,6 +746,7 @@ export async function getOrderDetail(
     note: string | null;
     eta: number;
     created_at: string;
+    driver_name: string | null;
   }>;
   const o = rows[0];
   if (!o) return null;
@@ -749,6 +768,7 @@ export async function getOrderDetail(
     note: o.note,
     eta: o.eta,
     createdAt: o.created_at,
+    driverName: o.driver_name,
   };
 }
 
@@ -814,7 +834,8 @@ export async function adminGetProducts(
   const rows = (await sql`
     SELECT id, restaurant_id, category, name, description, image, base_price,
            sizes, ingredients, allergens, badges, available
-    FROM products WHERE restaurant_id = ${restaurantId} ORDER BY sort, name
+    FROM products WHERE restaurant_id = ${restaurantId} AND category <> 'drinks'
+    ORDER BY sort, name
   `) as ProductRow[];
   return rows.map(rowToProduct);
 }

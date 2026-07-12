@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1080" viewBox="0 0 1080 1080">
+  <defs>
+    <clipPath id="round"><rect width="1080" height="1080" rx="230" ry="230"/></clipPath>
+  </defs>
+  <image href="/logos/pyro.svg" width="1080" height="1080" clip-path="url(#round)"/>
+</svg>

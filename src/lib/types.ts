@@ -3,8 +3,7 @@ export type CategoryId =
   | "burgers"
   | "sandwiches"
   | "sides"
-  | "sauces"
-  | "drinks";
+  | "sauces";
 
 export interface Category {
   id: CategoryId;

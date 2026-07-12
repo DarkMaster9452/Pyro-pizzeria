@@ -9,7 +9,7 @@ import { PizzaCustomizer } from "./PizzaCustomizer";
 import { useApp } from "@/lib/store";
 import { extrasForProduct } from "@/lib/data";
 import { eur, shortId } from "@/lib/utils";
-import { Heart, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 
 export function ProductCard({
   product,
@@ -19,11 +19,8 @@ export function ProductCard({
   number?: number;
 }) {
   const [open, setOpen] = useState(false);
-  const favorites = useApp((s) => s.favorites);
-  const toggleFavorite = useApp((s) => s.toggleFavorite);
   const addLine = useApp((s) => s.addLine);
   const soldOut = useApp((s) => s.soldOut[product.restaurantId] ?? false);
-  const isFav = favorites.includes(product.id);
   const orderable = product.available && !soldOut;
   const customizable = extrasForProduct(product) != null;
 
@@ -68,19 +65,6 @@ export function ProductCard({
               </span>
             </div>
           )}
-          <button
-            onClick={() => toggleFavorite(product.id)}
-            aria-label="Obľúbené"
-            className="absolute right-3 top-3 rounded-full bg-white/80 p-2 backdrop-blur transition-transform active:scale-90"
-          >
-            <Heart
-              className={`h-4 w-4 ${
-                isFav
-                  ? "fill-brand-primary text-brand-primary"
-                  : "text-neutral-500"
-              }`}
-            />
-          </button>
           {product.badges.length > 0 && (
             <div className="absolute bottom-3 left-3">
               <BadgeRow badges={product.badges.slice(0, 2)} />
