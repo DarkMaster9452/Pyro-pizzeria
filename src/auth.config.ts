@@ -37,6 +37,11 @@ export const authConfig: NextAuthConfig = {
           role === "driver" || role === "admin" || role === "super_admin"
         );
       }
+      // Cook's kitchen board — cooks (and the owner). Plain admins watch the
+      // kitchen read-only from /admin instead.
+      if (pathname.startsWith("/kuchyna")) {
+        return role === "kuchar" || role === "super_admin";
+      }
       return true;
     },
     jwt({ token, user }) {
@@ -56,6 +61,7 @@ export const authConfig: NextAuthConfig = {
           | "customer"
           | "employee"
           | "driver"
+          | "kuchar"
           | "admin"
           | "super_admin";
         session.user.restaurantId =

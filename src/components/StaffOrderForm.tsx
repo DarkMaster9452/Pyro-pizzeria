@@ -21,6 +21,7 @@ export interface StaffOrderInitial {
 }
 import {
   Search,
+  Plus,
   Minus,
   Truck,
   Store,
@@ -197,57 +198,58 @@ export function StaffOrderForm({
                   {/* Whole menu as tap-to-add buttons (tap adds one, badge shows
                       the count, the − removes one). No photos, so it stays
                       compact enough to fit the whole menu. */}
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
                     {items.map((p) => {
                       const n = qty[p.id] ?? 0;
                       return (
                         <div
                           key={p.id}
-                          role="button"
-                          tabIndex={0}
-                          onClick={() => bump(p.id, 1)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" || e.key === " ") {
-                              e.preventDefault();
-                              bump(p.id, 1);
-                            }
-                          }}
                           className={cn(
-                            "relative flex min-h-[56px] cursor-pointer select-none flex-col justify-center rounded-xl border px-2.5 py-2 text-left transition-colors",
+                            "flex min-h-[64px] items-center gap-2 rounded-xl border px-3 py-2 transition-colors",
                             n > 0
                               ? "border-brand-primary bg-brand-primary/10"
-                              : "border-black/10 hover:border-brand-primary/40 hover:bg-black/[0.02] dark:border-white/10 dark:hover:bg-white/5"
+                              : "border-black/10 dark:border-white/10"
                           )}
                         >
-                          <p className="truncate pr-7 text-[13px] font-medium leading-tight text-neutral-900 dark:text-white">
-                            {numberMap[p.id] != null && (
-                              <span className="text-brand-primary">
-                                {numberMap[p.id]}.{" "}
-                              </span>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium leading-tight text-neutral-900 dark:text-white">
+                              {numberMap[p.id] != null && (
+                                <span className="text-brand-primary">
+                                  {numberMap[p.id]}.{" "}
+                                </span>
+                              )}
+                              {p.name}
+                            </p>
+                            <p className="text-xs text-neutral-500">
+                              {eur(priceOf(p))}
+                            </p>
+                          </div>
+                          {/* Big, well-spaced +/- so it taps cleanly on phone/tablet. */}
+                          <div className="flex shrink-0 items-center gap-1.5">
+                            {n > 0 && (
+                              <>
+                                <button
+                                  type="button"
+                                  aria-label="Odobrať"
+                                  onClick={() => bump(p.id, -1)}
+                                  className="flex h-10 w-10 items-center justify-center rounded-full bg-black/10 text-neutral-800 transition-colors hover:bg-black/20 active:scale-95 dark:bg-white/15 dark:text-white"
+                                >
+                                  <Minus className="h-5 w-5" />
+                                </button>
+                                <span className="w-6 text-center text-base font-bold tabular-nums text-neutral-900 dark:text-white">
+                                  {n}
+                                </span>
+                              </>
                             )}
-                            {p.name}
-                          </p>
-                          <p className="text-xs text-neutral-500">
-                            {eur(priceOf(p))}
-                          </p>
-                          {n > 0 && (
-                            <div className="absolute right-1.5 top-1.5 flex items-center gap-1">
-                              <button
-                                type="button"
-                                aria-label="Odobrať"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  bump(p.id, -1);
-                                }}
-                                className="flex h-5 w-5 items-center justify-center rounded-full bg-black/10 text-neutral-700 hover:bg-black/20 dark:bg-white/15 dark:text-white"
-                              >
-                                <Minus className="h-3 w-3" />
-                              </button>
-                              <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-brand-primary px-1 text-[11px] font-bold text-white">
-                                {n}
-                              </span>
-                            </div>
-                          )}
+                            <button
+                              type="button"
+                              aria-label="Pridať"
+                              onClick={() => bump(p.id, 1)}
+                              className="flex h-10 w-10 items-center justify-center rounded-full bg-brand-primary text-white transition-colors hover:brightness-110 active:scale-95"
+                            >
+                              <Plus className="h-5 w-5" />
+                            </button>
+                          </div>
                         </div>
                       );
                     })}

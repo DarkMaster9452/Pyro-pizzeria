@@ -21,6 +21,11 @@ export default async function AccountPage() {
     redirect("/rozvoz");
   }
 
+  // Cooks have no customer account — open the kitchen board.
+  if (session?.user?.role === "kuchar") {
+    redirect("/kuchyna");
+  }
+
   if (!session?.user) {
     return (
       <main className="section flex min-h-[80vh] items-center justify-center py-16">

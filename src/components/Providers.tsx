@@ -15,10 +15,14 @@ export function Providers({ children }: { children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false);
   const pathname = usePathname();
   const isAdmin = pathname?.startsWith("/admin");
-  // Staff surfaces (admin panel + driver dispatch board) have their own full
-  // chrome — hide the customer navbar, cart, restaurant picker and tab bar so
-  // they don't overlap (the restaurant modal would otherwise block the board).
-  const hideChrome = isAdmin || pathname?.startsWith("/rozvoz");
+  // Staff surfaces (admin panel + driver dispatch board + kitchen board) have
+  // their own full chrome — hide the customer navbar, cart, restaurant picker
+  // and tab bar so they don't overlap (the restaurant modal would otherwise
+  // block the board).
+  const hideChrome =
+    isAdmin ||
+    pathname?.startsWith("/rozvoz") ||
+    pathname?.startsWith("/kuchyna");
 
   const setSoldOut = useApp((s) => s.setSoldOut);
   const setStorefront = useApp((s) => s.setStorefront);

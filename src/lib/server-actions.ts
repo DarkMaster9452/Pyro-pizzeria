@@ -181,11 +181,28 @@ async function ensureOrderColumns(): Promise<void> {
     await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS paid_at timestamptz`;
     await sql`CREATE INDEX IF NOT EXISTS orders_driver_idx ON orders (driver_id)`;
     await sql`CREATE INDEX IF NOT EXISTS orders_user_idx ON orders (user_id)`;
+    // Human-friendly, sequential order numbers (e.g. #1001) instead of random
+    // codes. Used as the order id/PK.
+    await sql`CREATE SEQUENCE IF NOT EXISTS order_number_seq START 1001`;
   })().catch((e) => {
     orderColumnsPromise = null;
     throw e;
   });
   return orderColumnsPromise;
+}
+
+// Next sequential order number (as text, since the order id is a text PK).
+// Falls back to a random code if the sequence is somehow unavailable.
+async function nextOrderId(): Promise<string> {
+  try {
+    const rows = (await sql`SELECT nextval('order_number_seq') AS n`) as {
+      n: number | string;
+    }[];
+    if (rows[0]?.n != null) return String(rows[0].n);
+  } catch (e) {
+    console.error("nextOrderId failed, falling back", e);
+  }
+  return shortId();
 }
 
 interface ProductRow {
@@ -510,7 +527,7 @@ export async function createOrder(
     );
     const eta = zone ? Math.max(zone.estimatedMinutes, wait) : wait;
 
-    const id = shortId();
+    const id = await nextOrderId();
     await sql`
       INSERT INTO orders (
         id, restaurant_id, status, fulfillment, customer_name, phone, email,
@@ -1371,6 +1388,7 @@ export async function getDispatchBoard(): Promise<DispatchOrder[]> {
            EXTRACT(EPOCH FROM (now() - created_at))/60 AS mins_ago
     FROM orders
     WHERE restaurant_id = ${ctx.restaurantId}
+      AND fulfillment = 'delivery'
       AND (
         status IN ('ready', 'delivering')
         OR (COALESCE(paid, false) = true
@@ -1529,6 +1547,249 @@ export async function markDispatchPaid(
 }
 
 // ===========================================================================
+// Kitchen (KDS) + counter handover
+// ---------------------------------------------------------------------------
+// Split of duties:
+//  • cooks ("kuchár") advance an order through prep (received → preparing →
+//    ready) and may pull a not-yet-taken order back into prep; they can never
+//    take payment or hand an order over.
+//  • admins watch the kitchen read-only and run the counter handover ("výdaj")
+//    for pickup orders — they mark them paid, which finalises them.
+//  • delivery orders go to the driver board once ready; pickups appear on the
+//    admin handover panel.
+// ===========================================================================
+
+// Guard for reading the kitchen board: cooks + admins.
+async function requireKitchen(): Promise<{
+  userId: string;
+  name: string;
+  role: string;
+  restaurantId: string;
+}> {
+  const session = await auth();
+  if (!session?.user) throw new Error("Unauthorized");
+  const role = session.user.role;
+  if (role !== "kuchar" && role !== "admin" && role !== "super_admin")
+    throw new Error("Unauthorized");
+  if (!session.user.restaurantId) throw new Error("Forbidden");
+  const current = await getSessionVersion(session.user.id);
+  if (current !== null && current !== session.user.sessionVersion)
+    throw new Error("Session revoked");
+  return {
+    userId: session.user.id,
+    name: session.user.name ?? "Kuchár",
+    role,
+    restaurantId: session.user.restaurantId,
+  };
+}
+
+// Guard for CHANGING prep status: only cooks (and the super admin owner).
+// A plain admin watches the kitchen but cannot move orders through it.
+async function requireCook() {
+  const ctx = await requireKitchen();
+  if (ctx.role !== "kuchar" && ctx.role !== "super_admin")
+    throw new Error("Forbidden");
+  return ctx;
+}
+
+export interface KitchenOrder {
+  id: string;
+  status: string;
+  fulfillment: string;
+  customerName: string;
+  total: number;
+  minsAgo: number;
+  taken: boolean; // claimed by a driver / already paid
+  note: string | null;
+  lines: { name: string; quantity: number }[];
+}
+
+export interface KitchenContext {
+  role: string;
+  name: string;
+  restaurantId: string;
+  restaurantName: string;
+  userId: string;
+}
+
+export async function getKitchenContext(): Promise<KitchenContext | null> {
+  const session = await auth();
+  const role = session?.user?.role;
+  if (
+    !session?.user ||
+    (role !== "kuchar" && role !== "admin" && role !== "super_admin") ||
+    !session.user.restaurantId
+  )
+    return null;
+  const r = RESTAURANTS.find((x) => x.id === session.user.restaurantId);
+  return {
+    role: role!,
+    name: session.user.name ?? "Kuchár",
+    restaurantId: session.user.restaurantId,
+    restaurantName: r?.name ?? "Prevádzka",
+    userId: session.user.id,
+  };
+}
+
+// Orders the kitchen still has to make: everything in prep, plus `ready` orders
+// that nobody has taken yet (no driver claimed it, not paid) — so a cook can
+// still pull them back if something was wrong.
+export async function getKitchenBoard(): Promise<KitchenOrder[]> {
+  const ctx = await requireKitchen();
+  await ensureOrderColumns();
+  const rows = (await sql`
+    SELECT id, status, fulfillment, customer_name, total::float AS total, note,
+           lines, driver_id, COALESCE(paid, false) AS paid,
+           EXTRACT(EPOCH FROM (now() - created_at))/60 AS mins_ago
+    FROM orders
+    WHERE restaurant_id = ${ctx.restaurantId}
+      AND (
+        status IN ('received', 'accepted', 'preparing')
+        OR (status = 'ready' AND driver_id IS NULL AND COALESCE(paid, false) = false)
+      )
+    ORDER BY created_at ASC
+  `) as Array<{
+    id: string;
+    status: string;
+    fulfillment: string;
+    customer_name: string;
+    total: number;
+    note: string | null;
+    lines: { name: string; quantity: number }[];
+    driver_id: string | null;
+    paid: boolean;
+    mins_ago: number;
+  }>;
+  return rows.map((o) => ({
+    id: o.id,
+    status: o.status,
+    fulfillment: o.fulfillment,
+    customerName: o.customer_name,
+    total: o.total,
+    minsAgo: Math.max(0, Math.round(o.mins_ago)),
+    taken: o.driver_id != null || o.paid,
+    note: o.note,
+    lines: Array.isArray(o.lines) ? o.lines : [],
+  }));
+}
+
+// Cook advances an order one step through prep: received/accepted → preparing
+// → ready. Never touches delivery/handover.
+export async function advanceKitchenOrder(
+  id: string
+): Promise<{ ok: boolean; error?: string }> {
+  const ctx = await requireCook();
+  await ensureOrderColumns();
+  const rows = (await sql`
+    UPDATE orders
+    SET status = CASE status
+      WHEN 'received' THEN 'preparing'
+      WHEN 'accepted' THEN 'preparing'
+      WHEN 'preparing' THEN 'ready'
+      ELSE status END
+    WHERE id = ${id} AND restaurant_id = ${ctx.restaurantId}
+      AND status IN ('received', 'accepted', 'preparing')
+    RETURNING id
+  `) as { id: string }[];
+  if (!rows.length) return { ok: false, error: "Objednávku nedá sa posunúť." };
+  await audit({
+    action: "kitchen.advanced",
+    actorId: ctx.userId,
+    restaurantId: ctx.restaurantId,
+    target: id,
+  });
+  return { ok: true };
+}
+
+// Cook pulls a `ready` order back into prep — only while nobody has taken it
+// (no driver claimed it and it isn't paid). Guards a genuine mistake.
+export async function returnKitchenOrder(
+  id: string
+): Promise<{ ok: boolean; error?: string }> {
+  const ctx = await requireCook();
+  await ensureOrderColumns();
+  const rows = (await sql`
+    UPDATE orders SET status = 'preparing'
+    WHERE id = ${id} AND restaurant_id = ${ctx.restaurantId}
+      AND status = 'ready' AND driver_id IS NULL
+      AND COALESCE(paid, false) = false
+    RETURNING id
+  `) as { id: string }[];
+  if (!rows.length)
+    return {
+      ok: false,
+      error: "Nedá sa vrátiť — objednávku už niekto prevzal.",
+    };
+  await audit({
+    action: "kitchen.returned",
+    actorId: ctx.userId,
+    restaurantId: ctx.restaurantId,
+    target: id,
+  });
+  return { ok: true };
+}
+
+// Counter handover board for the admin: pickup orders the kitchen has finished,
+// plus just-settled ones kept briefly so the confirmation is visible. Delivery
+// orders go to the driver board instead.
+export async function getHandoverBoard(): Promise<DispatchOrder[]> {
+  const ctx = await requireDispatcher();
+  if (ctx.role !== "admin" && ctx.role !== "super_admin")
+    throw new Error("Forbidden");
+  await ensureOrderColumns();
+  const rows = (await sql`
+    SELECT id, status, fulfillment, customer_name, phone, address, zone_name,
+           total::float AS total, payment, note, driver_id, driver_name,
+           COALESCE(paid, false) AS paid, lines,
+           EXTRACT(EPOCH FROM (now() - created_at))/60 AS mins_ago
+    FROM orders
+    WHERE restaurant_id = ${ctx.restaurantId}
+      AND fulfillment = 'pickup'
+      AND (
+        status = 'ready'
+        OR (COALESCE(paid, false) = true
+            AND paid_at > now() - interval '3 minutes')
+      )
+    ORDER BY
+      CASE WHEN COALESCE(paid, false) THEN 1 ELSE 0 END,
+      created_at ASC
+  `) as Array<{
+    id: string;
+    status: string;
+    fulfillment: string;
+    customer_name: string;
+    phone: string;
+    address: CustomerAddressLike | null;
+    zone_name: string | null;
+    total: number;
+    payment: string;
+    note: string | null;
+    driver_id: string | null;
+    driver_name: string | null;
+    paid: boolean;
+    lines: { name: string; quantity: number }[];
+    mins_ago: number;
+  }>;
+  return rows.map((o) => ({
+    id: o.id,
+    status: o.status,
+    fulfillment: o.fulfillment,
+    customerName: o.customer_name,
+    phone: o.phone,
+    address: o.address,
+    zoneName: o.zone_name,
+    total: o.total,
+    payment: o.payment,
+    note: o.note,
+    driverId: o.driver_id,
+    driverName: o.driver_name,
+    paid: o.paid,
+    minsAgo: Math.max(0, Math.round(o.mins_ago)),
+    lines: Array.isArray(o.lines) ? o.lines : [],
+  }));
+}
+
+// ===========================================================================
 // Staff order entry — the primary intake is still by phone, so admins and
 // drivers can key an order straight into the system. It flows through the
 // kitchen and dispatch exactly like an online order.
@@ -1609,7 +1870,7 @@ export async function createStaffOrder(
     );
     const eta = zone ? Math.max(zone.estimatedMinutes, wait) : wait;
 
-    const id = shortId();
+    const id = await nextOrderId();
     const note = input.note?.trim()
       ? `Telefón: ${input.note.trim()}`
       : "Telefonická objednávka";

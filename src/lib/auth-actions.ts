@@ -55,6 +55,8 @@ export async function loginAction(
       ? "/admin"
       : role === "driver"
       ? "/rozvoz"
+      : role === "kuchar"
+      ? "/kuchyna"
       : "/account"
   );
 }

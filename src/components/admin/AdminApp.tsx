@@ -14,7 +14,6 @@ import {
   getAdminSummary,
   getOrderDetail,
   setSoldOut as setSoldOutServer,
-  setOrderStatus,
   adminGetProducts,
   saveProduct,
   setProductAvailable,
@@ -23,9 +22,12 @@ import {
   saveCoupons,
   adminGetZones,
   saveZones,
+  getHandoverBoard,
+  markDispatchPaid,
   type AdminSummary,
   type OrderDetail,
   type CouponInput,
+  type DispatchOrder,
 } from "@/lib/server-actions";
 import {
   LayoutDashboard,
@@ -53,8 +55,12 @@ import {
   LogOut,
   AlertTriangle,
   Check,
+  CheckCheck,
   X,
   Pencil,
+  Phone,
+  RefreshCw,
+  PackageCheck,
 } from "lucide-react";
 
 type Tab =
@@ -166,8 +172,13 @@ export function AdminApp({
     <div className="flex min-h-screen bg-[#f4f4f5] text-neutral-800 dark:bg-[#0f0f0f] dark:text-neutral-200">
       {/* sidebar */}
       <aside className="hidden w-64 shrink-0 flex-col border-r border-black/[0.08] bg-white dark:border-white/5 dark:bg-[#161616] md:flex">
-        <div className="flex items-center gap-2 border-b border-black/[0.08] p-5 dark:border-white/5">
-          <span className="text-2xl">🔥</span>
+        <div className="flex items-center gap-3 border-b border-black/[0.08] p-5 dark:border-white/5">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={restaurant.logo}
+            alt={restaurant.name}
+            className="h-10 w-10 shrink-0 rounded-full object-cover ring-1 ring-black/10 dark:ring-white/15"
+          />
           <div>
             <p className="font-display font-extrabold text-neutral-900 dark:text-white">
               {restaurant.name}
@@ -295,7 +306,6 @@ export function AdminApp({
               <Kitchen
                 summary={summary}
                 restaurantId={restaurantId}
-                refresh={refresh}
                 onOpen={setOpenOrderId}
               />
             )}
@@ -510,12 +520,6 @@ function Dashboard({ summary }: { summary: AdminSummary | null }) {
 }
 
 // ---------------- KITCHEN DISPLAY (real orders) ----------------
-const NEXT_STATUS: Record<string, string> = {
-  received: "preparing",
-  accepted: "preparing",
-  preparing: "ready",
-  ready: "delivered",
-};
 // First-letter initials of the driver who delivered the order (e.g. "Daniel
 // Pekný" → "DP"), shown as a small avatar in the orders list and detail.
 function driverInitials(name: string): string {
@@ -542,22 +546,13 @@ const STATUS_COLOR: Record<string, string> = {
   preparing: "border-brand-accent bg-brand-accent/10",
   ready: "border-brand-success bg-brand-success/10",
 };
-const ACTION_LABEL: Record<string, string> = {
-  received: "Prijať do prípravy",
-  accepted: "Prijať do prípravy",
-  preparing: "Označiť hotové",
-  ready: "Vydať / doručiť",
-};
-
 function Kitchen({
   summary,
   restaurantId,
-  refresh,
   onOpen,
 }: {
   summary: AdminSummary | null;
   restaurantId: string;
-  refresh: () => void;
   onOpen: (id: string) => void;
 }) {
   const active =
@@ -565,71 +560,213 @@ function Kitchen({
       ["received", "accepted", "preparing", "ready"].includes(o.status)
     ) ?? [];
 
-  async function advance(id: string, status: string) {
-    const next = NEXT_STATUS[status];
-    if (!next) return;
-    await setOrderStatus(restaurantId, id, next);
-    refresh();
-  }
-
   return (
-    <div>
-      <div className="mb-4 flex items-center justify-between">
-        <p className="text-sm text-neutral-500">
-          {active.length} aktívnych objednávok · ~
-          {summary?.waitMinutes ?? "—"} min čakanie · aktualizuje sa každých 5 s
-        </p>
-      </div>
-      {active.length === 0 ? (
-        <div className={cn(CARD, "py-16 text-center text-neutral-500")}>
-          <ChefHat className="mx-auto mb-3 h-10 w-10 opacity-40" />
-          Žiadne aktívne objednávky.
+    <div className="grid gap-6 xl:grid-cols-[1fr_360px]">
+      {/* LEFT — prep board, read-only for the admin. The cook advances orders
+          through prep from the /kuchyna board. */}
+      <div>
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <p className="text-sm text-neutral-500">
+            {active.length} v príprave · ~{summary?.waitMinutes ?? "—"} min
+            čakanie · aktualizuje sa každých 5 s
+          </p>
         </div>
-      ) : (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {active.map((o) => (
-            <motion.div
-              layout
-              key={o.id}
-              className={cn(
-                "rounded-2xl border-2 p-5 transition-all",
-                STATUS_COLOR[o.status]
-              )}
-            >
-              <div className="flex items-center justify-between">
-                <button
-                  onClick={() => onOpen(o.id)}
-                  className="font-display text-xl font-extrabold text-neutral-900 underline-offset-2 hover:underline dark:text-white"
-                >
-                  #{o.id}
-                </button>
-                <span className="chip bg-black/[0.06] text-neutral-900 dark:bg-white/10 dark:text-white">
-                  {o.fulfillment === "delivery" ? "Rozvoz" : "Odber"}
-                </span>
-              </div>
-              <p className="mt-1 flex items-center gap-1 text-xs text-neutral-400">
-                <Clock className="h-3 w-3" /> pred {o.minsAgo} min ·{" "}
-                {o.customerName}
-              </p>
-              <ul className="my-3 space-y-1 text-sm text-neutral-800 dark:text-neutral-200">
-                {o.lines.map((it, i) => (
-                  <li key={i}>
-                    • {it.quantity}× {it.name}
-                  </li>
-                ))}
-              </ul>
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold text-neutral-900 dark:text-white">
+        <p className="mb-3 text-xs text-neutral-400">
+          Stav prípravy riadi kuchár. Vy tu sledujete priebeh a vpravo vydávate
+          hotové objednávky na odber.
+        </p>
+        {active.length === 0 ? (
+          <div className={cn(CARD, "py-16 text-center text-neutral-500")}>
+            <ChefHat className="mx-auto mb-3 h-10 w-10 opacity-40" />
+            Žiadne aktívne objednávky.
+          </div>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2">
+            {active.map((o) => (
+              <motion.div
+                layout
+                key={o.id}
+                className={cn(
+                  "rounded-2xl border-2 p-5 transition-all",
+                  STATUS_COLOR[o.status]
+                )}
+              >
+                <div className="flex items-center justify-between">
+                  <button
+                    onClick={() => onOpen(o.id)}
+                    className="font-display text-xl font-extrabold text-neutral-900 underline-offset-2 hover:underline dark:text-white"
+                  >
+                    #{o.id}
+                  </button>
+                  <span className="chip bg-black/[0.06] text-neutral-900 dark:bg-white/10 dark:text-white">
+                    {o.fulfillment === "delivery" ? "Rozvoz" : "Odber"}
+                  </span>
+                </div>
+                <p className="mt-1 flex items-center gap-1 text-xs text-neutral-400">
+                  <Clock className="h-3 w-3" /> pred {o.minsAgo} min ·{" "}
+                  {o.customerName}
+                </p>
+                <ul className="my-3 space-y-1 text-sm text-neutral-800 dark:text-neutral-200">
+                  {o.lines.map((it, i) => (
+                    <li key={i}>
+                      • {it.quantity}× {it.name}
+                    </li>
+                  ))}
+                </ul>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-black/[0.06] px-3 py-1 text-sm font-semibold text-neutral-900 dark:bg-white/10 dark:text-white">
                   {STATUS_LABEL[o.status]}
                 </span>
-                <button
-                  onClick={() => advance(o.id, o.status)}
-                  className="rounded-full bg-neutral-900 px-4 py-1.5 text-sm font-bold text-white dark:bg-white dark:text-brand-dark"
-                >
-                  {ACTION_LABEL[o.status]}
-                </button>
-              </div>
-            </motion.div>
+              </motion.div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* RIGHT — counter handover (výdaj) for ready pickup orders. */}
+      <Handover restaurantId={restaurantId} />
+    </div>
+  );
+}
+
+// Counter handover: ready pickup orders light up here (mirrors the driver board
+// for delivery). The admin hands the order over and marks it paid, which
+// finalises it.
+function Handover({ restaurantId }: { restaurantId: string }) {
+  const [orders, setOrders] = useState<DispatchOrder[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const refresh = useCallback(() => {
+    getHandoverBoard()
+      .then((o) => {
+        setOrders(o);
+        setLoaded(true);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    refresh();
+    timer.current = setInterval(refresh, 5000);
+    return () => {
+      if (timer.current) clearInterval(timer.current);
+    };
+  }, [refresh]);
+
+  async function settle(id: string) {
+    setBusyId(id);
+    setError("");
+    try {
+      const res = await markDispatchPaid(id);
+      if (!res.ok) setError(res.error ?? "Akcia zlyhala.");
+      refresh();
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  const waiting = orders.filter((o) => !o.paid);
+  const done = orders.filter((o) => o.paid);
+
+  return (
+    <div className="rounded-2xl border border-black/[0.08] bg-white p-4 dark:border-white/5 dark:bg-[#161616]">
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="flex items-center gap-2 font-display font-bold text-neutral-900 dark:text-white">
+          <PackageCheck className="h-5 w-5 text-brand-primary" /> Výdaj (odber)
+        </h3>
+        <button
+          onClick={refresh}
+          className="rounded-full p-2 text-neutral-400 hover:bg-black/5 dark:hover:bg-white/10"
+          aria-label="Obnoviť"
+        >
+          <RefreshCw className="h-4 w-4" />
+        </button>
+      </div>
+
+      {error && (
+        <p className="mb-3 rounded-xl bg-brand-error/10 px-3 py-2 text-xs text-brand-error">
+          {error}
+        </p>
+      )}
+
+      {!loaded ? (
+        <p className="py-10 text-center text-sm text-neutral-500">Načítavam…</p>
+      ) : waiting.length === 0 && done.length === 0 ? (
+        <div className="py-10 text-center text-sm text-neutral-400">
+          Žiadne objednávky na výdaj.
+          <p className="mt-1 text-xs text-neutral-400">
+            Hotové objednávky na odber sa zobrazia tu.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <AnimatePresence initial={false}>
+            {waiting.map((o) => (
+              <motion.div
+                layout
+                key={o.id}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.97 }}
+                className="rounded-xl border border-brand-primary/40 bg-brand-primary/[0.06] p-3"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-display font-extrabold text-neutral-900 dark:text-white">
+                    #{o.id}
+                  </span>
+                  <span className="font-display font-extrabold text-brand-primary">
+                    {eur(o.total)}
+                  </span>
+                </div>
+                <p className="mt-0.5 flex items-center gap-1 text-xs text-neutral-400">
+                  <Clock className="h-3 w-3" /> pred {o.minsAgo} min ·{" "}
+                  {o.customerName}
+                </p>
+                <ul className="mt-1 text-sm text-neutral-700 dark:text-neutral-300">
+                  {o.lines.map((l, i) => (
+                    <li key={i}>
+                      {l.quantity}× {l.name}
+                    </li>
+                  ))}
+                </ul>
+                {o.note && (
+                  <p className="mt-1 rounded-lg bg-black/[0.04] px-2 py-1 text-xs text-neutral-500 dark:bg-white/5">
+                    {o.note}
+                  </p>
+                )}
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {o.phone && (
+                    <a
+                      href={`tel:${o.phone.replace(/[^+\d]/g, "")}`}
+                      className="inline-flex items-center gap-1.5 rounded-full bg-black/[0.06] px-3 py-2 text-xs font-semibold text-neutral-700 hover:bg-black/10 dark:bg-white/10 dark:text-white"
+                    >
+                      <Phone className="h-4 w-4 text-brand-success" /> Zavolať
+                    </a>
+                  )}
+                  <button
+                    disabled={busyId === o.id}
+                    onClick={() => settle(o.id)}
+                    className="inline-flex items-center gap-1.5 rounded-full bg-brand-success px-3 py-2 text-xs font-bold text-white transition-colors hover:brightness-110 disabled:opacity-50"
+                  >
+                    <Check className="h-4 w-4" /> Vydané a zaplatené
+                  </button>
+                </div>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+
+          {done.map((o) => (
+            <div
+              key={o.id}
+              className="flex items-center justify-between rounded-xl border border-brand-success/40 bg-brand-success/[0.07] px-3 py-2 text-sm"
+            >
+              <span className="flex items-center gap-1.5 font-semibold text-brand-success">
+                <CheckCheck className="h-4 w-4" /> #{o.id} vydané
+              </span>
+              <span className="text-xs text-neutral-500">{eur(o.total)}</span>
+            </div>
           ))}
         </div>
       )}

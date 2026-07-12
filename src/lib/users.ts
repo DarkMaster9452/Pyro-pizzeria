@@ -6,7 +6,7 @@ export interface DbUser {
   id: string;
   email: string;
   name: string;
-  role: "customer" | "employee" | "driver" | "admin" | "super_admin";
+  role: "customer" | "employee" | "driver" | "kuchar" | "admin" | "super_admin";
   restaurant_id: string | null;
   session_version: number;
 }
