@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { RESTAURANTS, CATEGORIES, ALLERGENS } from "@/lib/data";
-import type { DeliveryZone, Product, Coupon, CategoryId, Badge } from "@/lib/types";
+import type { DeliveryZone, Product, CategoryId, Badge } from "@/lib/types";
 import { eur, cn, formatAddress } from "@/lib/utils";
 import { useApp } from "@/lib/store";
 import { BarChart } from "@/components/admin/AdminCharts";
@@ -20,12 +20,12 @@ import {
   setProductAvailable,
   deleteProduct,
   adminGetCoupons,
-  createCoupon,
-  deleteCoupon,
+  saveCoupons,
   adminGetZones,
   saveZones,
   type AdminSummary,
   type OrderDetail,
+  type CouponInput,
 } from "@/lib/server-actions";
 import {
   LayoutDashboard,
@@ -1394,20 +1394,94 @@ function ProductEditor({
   );
 }
 
+// Shared Save / Revert bar with a two-step "really save?" confirmation, used by
+// the Zones and Coupons editors so a single click doesn't persist silently and
+// unsaved edits can be thrown away.
+function SaveBar({
+  dirty,
+  saving,
+  saved,
+  error,
+  onSave,
+  onRevert,
+}: {
+  dirty: boolean;
+  saving: boolean;
+  saved: boolean;
+  error?: string;
+  onSave: () => void;
+  onRevert: () => void;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  useEffect(() => {
+    if (!dirty) setConfirming(false);
+  }, [dirty]);
+
+  if (confirming) {
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm font-semibold text-neutral-600 dark:text-neutral-300">
+          Naozaj uložiť zmeny?
+        </span>
+        <button
+          onClick={() => {
+            setConfirming(false);
+            onSave();
+          }}
+          disabled={saving}
+          className="btn-primary text-sm disabled:opacity-50"
+        >
+          {saving ? "Ukladám…" : "Áno, uložiť"}
+        </button>
+        <button
+          onClick={() => setConfirming(false)}
+          className="rounded-full border border-black/10 px-4 py-2 text-sm font-semibold dark:border-white/10"
+        >
+          Zrušiť
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {error && <span className="text-sm text-brand-error">{error}</span>}
+      <button
+        onClick={onRevert}
+        disabled={!dirty || saving}
+        className="rounded-full border border-black/10 px-4 py-2 text-sm font-semibold text-neutral-600 disabled:opacity-40 dark:border-white/10 dark:text-neutral-300"
+      >
+        Vrátiť zmeny
+      </button>
+      <button
+        onClick={() => setConfirming(true)}
+        disabled={saving || !dirty}
+        className="btn-primary text-sm disabled:opacity-50"
+      >
+        {saved && !dirty ? "Uložené ✓" : "Uložiť zmeny"}
+      </button>
+    </div>
+  );
+}
+
 // ---------------- DELIVERY ZONES (DB-backed) ----------------
 function Zones({ restaurantId }: { restaurantId: string }) {
   const [zones, setZones] = useState<DeliveryZone[] | null>(null);
   const [newArea, setNewArea] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [dirty, setDirty] = useState(false);
 
   const load = useCallback(() => {
+    setDirty(false);
+    setSaved(false);
     adminGetZones(restaurantId).then(setZones).catch(() => setZones([]));
   }, [restaurantId]);
   useEffect(() => load(), [load]);
 
   function update(id: string, patch: Partial<DeliveryZone>) {
     setZones((zs) => (zs ? zs.map((z) => (z.id === id ? { ...z, ...patch } : z)) : zs));
+    setDirty(true);
     setSaved(false);
   }
   function addArea(id: string) {
@@ -1434,10 +1508,12 @@ function Zones({ restaurantId }: { restaurantId: string }) {
         areas: [],
       },
     ]);
+    setDirty(true);
     setSaved(false);
   }
   function removeZone(id: string) {
     setZones((zs) => (zs ? zs.filter((z) => z.id !== id) : zs));
+    setDirty(true);
     setSaved(false);
   }
   async function persist() {
@@ -1446,27 +1522,28 @@ function Zones({ restaurantId }: { restaurantId: string }) {
     await saveZones(restaurantId, zones);
     setSaving(false);
     setSaved(true);
+    setDirty(false);
   }
 
   if (!zones) return <p className="text-sm text-neutral-500">Načítavam zóny…</p>;
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-neutral-500">
           Upravte zóny, poplatky a zoznam ulíc/obcí. Nezabudnite uložiť.
         </p>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button onClick={addZone} className="btn-ghost text-sm">
             <Plus className="h-4 w-4" /> Pridať zónu
           </button>
-          <button
-            onClick={persist}
-            disabled={saving}
-            className="btn-primary text-sm disabled:opacity-50"
-          >
-            {saving ? "Ukladám…" : saved ? "Uložené ✓" : "Uložiť zmeny"}
-          </button>
+          <SaveBar
+            dirty={dirty}
+            saving={saving}
+            saved={saved}
+            onSave={persist}
+            onRevert={load}
+          />
         </div>
       </div>
       {zones.map((z) => (
@@ -1542,195 +1619,208 @@ function Zones({ restaurantId }: { restaurantId: string }) {
   );
 }
 
-// ---------------- COUPONS (DB-backed CRUD) ----------------
+// ---------------- COUPONS (DB-backed, single-save editor) ----------------
+type EditCoupon = {
+  key: string; // stable React key (code is user-editable)
+  code: string;
+  type: "percentage" | "fixed" | "free_delivery";
+  value: number;
+  minSubtotal: number;
+  label: string;
+  forAll: boolean;
+};
+
+let couponKeySeq = 0;
+const nextCouponKey = () => `coupon-${Date.now()}-${couponKeySeq++}`;
+
 function Coupons({ restaurantId }: { restaurantId: string }) {
-  const [coupons, setCoupons] = useState<Coupon[] | null>(null);
-  const [creating, setCreating] = useState(false);
+  const [coupons, setCoupons] = useState<EditCoupon[] | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [error, setError] = useState("");
 
   const load = useCallback(() => {
-    adminGetCoupons(restaurantId).then(setCoupons).catch(() => setCoupons([]));
+    setDirty(false);
+    setSaved(false);
+    setError("");
+    adminGetCoupons(restaurantId)
+      .then((cs) =>
+        setCoupons(
+          cs.map((c) => ({
+            key: c.code,
+            code: c.code,
+            type: c.type,
+            value: c.value,
+            minSubtotal: c.minSubtotal,
+            label: c.label,
+            forAll: c.restaurantId === "all",
+          }))
+        )
+      )
+      .catch(() => setCoupons([]));
   }, [restaurantId]);
   useEffect(() => load(), [load]);
 
-  async function remove(code: string) {
-    if (!confirm(`Zmazať kupón ${code}?`)) return;
-    await deleteCoupon(restaurantId, code);
-    load();
+  function update(key: string, patch: Partial<EditCoupon>) {
+    setCoupons((cs) =>
+      cs ? cs.map((c) => (c.key === key ? { ...c, ...patch } : c)) : cs
+    );
+    setDirty(true);
+    setSaved(false);
+    setError("");
+  }
+  function addCoupon() {
+    setCoupons((cs) => [
+      ...(cs ?? []),
+      {
+        key: nextCouponKey(),
+        code: "",
+        type: "percentage",
+        value: 10,
+        minSubtotal: 0,
+        label: "",
+        forAll: false,
+      },
+    ]);
+    setDirty(true);
+    setSaved(false);
+  }
+  function removeCoupon(key: string) {
+    setCoupons((cs) => (cs ? cs.filter((c) => c.key !== key) : cs));
+    setDirty(true);
+    setSaved(false);
+  }
+  async function persist() {
+    if (!coupons) return;
+    setSaving(true);
+    setError("");
+    const payload: CouponInput[] = coupons.map((c) => ({
+      code: c.code,
+      type: c.type,
+      value: c.value,
+      minSubtotal: c.minSubtotal,
+      label: c.label,
+      forAll: c.forAll,
+    }));
+    const res = await saveCoupons(restaurantId, payload);
+    setSaving(false);
+    if (!res.ok) {
+      setError(res.error ?? "Nepodarilo sa uložiť.");
+      return;
+    }
+    setSaved(true);
+    setDirty(false);
   }
 
   if (!coupons)
     return <p className="text-sm text-neutral-500">Načítavam kupóny…</p>;
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {coupons.map((c) => (
-        <div key={c.code} className={CARD}>
-          <div className="flex items-center justify-between">
-            <span className="font-mono text-lg font-bold text-brand-secondary">
-              {c.code}
-            </span>
-            <button
-              onClick={() => remove(c.code)}
-              className="rounded-lg p-1.5 text-neutral-400 hover:bg-black/5 hover:text-brand-error dark:hover:bg-white/10"
-            >
-              <Trash2 className="h-4 w-4" />
-            </button>
-          </div>
-          <p className="mt-2 text-sm text-neutral-500">{c.label}</p>
-          <div className="mt-3 flex flex-wrap gap-2 text-xs text-neutral-500">
-            <span className="rounded-full bg-black/[0.06] px-2 py-1 capitalize dark:bg-white/5">
-              {c.type === "percentage"
-                ? `-${c.value}%`
-                : c.type === "fixed"
-                ? `-${eur(c.value)}`
-                : "Doprava zdarma"}
-            </span>
-            <span className="rounded-full bg-black/[0.06] px-2 py-1 dark:bg-white/5">
-              od {eur(c.minSubtotal)}
-            </span>
-            <span className="rounded-full bg-black/[0.06] px-2 py-1 dark:bg-white/5">
-              {c.restaurantId === "all" ? "všetky prevádzky" : "táto prevádzka"}
-            </span>
-          </div>
-        </div>
-      ))}
-      <button
-        onClick={() => setCreating(true)}
-        className="flex min-h-[140px] items-center justify-center rounded-2xl border-2 border-dashed border-black/10 text-neutral-500 hover:border-brand-primary hover:text-brand-secondary dark:border-white/10"
-      >
-        <Plus className="mr-2 h-5 w-5" /> Nový kupón
-      </button>
-
-      {creating && (
-        <CouponCreator
-          restaurantId={restaurantId}
-          onClose={() => setCreating(false)}
-          onSaved={() => {
-            setCreating(false);
-            load();
-          }}
-        />
-      )}
-    </div>
-  );
-}
-
-function CouponCreator({
-  restaurantId,
-  onClose,
-  onSaved,
-}: {
-  restaurantId: string;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [form, setForm] = useState({
-    code: "",
-    type: "percentage" as "percentage" | "fixed" | "free_delivery",
-    value: 10,
-    minSubtotal: 0,
-    label: "",
-    forAll: false,
-  });
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-
-  async function submit() {
-    setSaving(true);
-    setError("");
-    const res = await createCoupon(restaurantId, form);
-    setSaving(false);
-    if (!res.ok) {
-      setError(res.error ?? "Nepodarilo sa vytvoriť.");
-      return;
-    }
-    onSaved();
-  }
-
-  return (
-    <Modal title="Nový kupón" onClose={onClose}>
-      <div className="space-y-3">
-        <div>
-          <FieldLabel>Kód</FieldLabel>
-          <input
-            value={form.code}
-            onChange={(e) =>
-              setForm((f) => ({ ...f, code: e.target.value.toUpperCase() }))
-            }
-            placeholder="napr. LETO2026"
-            name="pyro-new-coupon"
-            autoComplete="off"
-            autoCorrect="off"
-            autoCapitalize="characters"
-            spellCheck={false}
-            className="w-full rounded-lg border border-black/10 bg-neutral-100 px-3 py-2 text-sm uppercase outline-none focus:border-brand-primary dark:border-white/10 dark:bg-[#222]"
-          />
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <FieldLabel>Typ</FieldLabel>
-            <select
-              value={form.type}
-              onChange={(e) =>
-                setForm((f) => ({
-                  ...f,
-                  type: e.target.value as typeof form.type,
-                }))
-              }
-              className="w-full rounded-lg border border-black/10 bg-neutral-100 px-3 py-2 text-sm outline-none focus:border-brand-primary dark:border-white/10 dark:bg-[#222]"
-            >
-              <option value="percentage">Percentuálna zľava</option>
-              <option value="fixed">Pevná zľava (€)</option>
-              <option value="free_delivery">Doprava zdarma</option>
-            </select>
-          </div>
-          {form.type !== "free_delivery" && (
-            <NumInput
-              label={form.type === "percentage" ? "Zľava (%)" : "Zľava (€)"}
-              value={form.value}
-              onChange={(v) => setForm((f) => ({ ...f, value: v }))}
-            />
-          )}
-        </div>
-        <NumInput
-          label="Platí od sumy (€)"
-          value={form.minSubtotal}
-          onChange={(v) => setForm((f) => ({ ...f, minSubtotal: v }))}
-        />
-        <TextInput
-          label="Popis (pre zákazníka)"
-          value={form.label}
-          onChange={(v) => setForm((f) => ({ ...f, label: v }))}
-        />
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={form.forAll}
-            onChange={(e) =>
-              setForm((f) => ({ ...f, forAll: e.target.checked }))
-            }
-            className="h-4 w-4 accent-brand-primary"
-          />
-          Platí pre obe prevádzky
-        </label>
-        {error && <p className="text-sm text-brand-error">{error}</p>}
-        <div className="flex justify-end gap-2 pt-1">
-          <button
-            onClick={onClose}
-            className="rounded-full border border-black/10 px-4 py-2 text-sm font-semibold dark:border-white/10"
-          >
-            Zrušiť
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-neutral-500">
+          Upravte kupóny a uložte naraz jedným tlačidlom.
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <button onClick={addCoupon} className="btn-ghost text-sm">
+            <Plus className="h-4 w-4" /> Pridať kupón
           </button>
-          <button
-            onClick={submit}
-            disabled={saving}
-            className="btn-primary text-sm disabled:opacity-50"
-          >
-            {saving ? "Vytváram…" : "Vytvoriť kupón"}
-          </button>
+          <SaveBar
+            dirty={dirty}
+            saving={saving}
+            saved={saved}
+            error={error}
+            onSave={persist}
+            onRevert={load}
+          />
         </div>
       </div>
-    </Modal>
+
+      {coupons.length === 0 && (
+        <p className="text-sm text-neutral-500">
+          Zatiaľ žiadne kupóny. Pridajte prvý.
+        </p>
+      )}
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        {coupons.map((c) => (
+          <div key={c.key} className={CARD}>
+            <div className="mb-3 flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wide text-neutral-400">
+                Kupón
+              </span>
+              <button
+                onClick={() => removeCoupon(c.key)}
+                className="flex items-center gap-1 text-xs font-semibold text-neutral-400 hover:text-brand-error"
+              >
+                <Trash2 className="h-3.5 w-3.5" /> Zmazať
+              </button>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <FieldLabel>Kód</FieldLabel>
+                <input
+                  value={c.code}
+                  onChange={(e) =>
+                    update(c.key, { code: e.target.value.toUpperCase() })
+                  }
+                  placeholder="napr. LETO2026"
+                  autoComplete="off"
+                  autoCapitalize="characters"
+                  spellCheck={false}
+                  className="w-full rounded-lg border border-black/10 bg-neutral-100 px-3 py-2 text-sm uppercase outline-none focus:border-brand-primary dark:border-white/10 dark:bg-[#222]"
+                />
+              </div>
+              <div>
+                <FieldLabel>Typ</FieldLabel>
+                <select
+                  value={c.type}
+                  onChange={(e) =>
+                    update(c.key, {
+                      type: e.target.value as EditCoupon["type"],
+                    })
+                  }
+                  className="w-full rounded-lg border border-black/10 bg-neutral-100 px-3 py-2 text-sm outline-none focus:border-brand-primary dark:border-white/10 dark:bg-[#222]"
+                >
+                  <option value="percentage">Percentuálna zľava</option>
+                  <option value="fixed">Pevná zľava (€)</option>
+                  <option value="free_delivery">Doprava zdarma</option>
+                </select>
+              </div>
+              {c.type !== "free_delivery" && (
+                <NumInput
+                  label={c.type === "percentage" ? "Zľava (%)" : "Zľava (€)"}
+                  value={c.value}
+                  onChange={(v) => update(c.key, { value: v })}
+                />
+              )}
+              <NumInput
+                label="Platí od sumy (€)"
+                value={c.minSubtotal}
+                onChange={(v) => update(c.key, { minSubtotal: v })}
+              />
+              <div className="sm:col-span-2">
+                <TextInput
+                  label="Popis (pre zákazníka)"
+                  value={c.label}
+                  onChange={(v) => update(c.key, { label: v })}
+                />
+              </div>
+            </div>
+            <label className="mt-3 flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={c.forAll}
+                onChange={(e) => update(c.key, { forAll: e.target.checked })}
+                className="h-4 w-4 accent-brand-primary"
+              />
+              Platí pre obe prevádzky
+            </label>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -1839,6 +1929,7 @@ function NumInput({
         type="number"
         step="0.1"
         value={value}
+        onFocus={(e) => e.currentTarget.select()}
         onChange={(e) => onChange(Number(e.target.value))}
         className="w-full rounded-lg border border-black/10 bg-neutral-100 px-3 py-2 text-sm outline-none focus:border-brand-primary dark:border-white/10 dark:bg-[#222]"
       />
@@ -1881,6 +1972,7 @@ function LabeledNumber({
       <input
         type="number"
         value={value}
+        onFocus={(e) => e.currentTarget.select()}
         onChange={(e) => onChange(Number(e.target.value))}
         className="w-full rounded-lg border border-black/10 bg-neutral-100 px-3 py-2 text-sm outline-none focus:border-brand-primary dark:border-white/10 dark:bg-[#222]"
       />

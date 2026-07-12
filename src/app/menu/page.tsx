@@ -19,7 +19,7 @@ const FILTERS: { id: Badge; label: string }[] = [
 
 // "Všetko" is a virtual category shown first and selected by default.
 const CATEGORY_TABS: { id: CategoryId | "all"; name: string; icon: string }[] = [
-  { id: "all", name: "Všetko", icon: "🍽️" },
+  { id: "all", name: "Všetko", icon: "🍴" },
   ...CATEGORIES,
 ];
 

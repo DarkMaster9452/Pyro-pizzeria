@@ -3,22 +3,21 @@
 import { useEffect, useRef } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { useApp } from "@/lib/store";
 
-// mapcn-style map (MapLibre GL + CARTO basemaps, no access token). Light/dark
-// aware, with zoom/compass, fullscreen and locate controls and a brand marker.
-const CARTO = (variant: "light_all" | "dark_all") =>
-  ["a", "b", "c", "d"].map(
-    (s) =>
-      `https://${s}.basemaps.cartocdn.com/rastertiles/${variant}/{z}/{x}/{y}.png`
-  );
+// Satellite map (MapLibre GL + Esri World Imagery, no access token). Bright and
+// clear in both light/dark UI, with a place-name overlay for readability, plus
+// zoom/compass, fullscreen and locate controls and a brand marker.
+const ESRI_SATELLITE =
+  "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
+const ESRI_LABELS =
+  "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}";
 
 export default function MapView({
   lat,
   lng,
   label,
   accent = "#E85D04",
-  zoom = 14,
+  zoom = 16,
 }: {
   lat: number;
   lng: number;
@@ -27,25 +26,31 @@ export default function MapView({
   zoom?: number;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const theme = useApp((s) => s.theme);
 
   useEffect(() => {
     if (!ref.current) return;
-    const dark = theme === "dark";
     const map = new maplibregl.Map({
       container: ref.current,
       style: {
         version: 8,
         sources: {
-          basemap: {
+          satellite: {
             type: "raster",
-            tiles: CARTO(dark ? "dark_all" : "light_all"),
+            tiles: [ESRI_SATELLITE],
             tileSize: 256,
             attribution:
-              '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> © <a href="https://carto.com/attributions">CARTO</a>',
+              'Imagery © <a href="https://www.esri.com/">Esri</a>, Maxar, Earthstar Geographics',
+          },
+          labels: {
+            type: "raster",
+            tiles: [ESRI_LABELS],
+            tileSize: 256,
           },
         },
-        layers: [{ id: "basemap", type: "raster", source: "basemap" }],
+        layers: [
+          { id: "satellite", type: "raster", source: "satellite" },
+          { id: "labels", type: "raster", source: "labels" },
+        ],
       },
       center: [lng, lat],
       zoom,
@@ -83,7 +88,7 @@ export default function MapView({
     marker.addTo(map);
 
     return () => map.remove();
-  }, [lat, lng, label, accent, zoom, theme]);
+  }, [lat, lng, label, accent, zoom]);
 
   return <div ref={ref} className="h-full min-h-[400px] w-full" />;
 }

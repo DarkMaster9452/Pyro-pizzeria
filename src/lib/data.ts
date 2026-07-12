@@ -11,9 +11,9 @@ import type {
 export const CATEGORIES: Category[] = [
   { id: "pizza", name: "Pizza", icon: "🍕" },
   { id: "burgers", name: "Burgery", icon: "🍔" },
-  { id: "sandwiches", name: "Club Sandwich", icon: "🥪" },
+  { id: "sandwiches", name: "Club Sandwich", icon: "🥙" },
   { id: "sides", name: "Ostatné", icon: "🍟" },
-  { id: "sauces", name: "Dresingy / Omáčky", icon: "🥫" },
+  { id: "sauces", name: "Dresingy / Omáčky", icon: "🧂" },
 ];
 
 // Allergen legend as printed on the Pyro menu.
@@ -57,8 +57,8 @@ export const RESTAURANTS: Restaurant[] = [
       "https://images.unsplash.com/photo-1571997478779-2adcbbe9ab2f?w=800&q=80",
       "https://images.unsplash.com/photo-1590947132387-155cc02f3212?w=800&q=80",
     ],
-    lat: 49.1725,
-    lng: 18.6231,
+    lat: 49.09888969951562,
+    lng: 18.68703694165607,
     prepTimeMinutes: 45,
     accent: "#E85D04",
     // Po–St zatvorené · Štv/Ned 16:00–21:00 · Pi/So 16:00–22:00

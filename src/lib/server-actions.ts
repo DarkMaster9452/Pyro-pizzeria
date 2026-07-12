@@ -991,6 +991,98 @@ export async function deleteCoupon(
   return { ok: true };
 }
 
+// Bulk-save the coupons visible to this admin (its own + global "all" coupons)
+// in one shot — upsert everything provided and delete anything removed. Mirrors
+// saveZones so the coupons UI can offer one Save button + revert.
+export interface CouponInput {
+  code: string;
+  type: "percentage" | "fixed" | "free_delivery";
+  value: number;
+  minSubtotal: number;
+  label: string;
+  forAll: boolean;
+}
+
+export async function saveCoupons(
+  restaurantId: string,
+  coupons: CouponInput[]
+): Promise<{ ok: boolean; error?: string }> {
+  const session = await requireAdmin(restaurantId);
+  await ensureContent();
+
+  const norm: {
+    code: string;
+    owner: string;
+    type: string;
+    value: number;
+    minSubtotal: number;
+    label: string;
+  }[] = [];
+  const seen = new Set<string>();
+  for (const c of coupons) {
+    const code = c.code.trim().toUpperCase().replace(/\s+/g, "");
+    if (!/^[A-Z0-9]{3,40}$/.test(code))
+      return {
+        ok: false,
+        error: `Neplatný kód „${c.code}“ — 3–40 znakov (písmená/čísla).`,
+      };
+    if (seen.has(code))
+      return { ok: false, error: `Duplicitný kód kupónu: ${code}.` };
+    seen.add(code);
+    norm.push({
+      code,
+      owner: c.forAll ? "all" : restaurantId,
+      type: c.type,
+      value: Math.max(0, c.value),
+      minSubtotal: Math.max(0, c.minSubtotal),
+      label: c.label.trim() || code,
+    });
+  }
+
+  // Never clobber a coupon that belongs to the *other* restaurant.
+  for (const c of norm) {
+    const conflict = (await sql`
+      SELECT restaurant_id FROM coupons WHERE code = ${c.code} LIMIT 1
+    `) as { restaurant_id: string }[];
+    const owner = conflict[0]?.restaurant_id;
+    if (owner && owner !== "all" && owner !== restaurantId)
+      return { ok: false, error: `Kód ${c.code} patrí inej prevádzke.` };
+  }
+
+  // Delete coupons in this admin's scope that were removed in the editor.
+  const codes = norm.map((c) => c.code);
+  if (codes.length)
+    await sql.query(
+      `DELETE FROM coupons WHERE restaurant_id IN ('all', $1) AND NOT (code = ANY($2::text[]))`,
+      [restaurantId, codes]
+    );
+  else
+    await sql`DELETE FROM coupons WHERE restaurant_id IN ('all', ${restaurantId})`;
+
+  for (const c of norm) {
+    await sql`
+      INSERT INTO coupons (code, restaurant_id, type, value, min_subtotal, label, active)
+      VALUES (${c.code}, ${c.owner}, ${c.type}, ${c.value}, ${c.minSubtotal}, ${c.label}, true)
+      ON CONFLICT (code) DO UPDATE SET
+        restaurant_id = EXCLUDED.restaurant_id,
+        type = EXCLUDED.type,
+        value = EXCLUDED.value,
+        min_subtotal = EXCLUDED.min_subtotal,
+        label = EXCLUDED.label,
+        active = true
+    `;
+  }
+
+  await audit({
+    action: "coupons.saved",
+    actorId: session.user.id,
+    actorEmail: session.user.email,
+    restaurantId,
+    meta: { count: norm.length },
+  });
+  return { ok: true };
+}
+
 // -------- Delivery zones --------
 export async function adminGetZones(
   restaurantId: string

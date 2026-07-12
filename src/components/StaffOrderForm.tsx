@@ -21,7 +21,6 @@ export interface StaffOrderInitial {
 }
 import {
   Search,
-  Plus,
   Minus,
   Truck,
   Store,
@@ -184,7 +183,7 @@ export function StaffOrderForm({
             Načítavam menu…
           </p>
         ) : (
-          <div className="max-h-[420px] space-y-1.5 overflow-y-auto pr-1">
+          <div className="max-h-[460px] space-y-4 overflow-y-auto pr-1">
             {CATEGORIES.map((cat) => {
               const items = filtered.filter(
                 (p) => p.category === cat.id && p.available
@@ -192,23 +191,35 @@ export function StaffOrderForm({
               if (items.length === 0) return null;
               return (
                 <div key={cat.id}>
-                  <p className="sticky top-0 bg-white/90 py-1 text-xs font-semibold uppercase tracking-wide text-neutral-400 backdrop-blur dark:bg-[#1a1a1a]/90">
+                  <p className="sticky top-0 z-[1] mb-1.5 bg-white/90 py-1 text-xs font-semibold uppercase tracking-wide text-neutral-400 backdrop-blur dark:bg-[#1a1a1a]/90">
                     {cat.icon} {cat.name}
                   </p>
-                  {items.map((p) => {
-                    const n = qty[p.id] ?? 0;
-                    return (
-                      <div
-                        key={p.id}
-                        className={cn(
-                          "flex items-center gap-3 rounded-xl px-3 py-2",
-                          n > 0
-                            ? "bg-brand-primary/10"
-                            : "hover:bg-black/[0.03] dark:hover:bg-white/5"
-                        )}
-                      >
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium text-neutral-900 dark:text-white">
+                  {/* Whole menu as tap-to-add buttons (tap adds one, badge shows
+                      the count, the − removes one). No photos, so it stays
+                      compact enough to fit the whole menu. */}
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {items.map((p) => {
+                      const n = qty[p.id] ?? 0;
+                      return (
+                        <div
+                          key={p.id}
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => bump(p.id, 1)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              bump(p.id, 1);
+                            }
+                          }}
+                          className={cn(
+                            "relative flex min-h-[56px] cursor-pointer select-none flex-col justify-center rounded-xl border px-2.5 py-2 text-left transition-colors",
+                            n > 0
+                              ? "border-brand-primary bg-brand-primary/10"
+                              : "border-black/10 hover:border-brand-primary/40 hover:bg-black/[0.02] dark:border-white/10 dark:hover:bg-white/5"
+                          )}
+                        >
+                          <p className="truncate pr-7 text-[13px] font-medium leading-tight text-neutral-900 dark:text-white">
                             {numberMap[p.id] != null && (
                               <span className="text-brand-primary">
                                 {numberMap[p.id]}.{" "}
@@ -219,31 +230,28 @@ export function StaffOrderForm({
                           <p className="text-xs text-neutral-500">
                             {eur(priceOf(p))}
                           </p>
-                        </div>
-                        <div className="flex items-center gap-2">
                           {n > 0 && (
-                            <>
+                            <div className="absolute right-1.5 top-1.5 flex items-center gap-1">
                               <button
-                                onClick={() => bump(p.id, -1)}
-                                className="flex h-7 w-7 items-center justify-center rounded-full bg-black/5 text-neutral-700 dark:bg-white/10 dark:text-white"
+                                type="button"
+                                aria-label="Odobrať"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  bump(p.id, -1);
+                                }}
+                                className="flex h-5 w-5 items-center justify-center rounded-full bg-black/10 text-neutral-700 hover:bg-black/20 dark:bg-white/15 dark:text-white"
                               >
-                                <Minus className="h-4 w-4" />
+                                <Minus className="h-3 w-3" />
                               </button>
-                              <span className="w-5 text-center text-sm font-bold">
+                              <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-brand-primary px-1 text-[11px] font-bold text-white">
                                 {n}
                               </span>
-                            </>
+                            </div>
                           )}
-                          <button
-                            onClick={() => bump(p.id, 1)}
-                            className="flex h-7 w-7 items-center justify-center rounded-full bg-brand-primary text-white"
-                          >
-                            <Plus className="h-4 w-4" />
-                          </button>
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
               );
             })}
