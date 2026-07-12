@@ -6,6 +6,7 @@ import { registerUser, getSessionVersion } from "./users";
 import {
   RESTAURANTS,
   PRODUCTS,
+  SHARED_PRODUCTS,
   COUPONS,
   EXTRA_INGREDIENTS,
   EXTRA_CHEESE_PRICE,
@@ -92,16 +93,36 @@ async function ensureContent(): Promise<void> {
       )`;
     await sql`CREATE INDEX IF NOT EXISTS delivery_zones_restaurant_idx ON delivery_zones (restaurant_id, sort)`;
 
+    // The menu is shared across both pizzerias, stored once as restaurant_id
+    // 'all'. Collapse any legacy per-restaurant rows into that shared set
+    // (Pyro is canonical), so an edit in the admin updates both storefronts.
+    const legacy = (await sql`
+      SELECT COUNT(*)::int AS n FROM products WHERE restaurant_id <> 'all'
+    `) as { n: number }[];
+    if ((legacy[0]?.n ?? 0) > 0) {
+      await sql`
+        INSERT INTO products (id, restaurant_id, category, name, description,
+          image, base_price, sizes, ingredients, allergens, badges, available, sort)
+        SELECT regexp_replace(id, '^pyro-', ''), 'all', category, name,
+          description, image, base_price, sizes, ingredients, allergens, badges,
+          available, sort
+        FROM products WHERE restaurant_id = 'pyro'
+        ON CONFLICT (id) DO NOTHING`;
+      await sql`DELETE FROM products WHERE restaurant_id <> 'all'`;
+    }
+    // Drinks were removed from the menu — drop any that lingered.
+    await sql`DELETE FROM products WHERE category = 'drinks'`;
+
     const pc = (await sql`SELECT COUNT(*)::int AS n FROM products`) as {
       n: number;
     }[];
     if ((pc[0]?.n ?? 0) === 0) {
       let i = 0;
-      for (const p of PRODUCTS) {
+      for (const p of SHARED_PRODUCTS) {
         await sql`
           INSERT INTO products (id, restaurant_id, category, name, description,
             image, base_price, sizes, ingredients, allergens, badges, available, sort)
-          VALUES (${p.id}, ${p.restaurantId}, ${p.category}, ${p.name},
+          VALUES (${p.id}, 'all', ${p.category}, ${p.name},
             ${p.description}, ${p.image}, ${p.basePrice},
             ${JSON.stringify(p.sizes)}, ${JSON.stringify(p.ingredients)},
             ${JSON.stringify(p.allergens)}, ${JSON.stringify(p.badges)},
@@ -244,8 +265,15 @@ async function loadProducts(): Promise<Product[]> {
   const rows = (await sql`
     SELECT id, restaurant_id, category, name, description, image, base_price,
            sizes, ingredients, allergens, badges, available
-    FROM products WHERE category <> 'drinks' ORDER BY restaurant_id, sort`) as ProductRow[];
-  return rows.map(rowToProduct);
+    FROM products WHERE category <> 'drinks' ORDER BY sort`) as ProductRow[];
+  const shared = rows.map(rowToProduct);
+  // Expand the single shared menu ("all") into per-restaurant products so the
+  // storefront and cart keep matching by "<restaurantId>-<slug>" ids.
+  const out: Product[] = [];
+  for (const r of RESTAURANTS)
+    for (const p of shared)
+      out.push({ ...p, id: `${r.id}-${p.id}`, restaurantId: r.id });
+  return out;
 }
 
 // -------- Public storefront snapshot (menu, zones, coupons) --------
@@ -831,10 +859,11 @@ export async function adminGetProducts(
 ): Promise<Product[]> {
   await requireAdmin(restaurantId);
   await ensureContent();
+  // Single shared menu (restaurant_id 'all') — the same for both pizzerias.
   const rows = (await sql`
     SELECT id, restaurant_id, category, name, description, image, base_price,
            sizes, ingredients, allergens, badges, available
-    FROM products WHERE restaurant_id = ${restaurantId} AND category <> 'drinks'
+    FROM products WHERE restaurant_id = 'all' AND category <> 'drinks'
     ORDER BY sort, name
   `) as ProductRow[];
   return rows.map(rowToProduct);
@@ -859,39 +888,46 @@ export async function saveProduct(
   input: ProductInput
 ): Promise<{ ok: boolean; id?: string; error?: string }> {
   const session = await requireAdmin(restaurantId);
-  await ensureContent();
   const name = input.name.trim();
   if (!name) return { ok: false, error: "Zadajte názov produktu." };
-  const price = Math.max(0, round2(Number(input.basePrice) || 0));
-  const sizes: ProductSize[] = [
-    { id: "std", label: input.weight.trim() || "1 ks", priceDelta: 0 },
-  ];
-  const id = input.id ?? `${restaurantId}-${shortId().toLowerCase()}`;
+  try {
+    await ensureContent();
+    const price = Math.max(0, round2(Number(input.basePrice) || 0));
+    const sizes: ProductSize[] = [
+      { id: "std", label: input.weight.trim() || "1 ks", priceDelta: 0 },
+    ];
+    // Shared menu: one row for both pizzerias (restaurant_id 'all').
+    const id = input.id ?? shortId().toLowerCase();
 
-  await sql`
-    INSERT INTO products (id, restaurant_id, category, name, description, image,
-      base_price, sizes, ingredients, allergens, badges, available, updated_at)
-    VALUES (${id}, ${restaurantId}, ${input.category}, ${name},
-      ${input.description}, ${input.image}, ${price},
-      ${JSON.stringify(sizes)}, ${JSON.stringify(input.ingredients)},
-      ${JSON.stringify(input.allergens)}, ${JSON.stringify(input.badges)},
-      ${input.available}, now())
-    ON CONFLICT (id) DO UPDATE SET
-      category = EXCLUDED.category, name = EXCLUDED.name,
-      description = EXCLUDED.description, image = EXCLUDED.image,
-      base_price = EXCLUDED.base_price, sizes = EXCLUDED.sizes,
-      ingredients = EXCLUDED.ingredients, allergens = EXCLUDED.allergens,
-      badges = EXCLUDED.badges, available = EXCLUDED.available,
-      updated_at = now()
-  `;
-  await audit({
-    action: "product.saved",
-    actorId: session.user.id,
-    actorEmail: session.user.email,
-    restaurantId,
-    target: id,
-  });
-  return { ok: true, id };
+    await sql`
+      INSERT INTO products (id, restaurant_id, category, name, description, image,
+        base_price, sizes, ingredients, allergens, badges, available, updated_at)
+      VALUES (${id}, 'all', ${input.category}, ${name},
+        ${input.description}, ${input.image}, ${price},
+        ${JSON.stringify(sizes)}, ${JSON.stringify(input.ingredients)},
+        ${JSON.stringify(input.allergens)}, ${JSON.stringify(input.badges)},
+        ${input.available}, now())
+      ON CONFLICT (id) DO UPDATE SET
+        restaurant_id = 'all',
+        category = EXCLUDED.category, name = EXCLUDED.name,
+        description = EXCLUDED.description, image = EXCLUDED.image,
+        base_price = EXCLUDED.base_price, sizes = EXCLUDED.sizes,
+        ingredients = EXCLUDED.ingredients, allergens = EXCLUDED.allergens,
+        badges = EXCLUDED.badges, available = EXCLUDED.available,
+        updated_at = now()
+    `;
+    await audit({
+      action: "product.saved",
+      actorId: session.user.id,
+      actorEmail: session.user.email,
+      restaurantId,
+      target: id,
+    });
+    return { ok: true, id };
+  } catch (e) {
+    console.error("saveProduct failed", e);
+    return { ok: false, error: "Produkt sa nepodarilo uložiť." };
+  }
 }
 
 export async function setProductAvailable(
@@ -902,7 +938,7 @@ export async function setProductAvailable(
   await requireAdmin(restaurantId);
   await sql`
     UPDATE products SET available = ${available}, updated_at = now()
-    WHERE id = ${id} AND restaurant_id = ${restaurantId}
+    WHERE id = ${id} AND restaurant_id = 'all'
   `;
   return { ok: true };
 }
@@ -912,7 +948,7 @@ export async function deleteProduct(
   id: string
 ): Promise<{ ok: boolean }> {
   const session = await requireAdmin(restaurantId);
-  await sql`DELETE FROM products WHERE id = ${id} AND restaurant_id = ${restaurantId}`;
+  await sql`DELETE FROM products WHERE id = ${id} AND restaurant_id = 'all'`;
   await audit({
     action: "product.deleted",
     actorId: session.user.id,

@@ -1090,6 +1090,15 @@ export const PRODUCTS: Product[] = [
   ...buildMenu("polomarik", 0),
 ];
 
+// The menu is identical for both pizzerias, so the database stores it once as a
+// single shared set (restaurant_id = "all"), keyed by slug. It is expanded back
+// into per-restaurant products on read (id = "<restaurantId>-<slug>"), so the
+// storefront and cart keep working exactly as before.
+export const SHARED_PRODUCTS: Product[] = buildMenu("all", 0).map((p) => ({
+  ...p,
+  id: p.id.replace(/^all-/, ""),
+}));
+
 export const COUPONS: Coupon[] = [
   {
     code: "PYRO10",

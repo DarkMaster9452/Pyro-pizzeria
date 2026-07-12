@@ -1258,31 +1258,36 @@ function ProductEditor({
   async function submit() {
     setSaving(true);
     setError("");
-    const res = await saveProduct(restaurantId, {
-      id: product?.id,
-      category: form.category,
-      name: form.name,
-      description: form.description,
-      image: form.image,
-      basePrice: Number(form.basePrice),
-      weight: form.weight,
-      ingredients: form.ingredients
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean),
-      allergens: form.allergens
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean),
-      badges: form.badges,
-      available: form.available,
-    });
-    setSaving(false);
-    if (!res.ok) {
-      setError(res.error ?? "Nepodarilo sa uložiť.");
-      return;
+    try {
+      const res = await saveProduct(restaurantId, {
+        id: product?.id,
+        category: form.category,
+        name: form.name,
+        description: form.description,
+        image: form.image,
+        basePrice: Number(form.basePrice),
+        weight: form.weight,
+        ingredients: form.ingredients
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean),
+        allergens: form.allergens
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean),
+        badges: form.badges,
+        available: form.available,
+      });
+      if (!res.ok) {
+        setError(res.error ?? "Nepodarilo sa uložiť.");
+        return;
+      }
+      onSaved();
+    } catch {
+      setError("Produkt sa nepodarilo uložiť. Skúste znova.");
+    } finally {
+      setSaving(false);
     }
-    onSaved();
   }
 
   return (
