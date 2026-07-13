@@ -128,3 +128,9 @@ export function estimatedWait(baseMinutes: number, queuePizzas: number): number 
   const raw = baseMinutes + queuePizzas * 1.5;
   return Math.round(raw / 5) * 5; // round to a friendly 5-min step
 }
+
+// Preset surcharge for a custom request (half-and-half pizza etc.), toggled by
+// the cook or admin on an order. Kept here (not in the "use server" module) so
+// both server actions and client components can import it.
+export const POL_POL_SURCHARGE = 1.5;
+export const POL_POL_LABEL = "Pol/pol pizza";

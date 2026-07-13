@@ -6,8 +6,10 @@ import {
   getKitchenBoard,
   advanceKitchenOrder,
   returnKitchenOrder,
+  setOrderSurcharge,
   type KitchenOrder,
 } from "@/lib/server-actions";
+import { eur, POL_POL_SURCHARGE } from "@/lib/utils";
 import { logoutAction } from "@/lib/auth-actions";
 import { NoShift } from "@/components/DriverApp";
 import {
@@ -20,6 +22,8 @@ import {
   Check,
   RotateCcw,
   ChevronRight,
+  StickyNote,
+  Pizza,
 } from "lucide-react";
 
 // The cook's board. Cooks only move orders through prep — they can never take
@@ -78,6 +82,18 @@ export function CookApp({
       const res = await returnKitchenOrder(id);
       if (!res.ok) setError(res.error ?? "Nedá sa vrátiť.");
       setConfirmReturn(null);
+      refresh();
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function toggleSurcharge(id: string, on: boolean) {
+    setBusyId(id);
+    setError("");
+    try {
+      const res = await setOrderSurcharge(id, on);
+      if (!res.ok) setError(res.error ?? "Akcia zlyhala.");
       refresh();
     } finally {
       setBusyId(null);
@@ -155,6 +171,7 @@ export function CookApp({
                   onAskReturn={() => setConfirmReturn(o.id)}
                   onCancelReturn={() => setConfirmReturn(null)}
                   onConfirmReturn={() => takeBack(o.id)}
+                  onToggleSurcharge={(on) => toggleSurcharge(o.id, on)}
                 />
               ))}
             </Column>
@@ -173,6 +190,7 @@ export function CookApp({
                   onAskReturn={() => setConfirmReturn(o.id)}
                   onCancelReturn={() => setConfirmReturn(null)}
                   onConfirmReturn={() => takeBack(o.id)}
+                  onToggleSurcharge={(on) => toggleSurcharge(o.id, on)}
                 />
               ))}
             </Column>
@@ -191,6 +209,7 @@ export function CookApp({
                   onAskReturn={() => setConfirmReturn(o.id)}
                   onCancelReturn={() => setConfirmReturn(null)}
                   onConfirmReturn={() => takeBack(o.id)}
+                  onToggleSurcharge={(on) => toggleSurcharge(o.id, on)}
                 />
               ))}
             </Column>
@@ -244,6 +263,7 @@ function OrderCard({
   onAskReturn,
   onCancelReturn,
   onConfirmReturn,
+  onToggleSurcharge,
 }: {
   o: KitchenOrder;
   busy: boolean;
@@ -252,10 +272,12 @@ function OrderCard({
   onAskReturn: () => void;
   onCancelReturn: () => void;
   onConfirmReturn: () => void;
+  onToggleSurcharge: (on: boolean) => void;
 }) {
   const isDelivery = o.fulfillment === "delivery";
   const advanceLabel =
     o.status === "preparing" ? "Označiť hotové" : "Začať prípravu";
+  const hasSurcharge = o.surcharge > 0;
 
   return (
     <motion.div
@@ -303,10 +325,37 @@ function OrderCard({
       </ul>
 
       {o.note && (
-        <p className="mt-2 rounded-xl bg-white/5 px-3 py-2 text-xs text-white/60">
-          Pozn.: {o.note}
-        </p>
+        <div className="mt-2 flex items-start gap-2 rounded-xl border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm font-semibold text-amber-300">
+          <StickyNote className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{o.note}</span>
+        </div>
       )}
+
+      {/* Custom-request surcharge (e.g. a half-and-half pizza written in the
+          note). Cook/admin toggles it; the +1,50 € is added to the order. */}
+      <button
+        disabled={busy}
+        onClick={() => onToggleSurcharge(!hasSurcharge)}
+        className={`mt-2 inline-flex w-full items-center justify-between gap-2 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors disabled:opacity-50 ${
+          hasSurcharge
+            ? "border-brand-primary/50 bg-brand-primary/15 text-brand-primary"
+            : "border-white/15 text-white/60 hover:bg-white/5"
+        }`}
+      >
+        <span className="flex items-center gap-1.5">
+          <Pizza className="h-4 w-4" /> Pol/pol pizza · príplatok{" "}
+          {eur(POL_POL_SURCHARGE)}
+        </span>
+        <span
+          className={`flex h-5 w-5 items-center justify-center rounded-full border ${
+            hasSurcharge
+              ? "border-brand-primary bg-brand-primary text-white"
+              : "border-white/25"
+          }`}
+        >
+          {hasSurcharge && <Check className="h-3.5 w-3.5" />}
+        </span>
+      </button>
 
       <div className="mt-3 flex flex-wrap gap-2">
         {o.status !== "ready" ? (

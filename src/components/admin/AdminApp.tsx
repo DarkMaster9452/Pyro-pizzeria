@@ -5,7 +5,7 @@ import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { RESTAURANTS, CATEGORIES, ALLERGENS } from "@/lib/data";
 import type { DeliveryZone, Product, CategoryId, Badge } from "@/lib/types";
-import { eur, cn, formatAddress } from "@/lib/utils";
+import { eur, cn, formatAddress, POL_POL_SURCHARGE } from "@/lib/utils";
 import { useApp } from "@/lib/store";
 import { BarChart } from "@/components/admin/AdminCharts";
 import { logoutAction } from "@/lib/auth-actions";
@@ -34,6 +34,7 @@ import {
   getShiftsReport,
   getOrderDays,
   getAdminOrdersByDay,
+  setOrderSurcharge,
   type AdminSummary,
   type AdminOrderRow,
   type OrderDetail,
@@ -78,6 +79,7 @@ import {
   DoorOpen,
   Users,
   CalendarDays,
+  StickyNote,
 } from "lucide-react";
 
 type Tab =
@@ -1114,6 +1116,11 @@ function OrderDetailModal({
 }) {
   const [detail, setDetail] = useState<OrderDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [surBusy, setSurBusy] = useState(false);
+
+  const reload = useCallback(() => {
+    return getOrderDetail(restaurantId, id).then(setDetail);
+  }, [restaurantId, id]);
 
   useEffect(() => {
     let active = true;
@@ -1125,6 +1132,16 @@ function OrderDetailModal({
       active = false;
     };
   }, [restaurantId, id]);
+
+  async function toggleSurcharge(on: boolean) {
+    setSurBusy(true);
+    try {
+      await setOrderSurcharge(id, on);
+      await reload();
+    } finally {
+      setSurBusy(false);
+    }
+  }
 
   return (
     <motion.div
@@ -1198,8 +1215,42 @@ function OrderDetailModal({
               {detail.driverName && (
                 <Info label="Doručil" value={detail.driverName} />
               )}
-              {detail.note && <Info label="Poznámka" value={detail.note} wide />}
             </div>
+
+            {detail.note && (
+              <div className="flex items-start gap-2 rounded-2xl border border-amber-400/50 bg-amber-400/10 px-4 py-3 text-sm font-semibold text-amber-700 dark:text-amber-300">
+                <StickyNote className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{detail.note}</span>
+              </div>
+            )}
+
+            {/* Custom-request surcharge (e.g. half-and-half pizza). Toggleable
+                until the order is paid. */}
+            <button
+              disabled={surBusy || detail.status === "delivered"}
+              onClick={() => toggleSurcharge(detail.surcharge <= 0)}
+              className={cn(
+                "flex w-full items-center justify-between gap-2 rounded-2xl border px-4 py-3 text-sm font-semibold transition-colors disabled:opacity-50",
+                detail.surcharge > 0
+                  ? "border-brand-primary/50 bg-brand-primary/10 text-brand-primary"
+                  : "border-black/10 text-neutral-600 hover:bg-black/[0.03] dark:border-white/15 dark:text-neutral-300 dark:hover:bg-white/5"
+              )}
+            >
+              <span className="flex items-center gap-2">
+                <Pizza className="h-4 w-4" /> Pol/pol pizza · príplatok{" "}
+                {eur(POL_POL_SURCHARGE)}
+              </span>
+              <span
+                className={cn(
+                  "flex h-5 w-5 items-center justify-center rounded-full border",
+                  detail.surcharge > 0
+                    ? "border-brand-primary bg-brand-primary text-white"
+                    : "border-black/25 dark:border-white/25"
+                )}
+              >
+                {detail.surcharge > 0 && <Check className="h-3.5 w-3.5" />}
+              </span>
+            </button>
 
             <div>
               <p className="mb-2 font-semibold text-neutral-900 dark:text-white">
@@ -1239,6 +1290,12 @@ function OrderDetailModal({
             <div className="space-y-1 border-t border-dashed border-black/10 pt-3 dark:border-white/10">
               <Row label="Medzisúčet" value={eur(detail.subtotal)} />
               <Row label="Doprava" value={eur(detail.deliveryFee)} />
+              {detail.surcharge > 0 && (
+                <Row
+                  label={detail.surchargeNote ?? "Príplatok"}
+                  value={eur(detail.surcharge)}
+                />
+              )}
               {detail.discount > 0 && (
                 <Row label="Zľava" value={`−${eur(detail.discount)}`} />
               )}

@@ -14,7 +14,13 @@ import {
   STUFFED_CRUST_PRICE,
 } from "./data";
 import { computeTotals } from "./pricing";
-import { estimatedWait, shortId, formatAddress } from "./utils";
+import {
+  estimatedWait,
+  shortId,
+  formatAddress,
+  POL_POL_SURCHARGE,
+  POL_POL_LABEL,
+} from "./utils";
 import { orderInputSchema, firstError } from "./validation";
 import { rateLimit, audit, clientIp } from "./security";
 import type {
@@ -183,6 +189,11 @@ async function ensureOrderColumns(): Promise<void> {
     // Per-order secret returned to the customer at checkout so they can cancel
     // their own order (IDs are sequential and therefore guessable).
     await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS cancel_token text`;
+    // Kitchen/admin-applied surcharge for custom requests (e.g. a half-and-half
+    // pizza written in the note). Stored separately from `total` so it can be
+    // toggled idempotently; `total` always already includes it.
+    await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS surcharge numeric(10,2) NOT NULL DEFAULT 0`;
+    await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS surcharge_note text`;
     await sql`CREATE INDEX IF NOT EXISTS orders_driver_idx ON orders (driver_id)`;
     await sql`CREATE INDEX IF NOT EXISTS orders_user_idx ON orders (user_id)`;
     // Human-friendly, sequential order numbers (e.g. #1001) instead of random
@@ -934,6 +945,8 @@ export interface OrderDetail {
   total: number;
   payment: string;
   note: string | null;
+  surcharge: number;
+  surchargeNote: string | null;
   eta: number;
   createdAt: string;
   driverName: string | null;
@@ -949,7 +962,9 @@ export async function getOrderDetail(
     SELECT id, status, fulfillment, customer_name, phone, email, address,
            zone_name, lines, subtotal::float AS subtotal,
            delivery_fee::float AS delivery_fee, discount::float AS discount,
-           total::float AS total, payment, note, eta, created_at, driver_name
+           total::float AS total, payment, note,
+           COALESCE(surcharge, 0)::float AS surcharge, surcharge_note,
+           eta, created_at, driver_name
     FROM orders WHERE id = ${id} AND restaurant_id = ${restaurantId} LIMIT 1
   `) as Array<{
     id: string;
@@ -967,6 +982,8 @@ export async function getOrderDetail(
     total: number;
     payment: string;
     note: string | null;
+    surcharge: number;
+    surcharge_note: string | null;
     eta: number;
     created_at: string;
     driver_name: string | null;
@@ -989,6 +1006,8 @@ export async function getOrderDetail(
     total: o.total,
     payment: o.payment,
     note: o.note,
+    surcharge: o.surcharge,
+    surchargeNote: o.surcharge_note,
     eta: o.eta,
     createdAt: o.created_at,
     driverName: o.driver_name,
@@ -2207,6 +2226,7 @@ export interface KitchenOrder {
   createdAt: string; // ISO — kitchen is ordered by this (FIFO) + shows the time
   taken: boolean; // claimed by a driver / already paid
   note: string | null;
+  surcharge: number; // custom-request surcharge already included in `total`
   lines: { name: string; quantity: number }[];
 }
 
@@ -2253,6 +2273,7 @@ export async function getKitchenBoard(): Promise<KitchenOrder[]> {
   await ensureOrderColumns();
   const rows = (await sql`
     SELECT id, status, fulfillment, customer_name, total::float AS total, note,
+           COALESCE(surcharge, 0)::float AS surcharge,
            lines, driver_id, COALESCE(paid, false) AS paid, created_at,
            EXTRACT(EPOCH FROM (now() - created_at))/60 AS mins_ago
     FROM orders
@@ -2269,6 +2290,7 @@ export async function getKitchenBoard(): Promise<KitchenOrder[]> {
     customer_name: string;
     total: number;
     note: string | null;
+    surcharge: number;
     lines: { name: string; quantity: number }[];
     driver_id: string | null;
     paid: boolean;
@@ -2285,8 +2307,40 @@ export async function getKitchenBoard(): Promise<KitchenOrder[]> {
     createdAt: o.created_at,
     taken: o.driver_id != null || o.paid,
     note: o.note,
+    surcharge: o.surcharge,
     lines: Array.isArray(o.lines) ? o.lines : [],
   }));
+}
+
+// Cook/admin toggles the custom-request surcharge (e.g. half-and-half pizza).
+// Idempotent: `total` is adjusted by the delta so applying it twice is safe.
+// Only allowed before the order is paid.
+export async function setOrderSurcharge(
+  id: string,
+  on: boolean
+): Promise<{ ok: boolean; error?: string }> {
+  const ctx = await requireKitchen();
+  await ensureOrderColumns();
+  const amount = on ? POL_POL_SURCHARGE : 0;
+  const note = on ? POL_POL_LABEL : null;
+  const rows = (await sql`
+    UPDATE orders
+    SET total = total - COALESCE(surcharge, 0) + ${amount},
+        surcharge = ${amount},
+        surcharge_note = ${note}
+    WHERE id = ${id} AND restaurant_id = ${ctx.restaurantId}
+      AND COALESCE(paid, false) = false
+    RETURNING id
+  `) as { id: string }[];
+  if (!rows.length)
+    return { ok: false, error: "Nedá sa upraviť — objednávka je už zaplatená." };
+  await audit({
+    action: on ? "order.surcharge.added" : "order.surcharge.removed",
+    actorId: ctx.userId,
+    restaurantId: ctx.restaurantId,
+    target: id,
+  });
+  return { ok: true };
 }
 
 // Cook advances an order one step through prep: received/accepted → preparing
