@@ -8,7 +8,17 @@ import { PRODUCTS, CATEGORIES } from "@/lib/data";
 import type { Badge, CategoryId } from "@/lib/types";
 import { ProductCard } from "@/components/ProductCard";
 import { cn, pizzaNumbers } from "@/lib/utils";
-import { Search, SlidersHorizontal } from "lucide-react";
+import {
+  Search,
+  SlidersHorizontal,
+  Pizza,
+  Beef,
+  Sandwich,
+  Drumstick,
+  Droplets,
+  UtensilsCrossed,
+  type LucideIcon,
+} from "lucide-react";
 
 const FILTERS: { id: Badge; label: string }[] = [
   { id: "vegetarian", label: "Vegetariánske" },
@@ -18,10 +28,20 @@ const FILTERS: { id: Badge; label: string }[] = [
 ];
 
 // "Všetko" is a virtual category shown first and selected by default.
-const CATEGORY_TABS: { id: CategoryId | "all"; name: string; icon: string }[] = [
-  { id: "all", name: "Všetko", icon: "🍴" },
-  ...CATEGORIES,
+const CATEGORY_TABS: { id: CategoryId | "all"; name: string }[] = [
+  { id: "all", name: "Všetko" },
+  ...CATEGORIES.map((c) => ({ id: c.id, name: c.name })),
 ];
+
+// Clean monochrome line icons for the category tabs (inherit the text colour).
+const CATEGORY_ICONS: Record<string, LucideIcon> = {
+  all: UtensilsCrossed,
+  pizza: Pizza,
+  burgers: Beef,
+  sandwiches: Sandwich,
+  sides: Drumstick,
+  sauces: Droplets,
+};
 
 function MenuInner() {
   const params = useSearchParams();
@@ -109,21 +129,24 @@ function MenuInner() {
           </div>
 
           <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4">
-            {CATEGORY_TABS.map((c) => (
-              <button
-                key={c.id}
-                onClick={() => setActiveCat(c.id)}
-                className={cn(
-                  "flex shrink-0 items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-colors",
-                  activeCat === c.id
-                    ? "bg-brand-primary text-white shadow-glow"
-                    : "bg-white text-neutral-600 dark:bg-[#242424] dark:text-neutral-300"
-                )}
-              >
-                <span>{c.icon}</span>
-                {c.name}
-              </button>
-            ))}
+            {CATEGORY_TABS.map((c) => {
+              const Icon = CATEGORY_ICONS[c.id] ?? UtensilsCrossed;
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => setActiveCat(c.id)}
+                  className={cn(
+                    "flex shrink-0 items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-colors",
+                    activeCat === c.id
+                      ? "bg-brand-primary text-white shadow-glow"
+                      : "bg-white text-neutral-600 dark:bg-[#242424] dark:text-neutral-300"
+                  )}
+                >
+                  <Icon className="h-4 w-4" />
+                  {c.name}
+                </button>
+              );
+            })}
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
