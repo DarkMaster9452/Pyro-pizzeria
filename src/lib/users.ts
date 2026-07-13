@@ -6,7 +6,14 @@ export interface DbUser {
   id: string;
   email: string;
   name: string;
-  role: "customer" | "employee" | "driver" | "kuchar" | "admin" | "super_admin";
+  role:
+    | "customer"
+    | "employee"
+    | "driver"
+    | "kuchar"
+    | "call"
+    | "admin"
+    | "super_admin";
   restaurant_id: string | null;
   session_version: number;
 }
@@ -51,6 +58,10 @@ export const STAFF_SEED: SeedStaff[] = [
   { email: "martin@pyro.sk", name: "Martin Straňanek", password: "martin", role: "driver", restaurantId: "pyro" },
   { email: "rozvoz@polomarik.sk", name: "Polomárik Rozvoz", password: "rozvoz", role: "driver", restaurantId: "polomarik" },
   { email: "zakaznik@pyro.sk", name: "Demo Zákazník", password: "zakaznik", role: "customer", restaurantId: null },
+  // Call/counter accounts — see only finished orders and call customers. No
+  // other admin access.
+  { email: "call@pyro.sk", name: "Pyro Telefón", password: "call", role: "call", restaurantId: "pyro" },
+  { email: "call@polomarik.sk", name: "Polomárik Telefón", password: "call", role: "call", restaurantId: "polomarik" },
 ];
 
 let staffSeedPromise: Promise<void> | null = null;
@@ -62,7 +73,7 @@ export async function ensureStaffAccounts(): Promise<void> {
     await sql`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_chk`.catch(
       () => {}
     );
-    await sql`ALTER TABLE users ADD CONSTRAINT users_role_chk CHECK (role IN ('customer','employee','driver','kuchar','admin','super_admin'))`.catch(
+    await sql`ALTER TABLE users ADD CONSTRAINT users_role_chk CHECK (role IN ('customer','employee','driver','kuchar','call','admin','super_admin'))`.catch(
       () => {}
     );
     for (const s of STAFF_SEED) {

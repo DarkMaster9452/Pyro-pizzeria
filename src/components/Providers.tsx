@@ -22,7 +22,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
   const hideChrome =
     isAdmin ||
     pathname?.startsWith("/rozvoz") ||
-    pathname?.startsWith("/kuchyna");
+    pathname?.startsWith("/kuchyna") ||
+    pathname?.startsWith("/call");
 
   const setSoldOut = useApp((s) => s.setSoldOut);
   const setStorefront = useApp((s) => s.setStorefront);

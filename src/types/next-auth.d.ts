@@ -5,6 +5,7 @@ type Role =
   | "employee"
   | "driver"
   | "kuchar"
+  | "call"
   | "admin"
   | "super_admin";
 

@@ -26,6 +26,11 @@ export default async function AccountPage() {
     redirect("/kuchyna");
   }
 
+  // Call/counter account — open the call board.
+  if (session?.user?.role === "call") {
+    redirect("/call");
+  }
+
   if (!session?.user) {
     return (
       <main className="section flex min-h-[80vh] items-center justify-center py-16">

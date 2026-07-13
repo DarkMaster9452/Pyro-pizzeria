@@ -2470,6 +2470,88 @@ export async function getHandoverBoard(): Promise<DispatchOrder[]> {
 }
 
 // ===========================================================================
+// Call / counter board — a slim account that only sees finished orders and
+// calls the customer. No other admin access.
+// ===========================================================================
+export interface CallContext {
+  role: string;
+  name: string;
+  restaurantId: string;
+  restaurantName: string;
+}
+
+export async function getCallContext(): Promise<CallContext | null> {
+  const session = await auth();
+  const role = session?.user?.role;
+  if (
+    !session?.user ||
+    (role !== "call" && role !== "super_admin") ||
+    !session.user.restaurantId
+  )
+    return null;
+  const r = RESTAURANTS.find((x) => x.id === session.user.restaurantId);
+  return {
+    role: role!,
+    name: session.user.name ?? "Telefón",
+    restaurantId: session.user.restaurantId,
+    restaurantName: r?.name ?? "Prevádzka",
+  };
+}
+
+export interface CallOrder {
+  id: string;
+  fulfillment: string; // 'delivery' | 'pickup'
+  customerName: string;
+  phone: string;
+  status: string;
+  minsAgo: number;
+  total: number;
+}
+
+// Finished ("done") orders the call account may ring the customer about:
+// everything the kitchen has marked ready (or that's already on the way), not
+// yet settled. Split by fulfillment on the client.
+export async function getCallBoard(): Promise<CallOrder[]> {
+  const session = await auth();
+  const role = session?.user?.role;
+  if (
+    !session?.user ||
+    (role !== "call" && role !== "super_admin") ||
+    !session.user.restaurantId
+  )
+    throw new Error("Unauthorized");
+  const restaurantId = session.user.restaurantId;
+  await ensureOrderColumns();
+  const rows = (await sql`
+    SELECT id, fulfillment, customer_name, phone, status,
+           total::float AS total,
+           EXTRACT(EPOCH FROM (now() - created_at))/60 AS mins_ago
+    FROM orders
+    WHERE restaurant_id = ${restaurantId}
+      AND status IN ('ready', 'delivering')
+      AND COALESCE(paid, false) = false
+    ORDER BY created_at ASC
+  `) as Array<{
+    id: string;
+    fulfillment: string;
+    customer_name: string;
+    phone: string;
+    status: string;
+    total: number;
+    mins_ago: number;
+  }>;
+  return rows.map((o) => ({
+    id: o.id,
+    fulfillment: o.fulfillment,
+    customerName: o.customer_name,
+    phone: o.phone,
+    status: o.status,
+    minsAgo: Math.max(0, Math.round(o.mins_ago)),
+    total: o.total,
+  }));
+}
+
+// ===========================================================================
 // Staff order entry — the primary intake is still by phone, so admins and
 // drivers can key an order straight into the system. It flows through the
 // kitchen and dispatch exactly like an online order.

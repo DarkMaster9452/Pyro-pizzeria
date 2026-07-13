@@ -42,6 +42,11 @@ export const authConfig: NextAuthConfig = {
       if (pathname.startsWith("/kuchyna")) {
         return role === "kuchar" || role === "super_admin";
       }
+      // Call board — the phone/counter account that only sees finished orders
+      // and calls customers. Nothing else.
+      if (pathname.startsWith("/call")) {
+        return role === "call" || role === "super_admin";
+      }
       return true;
     },
     jwt({ token, user }) {
@@ -62,6 +67,7 @@ export const authConfig: NextAuthConfig = {
           | "employee"
           | "driver"
           | "kuchar"
+          | "call"
           | "admin"
           | "super_admin";
         session.user.restaurantId =

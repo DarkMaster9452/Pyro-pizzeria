@@ -57,6 +57,8 @@ export async function loginAction(
       ? "/rozvoz"
       : role === "kuchar"
       ? "/kuchyna"
+      : role === "call"
+      ? "/call"
       : "/account"
   );
 }
