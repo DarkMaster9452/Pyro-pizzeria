@@ -282,7 +282,14 @@ function OrderCard({
             </span>
           </div>
           <p className="mt-1 flex items-center gap-1 text-xs text-white/40">
-            <Clock className="h-3 w-3" /> pred {o.minsAgo} min · {o.customerName}
+            <Clock className="h-3 w-3" />
+            <span className="font-semibold text-white/70">
+              {new Date(o.createdAt).toLocaleTimeString("sk-SK", {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </span>{" "}
+            · pred {o.minsAgo} min · {o.customerName}
           </p>
         </div>
       </div>

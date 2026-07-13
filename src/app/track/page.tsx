@@ -9,7 +9,6 @@ import { RESTAURANTS } from "@/lib/data";
 import { eur, formatAddress } from "@/lib/utils";
 import { getOrderStatus, type PublicOrderStatus } from "@/lib/server-actions";
 import type { OrderStatus } from "@/lib/types";
-import { Footer } from "@/components/Footer";
 import {
   Check,
   Clock,
@@ -69,7 +68,13 @@ function TrackInner() {
     return () => clearTimeout(t);
   }, [order, updateOrderStatus, db]);
 
-  if (!order) {
+  // Drop the order from tracking 5 minutes after it was paid/settled.
+  const expired =
+    (db?.paid ?? false) &&
+    db?.paidAgoSec != null &&
+    db.paidAgoSec > 5 * 60;
+
+  if (!order || expired) {
     return (
       <main className="section flex min-h-[70vh] flex-col items-center justify-center gap-4 text-center">
         <div className="text-6xl">📦</div>
@@ -208,7 +213,6 @@ function TrackInner() {
           </Link>
         </div>
       </div>
-      <Footer />
     </main>
   );
 }

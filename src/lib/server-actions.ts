@@ -695,6 +695,7 @@ export interface AdminOrderRow {
   total: number;
   pizzaCount: number;
   minsAgo: number;
+  createdAt: string; // ISO — used to sort the kitchen FIFO + show the time
   paid: boolean;
   driverName: string | null;
   lines: { name: string; quantity: number }[];
@@ -781,6 +782,7 @@ export async function getAdminSummary(
   const orderRows = (await sql`
     SELECT id, status, fulfillment, customer_name, total::float AS total,
            pizza_count, lines, COALESCE(paid, false) AS paid, driver_name,
+           created_at,
            EXTRACT(EPOCH FROM (now() - created_at))/60 AS mins_ago
     FROM orders
     WHERE restaurant_id = ${restaurantId}
@@ -796,6 +798,7 @@ export async function getAdminSummary(
     lines: { name: string; quantity: number }[];
     paid: boolean;
     driver_name: string | null;
+    created_at: string;
     mins_ago: number;
   }>;
 
@@ -822,6 +825,7 @@ export async function getAdminSummary(
       total: o.total,
       pizzaCount: o.pizza_count,
       minsAgo: Math.max(0, Math.round(o.mins_ago)),
+      createdAt: o.created_at,
       paid: o.paid,
       driverName: o.driver_name,
       lines: Array.isArray(o.lines) ? o.lines : [],
@@ -1561,6 +1565,7 @@ export interface PublicOrderStatus {
   paid: boolean;
   total: number;
   eta: number;
+  paidAgoSec: number | null; // seconds since payment (null if not paid)
 }
 
 export async function getOrderStatus(
@@ -1571,7 +1576,8 @@ export async function getOrderStatus(
     await ensureOrderColumns();
     const rows = (await sql`
       SELECT id, restaurant_id, status, fulfillment,
-             COALESCE(paid, false) AS paid, total::float AS total, eta
+             COALESCE(paid, false) AS paid, total::float AS total, eta,
+             EXTRACT(EPOCH FROM (now() - paid_at)) AS paid_ago
       FROM orders WHERE id = ${id} LIMIT 1
     `) as Array<{
       id: string;
@@ -1581,6 +1587,7 @@ export async function getOrderStatus(
       paid: boolean;
       total: number;
       eta: number;
+      paid_ago: number | null;
     }>;
     const o = rows[0];
     if (!o) return null;
@@ -1592,6 +1599,7 @@ export async function getOrderStatus(
       paid: o.paid,
       total: o.total,
       eta: o.eta,
+      paidAgoSec: o.paid_ago != null ? Math.round(Number(o.paid_ago)) : null,
     };
   } catch {
     return null;
@@ -1956,6 +1964,7 @@ export interface KitchenOrder {
   customerName: string;
   total: number;
   minsAgo: number;
+  createdAt: string; // ISO — kitchen is ordered by this (FIFO) + shows the time
   taken: boolean; // claimed by a driver / already paid
   note: string | null;
   lines: { name: string; quantity: number }[];
@@ -2004,7 +2013,7 @@ export async function getKitchenBoard(): Promise<KitchenOrder[]> {
   await ensureOrderColumns();
   const rows = (await sql`
     SELECT id, status, fulfillment, customer_name, total::float AS total, note,
-           lines, driver_id, COALESCE(paid, false) AS paid,
+           lines, driver_id, COALESCE(paid, false) AS paid, created_at,
            EXTRACT(EPOCH FROM (now() - created_at))/60 AS mins_ago
     FROM orders
     WHERE restaurant_id = ${ctx.restaurantId}
@@ -2023,6 +2032,7 @@ export async function getKitchenBoard(): Promise<KitchenOrder[]> {
     lines: { name: string; quantity: number }[];
     driver_id: string | null;
     paid: boolean;
+    created_at: string;
     mins_ago: number;
   }>;
   return rows.map((o) => ({
@@ -2032,6 +2042,7 @@ export async function getKitchenBoard(): Promise<KitchenOrder[]> {
     customerName: o.customer_name,
     total: o.total,
     minsAgo: Math.max(0, Math.round(o.mins_ago)),
+    createdAt: o.created_at,
     taken: o.driver_id != null || o.paid,
     note: o.note,
     lines: Array.isArray(o.lines) ? o.lines : [],

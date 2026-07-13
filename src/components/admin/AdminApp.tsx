@@ -558,6 +558,14 @@ function driverInitials(name: string): string {
     .join("");
 }
 
+// Clock time an order came in (HH:MM), shown on the kitchen cards.
+function orderTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString("sk-SK", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 const STATUS_LABEL: Record<string, string> = {
   received: "Nová",
   accepted: "Prijatá",
@@ -584,10 +592,18 @@ function Kitchen({
   refresh: () => void;
   onOpen: (id: string) => void;
 }) {
-  const active =
+  // FIFO: oldest first, and never reordered by status changes — the first order
+  // in stays at the top, new ones queue behind it.
+  const active = (
     summary?.orders.filter((o) =>
       ["received", "accepted", "preparing", "ready"].includes(o.status)
-    ) ?? [];
+    ) ?? []
+  )
+    .slice()
+    .sort(
+      (a, b) =>
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    );
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<{
     id: string;
@@ -663,8 +679,11 @@ function Kitchen({
                     </span>
                   </div>
                   <p className="mt-1 flex items-center gap-1 text-xs text-neutral-400">
-                    <Clock className="h-3 w-3" /> pred {o.minsAgo} min ·{" "}
-                    {o.customerName}
+                    <Clock className="h-3 w-3" />
+                    <span className="font-semibold text-neutral-500 dark:text-neutral-300">
+                      {orderTime(o.createdAt)}
+                    </span>{" "}
+                    · pred {o.minsAgo} min · {o.customerName}
                   </p>
                   <ul className="my-3 space-y-1 text-sm text-neutral-800 dark:text-neutral-200">
                     {o.lines.map((it, i) => (

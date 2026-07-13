@@ -51,12 +51,14 @@ export default async function AccountPage() {
   }
 
   return (
-    <main className="section py-10">
-      <AccountDashboard
-        name={session.user.name ?? ""}
-        email={session.user.email ?? ""}
-      />
+    <div className="overflow-x-hidden">
+      <main className="section py-10">
+        <AccountDashboard
+          name={session.user.name ?? ""}
+          email={session.user.email ?? ""}
+        />
+      </main>
       <Footer />
-    </main>
+    </div>
   );
 }

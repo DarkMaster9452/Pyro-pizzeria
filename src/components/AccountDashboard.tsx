@@ -86,19 +86,20 @@ export function AccountDashboard({
 
   return (
     <>
-      <div className="mb-8 flex items-center gap-4">
-        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-primary to-brand-secondary text-2xl font-bold text-white">
+      <div className="mb-8 flex items-center gap-3 sm:gap-4">
+        <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-brand-primary to-brand-secondary text-2xl font-bold text-white sm:h-16 sm:w-16">
           {(name || email).slice(0, 1).toUpperCase()}
         </div>
-        <div>
-          <h1 className="font-heading text-3xl uppercase tracking-tight text-white">
+        <div className="min-w-0 flex-1">
+          <h1 className="truncate font-heading text-2xl uppercase tracking-tight text-white sm:text-3xl">
             {name || "Môj účet"}
           </h1>
-          <p className="text-sm text-[#B5B5B5]">{email}</p>
+          <p className="truncate text-sm text-[#B5B5B5]">{email}</p>
         </div>
-        <form action={logoutAction} className="ml-auto">
-          <button className="btn-ghost">
-            <LogOut className="h-4 w-4" /> Odhlásiť
+        <form action={logoutAction} className="shrink-0">
+          <button className="btn-ghost px-3 sm:px-4">
+            <LogOut className="h-4 w-4" />
+            <span className="hidden sm:inline">Odhlásiť</span>
           </button>
         </form>
       </div>
