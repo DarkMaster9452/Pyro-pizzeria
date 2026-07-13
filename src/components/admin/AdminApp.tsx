@@ -29,6 +29,7 @@ import {
   getServiceStatus,
   getOpenPrep,
   openRestaurant,
+  closeRestaurant,
   resetOldOrders,
   getShiftsReport,
   type AdminSummary,
@@ -1328,6 +1329,8 @@ function ServiceOpen({ restaurantId }: { restaurantId: string }) {
   const [status, setStatus] = useState<ServiceStatus | null>(null);
   const [prep, setPrep] = useState<OpenPrep | null>(null);
   const [loadingPrep, setLoadingPrep] = useState(false);
+  const [confirmClose, setConfirmClose] = useState(false);
+  const [closing, setClosing] = useState(false);
 
   const load = useCallback(() => {
     getServiceStatus(restaurantId).then(setStatus).catch(() => {});
@@ -1340,6 +1343,17 @@ function ServiceOpen({ restaurantId }: { restaurantId: string }) {
       setPrep(await getOpenPrep(restaurantId));
     } finally {
       setLoadingPrep(false);
+    }
+  }
+
+  async function doClose() {
+    setClosing(true);
+    try {
+      await closeRestaurant(restaurantId);
+      setConfirmClose(false);
+      load();
+    } finally {
+      setClosing(false);
     }
   }
 
@@ -1397,14 +1411,44 @@ function ServiceOpen({ restaurantId }: { restaurantId: string }) {
               : "Otvoriť prevádzku"}
           </button>
         )}
+        {open &&
+          (confirmClose ? (
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-neutral-600 dark:text-neutral-300">
+                Naozaj zavrieť?
+              </span>
+              <button
+                onClick={doClose}
+                disabled={closing}
+                className="rounded-full bg-brand-error px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
+              >
+                {closing ? "Zatváram…" : "Áno, zavrieť"}
+              </button>
+              <button
+                onClick={() => setConfirmClose(false)}
+                className="rounded-full border border-black/10 px-3 py-2 text-xs font-semibold dark:border-white/10"
+              >
+                Zrušiť
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setConfirmClose(true)}
+              className="rounded-full border border-brand-error/40 px-5 py-2.5 text-sm font-bold text-brand-error hover:bg-brand-error/10"
+            >
+              Zavrieť prevádzku
+            </button>
+          ))}
         {/* Test override: open regardless of the opening-hours window. */}
-        <button
-          onClick={startOpen}
-          disabled={loadingPrep}
-          className="rounded-full border border-dashed border-black/20 px-4 py-2 text-xs font-semibold text-neutral-500 hover:bg-black/[0.03] disabled:opacity-50 dark:border-white/20 dark:hover:bg-white/5"
-        >
-          🧪 Test: otvoriť teraz
-        </button>
+        {!open && (
+          <button
+            onClick={startOpen}
+            disabled={loadingPrep}
+            className="rounded-full border border-dashed border-black/20 px-4 py-2 text-xs font-semibold text-neutral-500 hover:bg-black/[0.03] disabled:opacity-50 dark:border-white/20 dark:hover:bg-white/5"
+          >
+            🧪 Test: otvoriť teraz
+          </button>
+        )}
       </div>
 
       {prep && (

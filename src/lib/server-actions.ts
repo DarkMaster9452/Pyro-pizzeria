@@ -1111,6 +1111,25 @@ export async function openRestaurant(
   return { ok: true };
 }
 
+// Close the pizzeria for the day again (clears the manual open flag).
+export async function closeRestaurant(
+  restaurantId: string
+): Promise<{ ok: boolean }> {
+  const session = await requireAdmin(restaurantId);
+  await ensureOrderColumns();
+  await sql`
+    UPDATE restaurant_state SET open_date = NULL, updated_at = now()
+    WHERE id = ${restaurantId}
+  `;
+  await audit({
+    action: "restaurant.closed",
+    actorId: session.user.id,
+    actorEmail: session.user.email,
+    restaurantId,
+  });
+  return { ok: true };
+}
+
 // Whether a staff member has a shift for today's service day (admins always do).
 async function hasShiftToday(
   restaurantId: string,
