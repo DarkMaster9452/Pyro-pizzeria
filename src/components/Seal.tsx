@@ -4,17 +4,17 @@ import { Flame } from "lucide-react";
 
 // Printed round quality stamp with a thin white outline. The ring text is
 // stretched to fit the circle exactly once (textLength + lengthAdjust) so the
-// letters never overlap, and the centre shows the restaurant's round logo.
+// letters never overlap, and the centre shows a white flame icon matching the
+// rest of the UI iconography.
 export function Seal({
   className = "",
-  logo,
-  label,
 }: {
   className?: string;
+  // Accepted for backwards compatibility with callers; no longer rendered.
   logo?: string;
   label?: string;
 }) {
-  const text = "RUČNÁ VÝROBA · ČERSTVÉ SUROVINY · PEC NA DREVE · ";
+  const text = "RUČNÁ VÝROBA · ČERSTVÉ SUROVINY · VYSOKÁ TEPLOTA · ";
   // Circumference of the r=38 ring in the 100×100 viewBox (2·π·38 ≈ 238.76).
   const ringLength = 238.76;
   return (
@@ -44,21 +44,9 @@ export function Seal({
           </text>
         </svg>
 
-        {logo ? (
-          <span className="relative flex h-[68px] w-[68px] items-center justify-center overflow-hidden rounded-full border border-white/15 bg-black/30 shadow-inner">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={logo}
-              alt={label ?? "logo"}
-              className="h-full w-full object-cover"
-              onError={(e) => {
-                (e.currentTarget as HTMLImageElement).style.display = "none";
-              }}
-            />
-          </span>
-        ) : (
-          <Flame className="h-7 w-7 text-white" strokeWidth={1.5} />
-        )}
+        <span className="relative flex h-[68px] w-[68px] items-center justify-center rounded-full border border-white/15 bg-black/30 shadow-inner">
+          <Flame className="h-8 w-8 text-white" strokeWidth={1.5} aria-hidden />
+        </span>
       </div>
     </div>
   );

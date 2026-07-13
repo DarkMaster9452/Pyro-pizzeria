@@ -4,13 +4,14 @@ import { useEffect, useRef } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 
-// Satellite map (MapLibre GL + Esri World Imagery, no access token). Bright and
-// clear in both light/dark UI, with a place-name overlay for readability, plus
-// zoom/compass, fullscreen and locate controls and a brand marker.
-const ESRI_SATELLITE =
-  "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
-const ESRI_LABELS =
-  "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}";
+// Street map (MapLibre GL + OpenStreetMap raster tiles, no access token).
+// Clearly legible in both light/dark UI, with zoom/compass, fullscreen and
+// locate controls and a brand marker.
+const OSM_TILES = [
+  "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
+  "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
+  "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png",
+];
 
 export default function MapView({
   lat,
@@ -34,28 +35,24 @@ export default function MapView({
       style: {
         version: 8,
         sources: {
-          satellite: {
+          osm: {
             type: "raster",
-            tiles: [ESRI_SATELLITE],
+            tiles: OSM_TILES,
             tileSize: 256,
             attribution:
-              'Imagery © <a href="https://www.esri.com/">Esri</a>, Maxar, Earthstar Geographics',
-          },
-          labels: {
-            type: "raster",
-            tiles: [ESRI_LABELS],
-            tileSize: 256,
+              '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
           },
         },
-        layers: [
-          { id: "satellite", type: "raster", source: "satellite" },
-          { id: "labels", type: "raster", source: "labels" },
-        ],
+        layers: [{ id: "osm", type: "raster", source: "osm" }],
       },
       center: [lng, lat],
       zoom,
       attributionControl: false,
     });
+
+    // The container is often sized after the map is created (dynamic import,
+    // grid layout) — resize once tiles are ready so the map fills its card.
+    map.on("load", () => map.resize());
 
     map.addControl(
       new maplibregl.NavigationControl({ showCompass: true }),
