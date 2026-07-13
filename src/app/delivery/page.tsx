@@ -54,6 +54,17 @@ export default function DeliveryPage() {
                 <p className="font-semibold">
                   {z.deliveryFee === 0 ? "doprava zdarma" : `doprava ${eur(z.deliveryFee)}`}
                 </p>
+                <p
+                  className={
+                    z.minimumOrder > 0
+                      ? "font-semibold text-brand-primary"
+                      : "text-neutral-400"
+                  }
+                >
+                  {z.minimumOrder > 0
+                    ? `min. objednávka ${eur(z.minimumOrder)}`
+                    : "bez minima"}
+                </p>
                 <p className="text-neutral-400">~{z.estimatedMinutes} min</p>
               </div>
             </div>

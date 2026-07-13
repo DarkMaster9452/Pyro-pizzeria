@@ -4,8 +4,9 @@ export const metadata = { title: "Obchodné podmienky" };
 
 export default function TermsPage() {
   return (
-    <main className="section py-12">
-      <div className="mx-auto max-w-3xl">
+    <div className="overflow-x-hidden">
+      <main className="section py-12">
+        <div className="mx-auto max-w-3xl">
         <h1 className="font-heading text-4xl uppercase tracking-tight text-white sm:text-5xl">
           Obchodné podmienky
         </h1>
@@ -41,9 +42,10 @@ export default function TermsPage() {
           Vzorový dokument — pred spustením doplňte fakturačné údaje a nechajte
           skontrolovať právnikovi.
         </p>
-      </div>
+        </div>
+      </main>
       <Footer />
-    </main>
+    </div>
   );
 }
 

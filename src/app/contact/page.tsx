@@ -41,7 +41,7 @@ export default function ContactPage() {
                 <span className="rounded-xl bg-brand-primary/10 p-2.5 text-brand-primary">
                   <Phone className="h-5 w-5" />
                 </span>
-                <a href={`tel:${r.phone}`} className="font-semibold hover:text-brand-primary">
+                <a href={`tel:${r.phone.replace(/[^+\d]/g, "")}`} className="font-semibold hover:text-brand-primary">
                   {r.phone}
                 </a>
               </li>

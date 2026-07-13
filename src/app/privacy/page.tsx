@@ -4,8 +4,9 @@ export const metadata = { title: "Ochrana súkromia" };
 
 export default function PrivacyPage() {
   return (
-    <main className="section py-12">
-      <div className="mx-auto max-w-3xl">
+    <div className="overflow-x-hidden">
+      <main className="section py-12">
+        <div className="mx-auto max-w-3xl">
         <h1 className="font-heading text-4xl uppercase tracking-tight text-white sm:text-5xl">
           Ochrana súkromia
         </h1>
@@ -43,9 +44,10 @@ export default function PrivacyPage() {
           Toto je vzorový dokument. Pred ostrým spustením ho dajte skontrolovať
           právnikovi a doplňte fakturačné údaje prevádzkovateľa.
         </p>
-      </div>
+        </div>
+      </main>
       <Footer />
-    </main>
+    </div>
   );
 }
 

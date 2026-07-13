@@ -187,7 +187,7 @@ function Hero({ r }: { r: Restaurant }) {
         </span>
       )}
       <a
-        href={`tel:${r.phone.replace(/\s/g, "")}`}
+        href={`tel:${r.phone.replace(/[^+\d]/g, "")}`}
         className="inline-flex h-16 items-center gap-3 rounded-full border border-white/[0.12] bg-white/[0.04] px-8 text-lg font-semibold text-white backdrop-blur-md transition-all duration-200 hover:-translate-y-0.5 hover:bg-white/[0.08]"
       >
         <Phone className="h-5 w-5 text-brand-accent" /> {r.phone}

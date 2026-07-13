@@ -112,7 +112,7 @@ export const RESTAURANTS: Restaurant[] = [
     heroLine2: "POD MALOU FATROU",
     city: "Stráňavy",
     address: "Stráňavy 435, 013 25",
-    phone: "+421 908 333 444",
+    phone: "041/5007250",
     email: "objednavky@polomarik.sk",
     image:
       "https://images.unsplash.com/photo-1604068549290-dea0e4a305ca?w=2000&q=80",
