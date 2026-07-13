@@ -347,7 +347,9 @@ export async function getStorefront(): Promise<Storefront> {
     await ensureContent();
     await ensureOrderColumns();
     let products = await loadProducts();
-    // Hide items the admin marked unavailable for today (per restaurant).
+    // Mark items the admin flagged unavailable for today (per restaurant) as
+    // unavailable — they stay on the menu but can't be ordered, same as the
+    // admin per-product availability toggle. We don't drop them from the list.
     const unavRows = (await sql.query(
       `SELECT restaurant_id, product_id FROM daily_unavailable
        WHERE service_date = ${SERVICE_DATE}`,
@@ -357,7 +359,9 @@ export async function getStorefront(): Promise<Storefront> {
       const unav = new Set(
         unavRows.map((u) => `${u.restaurant_id}-${u.product_id}`)
       );
-      products = products.filter((p) => !unav.has(p.id));
+      products = products.map((p) =>
+        unav.has(p.id) ? { ...p, available: false } : p
+      );
     }
     const couponRows = (await sql`
       SELECT code, restaurant_id, type, value, min_subtotal, label

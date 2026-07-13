@@ -1839,8 +1839,8 @@ function OpenFlow({
           </div>
           <p className="mt-1 text-sm text-neutral-500">
             Klepnite na položku, ktorá dnes <strong>nie je</strong> k dispozícii —
-            zmizne z webu. Zoznam sa každý deň o 12:00 resetuje na „všetko
-            dostupné“.
+            na webe zostane, ale označí sa ako nedostupná a nedá sa objednať.
+            Zoznam sa každý deň o 12:00 resetuje na „všetko dostupné“.
           </p>
           <div className="mt-3 max-h-[46vh] space-y-4 overflow-y-auto pr-1">
             {cats.map((cat) => (
