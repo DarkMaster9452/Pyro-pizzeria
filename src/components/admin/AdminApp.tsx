@@ -306,15 +306,18 @@ export function AdminApp({
           </div>
         </div>
 
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={tab}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-          >
-            {tab === "dashboard" && (
+        {/* Keyed motion.div (no AnimatePresence "wait"): switching tabs mounts
+            the new content immediately. A wait-for-exit wrapper could stall here
+            because live tabs (kitchen polling, confirm states) keep re-rendering
+            and interrupt the exit animation, leaving the next tab blank until a
+            refresh. */}
+        <motion.div
+          key={tab}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.2 }}
+        >
+          {tab === "dashboard" && (
               <Dashboard summary={summary} restaurantId={restaurantId} />
             )}
             {tab === "kitchen" && (
@@ -351,8 +354,7 @@ export function AdminApp({
             {tab === "zones" && <Zones restaurantId={restaurantId} />}
             {tab === "coupons" && <Coupons restaurantId={restaurantId} />}
             {tab === "reviews" && <Reviews />}
-          </motion.div>
-        </AnimatePresence>
+        </motion.div>
       </main>
 
       {openOrderId && (
