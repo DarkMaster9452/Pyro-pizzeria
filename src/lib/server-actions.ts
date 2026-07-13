@@ -2147,32 +2147,97 @@ export async function markDispatchDelivering(
   return { ok: true };
 }
 
+// Drivers on shift today (max ~2 — the number of cash wallets). Falls back to
+// every driver of the restaurant if nobody was assigned a shift, so the admin
+// always has a wallet to attribute a counter payment to.
+export interface ShiftDriver {
+  id: string;
+  name: string;
+}
+async function getShiftDriversInternal(
+  restaurantId: string
+): Promise<ShiftDriver[]> {
+  const shift = (await sql.query(
+    `SELECT user_id::text AS id, name FROM shifts
+     WHERE restaurant_id = $1 AND service_date = ${SERVICE_DATE}
+       AND role = 'driver'
+     ORDER BY name`,
+    [restaurantId]
+  )) as ShiftDriver[];
+  if (shift.length) return shift;
+  const all = (await sql`
+    SELECT id::text AS id, name FROM users
+    WHERE restaurant_id = ${restaurantId} AND role = 'driver'
+    ORDER BY name
+  `) as ShiftDriver[];
+  return all;
+}
+
+export async function getShiftDrivers(
+  restaurantId: string
+): Promise<ShiftDriver[]> {
+  await requireAdmin(restaurantId);
+  await ensureOrderColumns();
+  return getShiftDriversInternal(restaurantId);
+}
+
 // Mark the order paid — the terminal step. Finalises it as delivered + paid.
 // A driver may only settle a delivery order assigned to them. Admins never
-// touch delivery, but may settle a *pickup* order at the counter (výdaj), where
-// no courier is involved.
+// touch delivery, but may settle a *pickup* order at the counter (výdaj). The
+// cash always lands in a courier's wallet (driver_id), never the admin's — so a
+// pickup settled by an admin must be attributed to a driver. When exactly one
+// driver is on shift the money goes to them automatically; otherwise the admin
+// picks who took it.
 export async function markDispatchPaid(
-  id: string
+  id: string,
+  walletDriverId?: string
 ): Promise<{ ok: boolean; error?: string }> {
   const ctx = await requireDispatcher();
   await ensureOrderColumns();
   const isAdmin = isAdminRole(ctx.role);
-  const rows = isAdmin
-    ? ((await sql`
-        UPDATE orders
-        SET paid = true, paid_at = now(), status = 'delivered',
-            driver_id = COALESCE(driver_id, ${ctx.userId}),
-            driver_name = COALESCE(driver_name, ${ctx.name})
-        WHERE id = ${id} AND restaurant_id = ${ctx.restaurantId}
-          AND fulfillment = 'pickup'
-          AND COALESCE(paid, false) = false
-        RETURNING id`) as { id: string }[])
-    : ((await sql`
+
+  if (isAdmin) {
+    const drivers = await getShiftDriversInternal(ctx.restaurantId);
+    const target = walletDriverId
+      ? drivers.find((d) => d.id === walletDriverId)
+      : drivers.length === 1
+      ? drivers[0]
+      : undefined;
+    if (!target)
+      return {
+        ok: false,
+        error:
+          drivers.length === 0
+            ? "Najprv prideľte rozvozcovi službu (Prevádzka)."
+            : "Vyberte, kto objednávku prevzal.",
+      };
+    const paidRows = (await sql`
+      UPDATE orders
+      SET paid = true, paid_at = now(), status = 'delivered',
+          driver_id = ${target.id}, driver_name = ${target.name}
+      WHERE id = ${id} AND restaurant_id = ${ctx.restaurantId}
+        AND fulfillment = 'pickup'
+        AND COALESCE(paid, false) = false
+      RETURNING id`) as { id: string }[];
+    if (!paidRows.length)
+      return { ok: false, error: "Objednávku sa nepodarilo vydať." };
+    await audit({
+      action: "dispatch.paid",
+      actorId: ctx.userId,
+      actorEmail: ctx.email,
+      restaurantId: ctx.restaurantId,
+      target: id,
+      meta: { role: ctx.role, wallet: target.id },
+    });
+    return { ok: true };
+  }
+
+  const rows = (await sql`
         UPDATE orders
         SET paid = true, paid_at = now(), status = 'delivered'
         WHERE id = ${id} AND restaurant_id = ${ctx.restaurantId}
           AND driver_id = ${ctx.userId} AND COALESCE(paid, false) = false
-        RETURNING id`) as { id: string }[]);
+        RETURNING id`) as { id: string }[];
   if (!rows.length)
     return {
       ok: false,

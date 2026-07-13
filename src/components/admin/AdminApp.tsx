@@ -24,6 +24,8 @@ import {
   saveZones,
   getHandoverBoard,
   markDispatchPaid,
+  getShiftDrivers,
+  type ShiftDriver,
   advanceKitchenOrder,
   returnKitchenOrder,
   getServiceStatus,
@@ -786,6 +788,42 @@ function Kitchen({
   );
 }
 
+// A selectable "wallet" chip for a driver, colour-matched to the orders list
+// (same driverColor hash) so the same person reads the same everywhere.
+function WalletBall({
+  name,
+  active,
+  onClick,
+}: {
+  name: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  const color = driverColor(name);
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "inline-flex items-center gap-2 rounded-full border-2 px-2.5 py-1.5 text-xs font-semibold transition-colors",
+        active
+          ? "bg-black/[0.03] dark:bg-white/5"
+          : "border-transparent opacity-70 hover:opacity-100"
+      )}
+      style={active ? { borderColor: color, color } : { color }}
+    >
+      <span
+        className="flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-bold"
+        style={{ backgroundColor: `${color}26`, color }}
+      >
+        {driverInitials(name)}
+      </span>
+      {name}
+      {active && <Check className="h-3.5 w-3.5" />}
+    </button>
+  );
+}
+
 // Counter handover: ready pickup orders light up here (mirrors the driver board
 // for delivery). The admin hands the order over and marks it paid, which
 // finalises it.
@@ -794,6 +832,9 @@ function Handover({ restaurantId }: { restaurantId: string }) {
   const [loaded, setLoaded] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [drivers, setDrivers] = useState<ShiftDriver[]>([]);
+  // Which driver's wallet each waiting order's cash goes into (order id → driver id).
+  const [wallet, setWallet] = useState<Record<string, string>>({});
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const refresh = useCallback(() => {
@@ -813,11 +854,25 @@ function Handover({ restaurantId }: { restaurantId: string }) {
     };
   }, [refresh]);
 
+  useEffect(() => {
+    getShiftDrivers(restaurantId).then(setDrivers).catch(() => setDrivers([]));
+  }, [restaurantId]);
+
+  // With a single driver on shift, everything goes to them — no need to pick.
+  const soleDriver = drivers.length === 1 ? drivers[0] : null;
+
   async function settle(id: string) {
+    // Cash must land in a courier's wallet. One driver → auto; otherwise the
+    // admin must have picked who took it.
+    const walletId = soleDriver ? soleDriver.id : wallet[id];
+    if (!walletId) {
+      setError("Najprv vyberte, kto objednávku prevzal.");
+      return;
+    }
     setBusyId(id);
     setError("");
     try {
-      const res = await markDispatchPaid(id);
+      const res = await markDispatchPaid(id, walletId);
       if (!res.ok) setError(res.error ?? "Akcia zlyhala.");
       refresh();
     } finally {
@@ -905,11 +960,49 @@ function Handover({ restaurantId }: { restaurantId: string }) {
                     {o.note}
                   </p>
                 )}
+                {/* Whose wallet the cash goes into. All takings are tracked per
+                    courier, so the admin must attribute a counter payment to a
+                    driver before settling. One driver on shift → automatic. */}
+                <div className="mt-3 border-t border-black/[0.06] pt-2 dark:border-white/10">
+                  <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-neutral-400">
+                    Kto prevzal (peňaženka)
+                  </p>
+                  {drivers.length === 0 ? (
+                    <p className="text-xs text-brand-error">
+                      Dnes nie je pridelený rozvozca — nastavte službu v
+                      Prevádzke.
+                    </p>
+                  ) : soleDriver ? (
+                    <WalletBall
+                      name={soleDriver.name}
+                      active
+                      onClick={() => {}}
+                    />
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {drivers.map((d) => (
+                        <WalletBall
+                          key={d.id}
+                          name={d.name}
+                          active={wallet[o.id] === d.id}
+                          onClick={() =>
+                            setWallet((w) => ({ ...w, [o.id]: d.id }))
+                          }
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 <div className="mt-2 flex flex-wrap gap-2">
                   <button
-                    disabled={busyId === o.id}
+                    disabled={
+                      busyId === o.id ||
+                      drivers.length === 0 ||
+                      (!soleDriver && !wallet[o.id])
+                    }
                     onClick={() => settle(o.id)}
-                    className="inline-flex items-center gap-1.5 rounded-full bg-brand-success px-3 py-2 text-xs font-bold text-white transition-colors hover:brightness-110 disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 rounded-full bg-brand-success px-3 py-2 text-xs font-bold text-white transition-colors hover:brightness-110 disabled:opacity-40"
                   >
                     <Check className="h-4 w-4" /> Vydané a zaplatené
                   </button>
