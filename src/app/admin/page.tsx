@@ -12,7 +12,7 @@ export default async function AdminPage() {
   return (
     <AdminApp
       restaurantId={session.user.restaurantId}
-      adminName={session.user.name ?? "Admin"}
+      adminName="Admin"
       adminEmail={session.user.email ?? ""}
     />
   );

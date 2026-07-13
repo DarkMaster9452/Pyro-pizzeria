@@ -210,6 +210,7 @@ export default function CheckoutPage() {
       payment: paymentLabel,
       note,
       eta: res.eta ?? eta,
+      cancelToken: res.cancelToken,
     };
     addOrder(order);
     clearCart();
