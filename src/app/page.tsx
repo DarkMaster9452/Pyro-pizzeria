@@ -46,8 +46,8 @@ function buildFeatures(wait: number) {
     },
     {
       icon: <Flame className="h-6 w-6" />,
-      t: "Kamenná pec",
-      d: "Pizza pečená pri vysokej teplote.",
+      t: "Chrumkavá pizza",
+      d: "Pečená pri vysokej teplote.",
       tint: "bg-brand-secondary/12 text-brand-secondary",
     },
   ];
@@ -172,9 +172,9 @@ function Hero({ r }: { r: Restaurant }) {
       className="max-w-[520px] text-[17px] text-[#B5B5B5] sm:text-lg"
       style={{ lineHeight: 1.7 }}
     >
-      Ručne pripravená pizza z kvalitných surovín, pečená do dokonalosti v
-      kamennej peci. Rozvoz priamo k vám alebo osobný odber — vždy čerstvé, vždy
-      poctivé.
+      Ručne pripravená pizza z kvalitných surovín, pečená do dokonalosti pri
+      vysokej teplote. Rozvoz priamo k vám alebo osobný odber — vždy čerstvé,
+      vždy poctivé.
     </motion.p>
   );
 
@@ -228,7 +228,7 @@ function Hero({ r }: { r: Restaurant }) {
         <div className="absolute inset-0 bg-[#0d0a08]">
           <Image
             src={r.image}
-            alt={`${r.name} — pizza z kamennej pece`}
+            alt={`${r.name} — čerstvá pizza`}
             fill
             priority
             sizes="100vw"
@@ -288,7 +288,7 @@ function Hero({ r }: { r: Restaurant }) {
         <div className="relative h-[46vh] min-h-[300px] w-full">
           <Image
             src={r.image}
-            alt={`${r.name} — pizza z kamennej pece`}
+            alt={`${r.name} — čerstvá pizza`}
             fill
             priority
             sizes="100vw"
