@@ -151,4 +151,5 @@ export interface Order {
   payment: string;
   note?: string;
   eta: number; // minutes
+  cancelToken?: string; // secret allowing the customer to cancel this order
 }

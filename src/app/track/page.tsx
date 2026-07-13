@@ -7,7 +7,11 @@ import { motion } from "framer-motion";
 import { useApp } from "@/lib/store";
 import { RESTAURANTS } from "@/lib/data";
 import { eur, formatAddress } from "@/lib/utils";
-import { getOrderStatus, type PublicOrderStatus } from "@/lib/server-actions";
+import {
+  cancelOrder,
+  getOrderStatus,
+  type PublicOrderStatus,
+} from "@/lib/server-actions";
 import type { OrderStatus } from "@/lib/types";
 import {
   Check,
@@ -17,6 +21,8 @@ import {
   Truck,
   Home,
   CheckCheck,
+  X,
+  Loader2,
 } from "lucide-react";
 
 const STEPS: { id: OrderStatus; label: string; icon: React.ReactNode }[] = [
@@ -52,6 +58,29 @@ function TrackInner() {
       clearInterval(t);
     };
   }, [order?.id]);
+
+  // ---- Customer cancellation (only before the kitchen starts preparing) ----
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelErr, setCancelErr] = useState<string | null>(null);
+
+  async function handleCancel() {
+    if (!order) return;
+    setCancelling(true);
+    setCancelErr(null);
+    const res = await cancelOrder(order.id, order.cancelToken).catch(() => ({
+      ok: false,
+      error: "Zrušenie sa nepodarilo. Skúste znova.",
+    }));
+    setCancelling(false);
+    if (res.ok) {
+      updateOrderStatus(order.id, "cancelled");
+      setDb((prev) => (prev ? { ...prev, status: "cancelled" } : prev));
+      setConfirmCancel(false);
+    } else {
+      setCancelErr(res.error ?? "Zrušenie sa nepodarilo.");
+    }
+  }
 
   // Local simulation — only runs while the DB has no record (e.g. demo mode).
   useEffect(() => {
@@ -102,6 +131,10 @@ function TrackInner() {
   const r = RESTAURANTS.find((x) => x.id === order.restaurantId);
   const status = db?.status ?? order.status;
   const paid = db?.paid ?? false;
+  const cancelled = status === "cancelled";
+  // The customer may cancel only until the kitchen starts preparing the order.
+  const canCancel =
+    !cancelled && !paid && (status === "received" || status === "accepted");
   const steps = STEPS.filter(
     (s) => order.fulfillment === "delivery" || s.id !== "delivering"
   );
@@ -120,7 +153,7 @@ function TrackInner() {
             </p>
           </div>
 
-          {paid && (
+          {paid && !cancelled && (
             <div className="flex items-center gap-3 border-b border-black/5 bg-brand-success/10 px-6 py-4 text-brand-success dark:border-white/10">
               <CheckCheck className="h-6 w-6 shrink-0" />
               <div>
@@ -134,7 +167,20 @@ function TrackInner() {
             </div>
           )}
 
+          {cancelled && (
+            <div className="flex items-center gap-3 border-b border-black/5 bg-red-500/10 px-6 py-4 text-red-600 dark:border-white/10 dark:text-red-400">
+              <X className="h-6 w-6 shrink-0" />
+              <div>
+                <p className="font-display font-bold">Objednávka bola zrušená</p>
+                <p className="text-sm text-red-600/80 dark:text-red-400/80">
+                  Ak to bol omyl, jednoducho objednajte znova.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* stepper */}
+          {!cancelled && (
           <div className="p-6">
             <div className="space-y-1">
               {steps.map((s, i) => {
@@ -191,6 +237,7 @@ function TrackInner() {
               })}
             </div>
           </div>
+          )}
 
           {/* summary */}
           <div className="border-t border-black/5 p-6 dark:border-white/10">
@@ -217,6 +264,60 @@ function TrackInner() {
             <p className="mt-1 text-sm text-neutral-500">
               Platba: {order.payment}
             </p>
+
+            {canCancel && (
+              <div className="mt-5 border-t border-black/5 pt-5 dark:border-white/10">
+                {!confirmCancel ? (
+                  <>
+                    <button
+                      onClick={() => {
+                        setCancelErr(null);
+                        setConfirmCancel(true);
+                      }}
+                      className="inline-flex items-center gap-2 rounded-full border border-red-500/30 px-4 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-500/10 dark:text-red-400"
+                    >
+                      <X className="h-4 w-4" />
+                      Zrušiť objednávku
+                    </button>
+                    <p className="mt-2 text-xs text-neutral-500">
+                      Zrušiť môžete, kým sa objednávka nezačne pripravovať.
+                    </p>
+                  </>
+                ) : (
+                  <div>
+                    <p className="text-sm font-semibold">
+                      Naozaj chcete zrušiť túto objednávku?
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        onClick={handleCancel}
+                        disabled={cancelling}
+                        className="inline-flex items-center gap-2 rounded-full bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700 disabled:opacity-60"
+                      >
+                        {cancelling ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <X className="h-4 w-4" />
+                        )}
+                        Áno, zrušiť
+                      </button>
+                      <button
+                        onClick={() => setConfirmCancel(false)}
+                        disabled={cancelling}
+                        className="rounded-full border border-black/10 px-4 py-2 text-sm font-semibold text-neutral-600 transition hover:bg-black/5 disabled:opacity-60 dark:border-white/15 dark:text-neutral-300 dark:hover:bg-white/5"
+                      >
+                        Ponechať
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {cancelErr && (
+                  <p className="mt-2 text-sm text-red-600 dark:text-red-400">
+                    {cancelErr}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         </div>
 

@@ -1,5 +1,6 @@
 "use server";
 
+import { randomUUID } from "crypto";
 import { sql } from "./db";
 import { auth } from "@/auth";
 import { registerUser, getSessionVersion } from "./users";
@@ -179,6 +180,9 @@ async function ensureOrderColumns(): Promise<void> {
     await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS driver_name text`;
     await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS paid boolean NOT NULL DEFAULT false`;
     await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS paid_at timestamptz`;
+    // Per-order secret returned to the customer at checkout so they can cancel
+    // their own order (IDs are sequential and therefore guessable).
+    await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS cancel_token text`;
     await sql`CREATE INDEX IF NOT EXISTS orders_driver_idx ON orders (driver_id)`;
     await sql`CREATE INDEX IF NOT EXISTS orders_user_idx ON orders (user_id)`;
     // Human-friendly, sequential order numbers (e.g. #1001) instead of random
@@ -445,6 +449,7 @@ export interface CreateOrderResult {
   error?: string;
   total?: number;
   eta?: number;
+  cancelToken?: string;
 }
 
 // Re-price a cart line from the DATABASE menu — the client's unitPrice is
@@ -623,11 +628,12 @@ export async function createOrder(
         : "Platba pri odbere");
 
     const id = await nextOrderId();
+    const cancelToken = randomUUID();
     await sql`
       INSERT INTO orders (
         id, restaurant_id, status, fulfillment, customer_name, phone, email,
         address, zone_name, lines, pizza_count, subtotal, delivery_fee,
-        discount, total, payment, note, eta, user_id
+        discount, total, payment, note, eta, user_id, cancel_token
       ) VALUES (
         ${id}, ${data.restaurantId}, 'received', ${data.fulfillment},
         ${data.customerName}, ${data.phone}, ${data.email || null},
@@ -637,7 +643,7 @@ export async function createOrder(
         ${totals.subtotal}, ${totals.deliveryFee}, ${totals.discount},
         ${totals.total},
         ${paymentLabel},
-        ${data.note || null}, ${eta}, ${userId}
+        ${data.note || null}, ${eta}, ${userId}, ${cancelToken}
       )
     `;
     await audit({
@@ -646,7 +652,7 @@ export async function createOrder(
       target: id,
       meta: { total: totals.total, fulfillment: data.fulfillment, ip },
     });
-    return { ok: true, id, total: totals.total, eta };
+    return { ok: true, id, total: totals.total, eta, cancelToken };
   } catch (e) {
     console.error("createOrder failed", e);
     return { ok: false, error: "Objednávku sa nepodarilo uložiť." };
@@ -1676,6 +1682,79 @@ export async function getOrderStatus(
     };
   } catch {
     return null;
+  }
+}
+
+// Statuses at which a customer may still cancel their own order — i.e. before
+// the kitchen starts preparing it. Once it is "preparing" or later, cancelling
+// is no longer allowed (food is already being made).
+const CUSTOMER_CANCELABLE = ["received", "accepted"] as const;
+
+// Customer-initiated cancellation. Authorised either by the per-order cancel
+// token (handed to the device at checkout) or by ownership when signed in.
+// Only succeeds while the order has not started being prepared.
+export async function cancelOrder(
+  id: string,
+  token?: string | null
+): Promise<{ ok: boolean; error?: string; status?: string }> {
+  if (!id) return { ok: false, error: "Neznáma objednávka." };
+  try {
+    await ensureOrderColumns();
+    const rows = (await sql`
+      SELECT restaurant_id, status, COALESCE(paid, false) AS paid,
+             cancel_token, user_id
+      FROM orders WHERE id = ${id} LIMIT 1
+    `) as Array<{
+      restaurant_id: string;
+      status: string;
+      paid: boolean;
+      cancel_token: string | null;
+      user_id: string | null;
+    }>;
+    const o = rows[0];
+    if (!o) return { ok: false, error: "Objednávka neexistuje." };
+
+    // Authorise: matching token, or the signed-in owner of the order.
+    const session = await auth();
+    const owns =
+      !!session?.user?.id && !!o.user_id && session.user.id === o.user_id;
+    const tokenOk = !!token && !!o.cancel_token && token === o.cancel_token;
+    if (!owns && !tokenOk) {
+      return { ok: false, error: "Túto objednávku nie je možné zrušiť." };
+    }
+
+    if (o.status === "cancelled") return { ok: true, status: "cancelled" };
+    if (o.paid || !CUSTOMER_CANCELABLE.includes(o.status as never)) {
+      return {
+        ok: false,
+        error: "Objednávku už nie je možné zrušiť — pripravuje sa.",
+        status: o.status,
+      };
+    }
+
+    // Guard against a race with the kitchen: only flip to cancelled if the
+    // status is still cancelable at write time.
+    const updated = (await sql`
+      UPDATE orders SET status = 'cancelled'
+      WHERE id = ${id} AND status IN ('received', 'accepted')
+        AND COALESCE(paid, false) = false
+      RETURNING id
+    `) as unknown[];
+    if (!updated.length) {
+      return {
+        ok: false,
+        error: "Objednávku už nie je možné zrušiť — pripravuje sa.",
+      };
+    }
+    await audit({
+      action: "order.cancelled_by_customer",
+      restaurantId: o.restaurant_id,
+      target: id,
+    });
+    return { ok: true, status: "cancelled" };
+  } catch (e) {
+    console.error("cancelOrder failed", e);
+    return { ok: false, error: "Zrušenie sa nepodarilo. Skúste znova." };
   }
 }
 
