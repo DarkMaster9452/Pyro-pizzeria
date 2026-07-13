@@ -1383,19 +1383,29 @@ function ServiceOpen({ restaurantId }: { restaurantId: string }) {
           </p>
         </div>
       </div>
-      {showButton && (
+      <div className="flex shrink-0 flex-col items-stretch gap-2 sm:items-end">
+        {showButton && (
+          <button
+            onClick={startOpen}
+            disabled={loadingPrep}
+            className="rounded-full bg-brand-success px-5 py-2.5 text-sm font-bold text-white hover:brightness-110 disabled:opacity-50"
+          >
+            {loadingPrep
+              ? "Načítavam…"
+              : open
+              ? "Upraviť dostupnosť / služby"
+              : "Otvoriť prevádzku"}
+          </button>
+        )}
+        {/* Test override: open regardless of the opening-hours window. */}
         <button
           onClick={startOpen}
           disabled={loadingPrep}
-          className="shrink-0 rounded-full bg-brand-success px-5 py-2.5 text-sm font-bold text-white hover:brightness-110 disabled:opacity-50"
+          className="rounded-full border border-dashed border-black/20 px-4 py-2 text-xs font-semibold text-neutral-500 hover:bg-black/[0.03] disabled:opacity-50 dark:border-white/20 dark:hover:bg-white/5"
         >
-          {loadingPrep
-            ? "Načítavam…"
-            : open
-            ? "Upraviť dostupnosť / služby"
-            : "Otvoriť prevádzku"}
+          🧪 Test: otvoriť teraz
         </button>
-      )}
+      </div>
 
       {prep && (
         <OpenFlow
