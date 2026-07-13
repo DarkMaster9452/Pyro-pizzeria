@@ -100,9 +100,15 @@ const NAV: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: "reviews", label: "Recenzie", icon: <Star className="h-5 w-5" /> },
 ];
 
-// ------------ new-order sound (Web Audio, no asset) ------------
+// ------------ new-order sound (bell WAV, amplified LOUD) ------------
 let audioCtx: AudioContext | null = null;
-function beep() {
+let orderBuffer: AudioBuffer | null = null;
+let bufferLoading: Promise<AudioBuffer | null> | null = null;
+// Extra gain so the bell is loud enough to hear across the kitchen (>1 amplifies
+// beyond the file's own level).
+const ORDER_SOUND_GAIN = 5;
+
+function getCtx(): AudioContext | null {
   try {
     const Ctx =
       window.AudioContext ||
@@ -110,24 +116,38 @@ function beep() {
         .webkitAudioContext;
     audioCtx ??= new Ctx();
     if (audioCtx.state === "suspended") void audioCtx.resume();
-    const now = audioCtx.currentTime;
-    [880, 1320].forEach((freq, i) => {
-      const o = audioCtx!.createOscillator();
-      const g = audioCtx!.createGain();
-      o.type = "sine";
-      o.frequency.value = freq;
-      const t = now + i * 0.18;
-      g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(0.35, t + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
-      o.connect(g);
-      g.connect(audioCtx!.destination);
-      o.start(t);
-      o.stop(t + 0.24);
-    });
+    return audioCtx;
   } catch {
-    /* audio not available */
+    return null;
   }
+}
+
+function loadOrderSound(ctx: AudioContext): Promise<AudioBuffer | null> {
+  if (orderBuffer) return Promise.resolve(orderBuffer);
+  bufferLoading ??= fetch("/sounds/new-order.wav")
+    .then((r) => r.arrayBuffer())
+    .then((b) => ctx.decodeAudioData(b))
+    .then((buf) => {
+      orderBuffer = buf;
+      return buf;
+    })
+    .catch(() => null);
+  return bufferLoading;
+}
+
+function beep() {
+  const ctx = getCtx();
+  if (!ctx) return;
+  void loadOrderSound(ctx).then((buf) => {
+    if (!buf) return;
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const g = ctx.createGain();
+    g.gain.value = ORDER_SOUND_GAIN;
+    src.connect(g);
+    g.connect(ctx.destination);
+    src.start();
+  });
 }
 
 export function AdminApp({
@@ -158,10 +178,12 @@ export function AdminApp({
     return () => clearInterval(t);
   }, [refresh]);
 
-  // Resume the audio context on the first interaction (browser autoplay rules).
+  // Resume the audio context + preload the bell on the first interaction
+  // (browser autoplay rules), so the first order rings instantly and loud.
   useEffect(() => {
     const resume = () => {
-      if (audioCtx?.state === "suspended") void audioCtx.resume();
+      const ctx = getCtx();
+      if (ctx) void loadOrderSound(ctx);
     };
     window.addEventListener("pointerdown", resume);
     return () => window.removeEventListener("pointerdown", resume);
