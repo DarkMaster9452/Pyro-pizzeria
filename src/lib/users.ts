@@ -40,8 +40,10 @@ interface SeedStaff {
 }
 
 export const STAFF_SEED: SeedStaff[] = [
-  { email: "admin@pyro.sk", name: "Pyro Admin", password: "admin", role: "admin", restaurantId: "pyro" },
-  { email: "admin@polomarik.sk", name: "Polomárik Admin", password: "admin", role: "admin", restaurantId: "polomarik" },
+  // Admin accounts are purely administrative — no personal identity/name is
+  // stored on them. Login is by email only; the UI shows a generic "Admin".
+  { email: "admin@pyro.sk", name: "", password: "admin", role: "admin", restaurantId: "pyro" },
+  { email: "admin@polomarik.sk", name: "", password: "admin", role: "admin", restaurantId: "polomarik" },
   { email: "kuchar@pyro.sk", name: "Pyro Kuchár", password: "kuchar", role: "kuchar", restaurantId: "pyro" },
   { email: "kuchar@polomarik.sk", name: "Polomárik Kuchár", password: "kuchar", role: "kuchar", restaurantId: "polomarik" },
   { email: "daniel@pyro.sk", name: "Daniel Pekný", password: "daniel", role: "driver", restaurantId: "pyro" },
@@ -76,6 +78,13 @@ export async function ensureStaffAccounts(): Promise<void> {
         ON CONFLICT (email) DO NOTHING
       `;
     }
+    // Strip any personal name previously stored on admin accounts. Admins are
+    // purely administrative and must not carry an assigned identity — this
+    // also normalises pre-existing seeds (e.g. "Pyro Admin") that the
+    // never-overwrite insert above would otherwise leave untouched.
+    await sql`
+      UPDATE users SET name = '' WHERE role IN ('admin','super_admin') AND name <> ''
+    `.catch(() => {});
   })().catch((err) => {
     staffSeedPromise = null; // allow a later retry
     throw err;

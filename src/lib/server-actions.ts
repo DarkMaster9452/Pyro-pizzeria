@@ -667,7 +667,8 @@ export async function getAdminContext(): Promise<{
     return null;
   return {
     restaurantId: session.user.restaurantId,
-    name: session.user.name ?? "Admin",
+    // Admins have no personal name — always a generic label.
+    name: session.user.name || "Admin",
     email: session.user.email ?? "",
   };
 }
