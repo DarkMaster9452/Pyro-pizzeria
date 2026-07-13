@@ -69,10 +69,20 @@ function TrackInner() {
   }, [order, updateOrderStatus, db]);
 
   // Drop the order from tracking 5 minutes after it was paid/settled.
+  // An order drops off tracking once it's no longer relevant:
+  //  • 5 min after it was paid/settled, or
+  //  • 30 min after it was delivered/cancelled (even if never marked paid), or
+  //  • 6 h after it was placed (safety net for stale/abandoned orders).
+  const effStatus = db?.status ?? order?.status ?? "received";
+  const ageMs = order ? Date.now() - order.createdAt : 0;
   const expired =
-    (db?.paid ?? false) &&
-    db?.paidAgoSec != null &&
-    db.paidAgoSec > 5 * 60;
+    !!order &&
+    (((db?.paid ?? false) &&
+      db?.paidAgoSec != null &&
+      db.paidAgoSec > 5 * 60) ||
+      ((effStatus === "delivered" || effStatus === "cancelled") &&
+        ageMs > 30 * 60 * 1000) ||
+      ageMs > 6 * 60 * 60 * 1000);
 
   if (!order || expired) {
     return (
@@ -128,8 +138,11 @@ function TrackInner() {
           <div className="p-6">
             <div className="space-y-1">
               {steps.map((s, i) => {
-                const done = i < currentIdx;
-                const active = i === currentIdx;
+                // A delivered order is finished — mark the last step done, not
+                // perpetually "in progress".
+                const finished = status === "delivered";
+                const done = i < currentIdx || (finished && i <= currentIdx);
+                const active = i === currentIdx && !finished;
                 return (
                   <div key={s.id} className="flex items-center gap-4">
                     <div className="flex flex-col items-center">
