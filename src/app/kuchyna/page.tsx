@@ -1,24 +1,20 @@
 import { redirect } from "next/navigation";
-import { auth } from "@/auth";
-import { RESTAURANTS } from "@/lib/data";
+import { getKitchenContext } from "@/lib/server-actions";
 import { CookApp } from "@/components/CookApp";
 
 export const dynamic = "force-dynamic";
 
 export default async function KitchenPage() {
-  const session = await auth();
-  const role = session?.user?.role;
-  if (
-    (role !== "kuchar" && role !== "super_admin") ||
-    !session?.user?.restaurantId
-  ) {
+  const ctx = await getKitchenContext();
+  // /kuchyna is for cooks (and the owner); plain admins watch from /admin.
+  if (!ctx || (ctx.role !== "kuchar" && ctx.role !== "super_admin")) {
     redirect("/login");
   }
-  const r = RESTAURANTS.find((x) => x.id === session.user.restaurantId);
   return (
     <CookApp
-      name={session.user.name ?? "Kuchár"}
-      restaurantName={r?.name ?? "Prevádzka"}
+      name={ctx.name}
+      restaurantName={ctx.restaurantName}
+      onShift={ctx.onShift}
     />
   );
 }

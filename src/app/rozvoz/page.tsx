@@ -1,28 +1,21 @@
 import { redirect } from "next/navigation";
-import { auth } from "@/auth";
-import { RESTAURANTS } from "@/lib/data";
+import { getDispatchContext } from "@/lib/server-actions";
 import { DriverApp } from "@/components/DriverApp";
 
 export const dynamic = "force-dynamic";
 
 export default async function DispatchPage() {
-  const session = await auth();
-  const role = session?.user?.role;
-  if (
-    (role !== "driver" && role !== "admin" && role !== "super_admin") ||
-    !session?.user?.restaurantId
-  ) {
-    redirect("/login");
-  }
-  const r = RESTAURANTS.find((x) => x.id === session.user.restaurantId);
+  const ctx = await getDispatchContext();
+  if (!ctx) redirect("/login");
   return (
     <DriverApp
-      role={role}
-      name={session.user.name ?? "Kuriér"}
-      restaurantId={session.user.restaurantId}
-      restaurantName={r?.name ?? "Prevádzka"}
-      restaurantAddress={r?.address ?? ""}
-      userId={session.user.id}
+      role={ctx.role}
+      name={ctx.name}
+      restaurantId={ctx.restaurantId}
+      restaurantName={ctx.restaurantName}
+      restaurantAddress={ctx.restaurantAddress}
+      userId={ctx.userId}
+      onShift={ctx.onShift}
     />
   );
 }

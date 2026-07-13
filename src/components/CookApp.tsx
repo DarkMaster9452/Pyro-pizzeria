@@ -9,6 +9,7 @@ import {
   type KitchenOrder,
 } from "@/lib/server-actions";
 import { logoutAction } from "@/lib/auth-actions";
+import { NoShift } from "@/components/DriverApp";
 import {
   ChefHat,
   Clock,
@@ -28,9 +29,11 @@ import {
 export function CookApp({
   name,
   restaurantName,
+  onShift,
 }: {
   name: string;
   restaurantName: string;
+  onShift: boolean;
 }) {
   const [orders, setOrders] = useState<KitchenOrder[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -86,6 +89,10 @@ export function CookApp({
   );
   const prava = orders.filter((o) => o.status === "preparing");
   const hotove = orders.filter((o) => o.status === "ready");
+
+  if (!onShift) {
+    return <NoShift name={name} restaurantName={restaurantName} />;
+  }
 
   return (
     <main className="min-h-screen bg-[#0a0a0a] text-white">

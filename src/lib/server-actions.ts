@@ -184,12 +184,38 @@ async function ensureOrderColumns(): Promise<void> {
     // Human-friendly, sequential order numbers (e.g. #1001) instead of random
     // codes. Used as the order id/PK.
     await sql`CREATE SEQUENCE IF NOT EXISTS order_number_seq START 1001`;
+    // Daily open / availability / staff shifts.
+    await sql`ALTER TABLE restaurant_state ADD COLUMN IF NOT EXISTS open_date date`;
+    await sql`
+      CREATE TABLE IF NOT EXISTS daily_unavailable (
+        restaurant_id text NOT NULL,
+        product_id text NOT NULL,
+        service_date date NOT NULL,
+        PRIMARY KEY (restaurant_id, product_id, service_date)
+      )`;
+    await sql`
+      CREATE TABLE IF NOT EXISTS shifts (
+        id text PRIMARY KEY,
+        restaurant_id text NOT NULL,
+        user_id text NOT NULL,
+        name text NOT NULL,
+        role text NOT NULL,
+        service_date date NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        UNIQUE (restaurant_id, user_id, service_date)
+      )`;
+    await sql`CREATE INDEX IF NOT EXISTS shifts_date_idx ON shifts (restaurant_id, service_date)`;
   })().catch((e) => {
     orderColumnsPromise = null;
     throw e;
   });
   return orderColumnsPromise;
 }
+
+// The service day rolls over at 12:00 Europe/Bratislava — that's also when the
+// daily "available items" reset. Inlined into queries as a literal expression.
+const SERVICE_DATE =
+  "((now() AT TIME ZONE 'Europe/Bratislava') - interval '12 hours')::date";
 
 // Next sequential order number (as text, since the order id is a text PK).
 // Falls back to a random code if the sequence is somehow unavailable.
@@ -298,12 +324,26 @@ export interface Storefront {
   products: Product[];
   coupons: Coupon[];
   zones: Record<string, DeliveryZone[]>;
+  open: Record<string, boolean>; // manually opened for today's service day
 }
 
 export async function getStorefront(): Promise<Storefront> {
   try {
     await ensureContent();
-    const products = await loadProducts();
+    await ensureOrderColumns();
+    let products = await loadProducts();
+    // Hide items the admin marked unavailable for today (per restaurant).
+    const unavRows = (await sql.query(
+      `SELECT restaurant_id, product_id FROM daily_unavailable
+       WHERE service_date = ${SERVICE_DATE}`,
+      []
+    )) as { restaurant_id: string; product_id: string }[];
+    if (unavRows.length) {
+      const unav = new Set(
+        unavRows.map((u) => `${u.restaurant_id}-${u.product_id}`)
+      );
+      products = products.filter((p) => !unav.has(p.id));
+    }
     const couponRows = (await sql`
       SELECT code, restaurant_id, type, value, min_subtotal, label
       FROM coupons WHERE active = true`) as CouponRow[];
@@ -315,16 +355,28 @@ export async function getStorefront(): Promise<Storefront> {
     for (const z of zoneRows) {
       (zones[z.restaurant_id] ??= []).push(rowToZone(z));
     }
+    const openRows = (await sql.query(
+      `SELECT id, COALESCE(open_date = ${SERVICE_DATE}, false) AS is_open
+       FROM restaurant_state`,
+      []
+    )) as { id: string; is_open: boolean }[];
+    const open: Record<string, boolean> = {};
+    for (const o of openRows) open[o.id] = !!o.is_open;
     return {
       products: products.length ? products : PRODUCTS,
       coupons: couponRows.map(rowToCoupon),
       zones,
+      open,
     };
   } catch {
     // Fall back to the static seed so the storefront always renders.
     const zones: Record<string, DeliveryZone[]> = {};
-    for (const r of RESTAURANTS) zones[r.id] = r.deliveryZones;
-    return { products: PRODUCTS, coupons: COUPONS, zones };
+    const open: Record<string, boolean> = {};
+    for (const r of RESTAURANTS) {
+      zones[r.id] = r.deliveryZones;
+      open[r.id] = true; // fail open so the site still works if DB is down
+    }
+    return { products: PRODUCTS, coupons: COUPONS, zones, open };
   }
 }
 
@@ -441,12 +493,29 @@ export async function createOrder(
     const session = await auth();
     const userId = session?.user?.id ?? null;
 
-    // sold-out (authoritative, from DB)
-    const state = (await sql`
-      SELECT sold_out FROM restaurant_state WHERE id = ${data.restaurantId} LIMIT 1
-    `) as { sold_out: boolean }[];
+    // sold-out + manually-opened (authoritative, from DB)
+    const state = (await sql.query(
+      `SELECT sold_out, COALESCE(open_date = ${SERVICE_DATE}, false) AS is_open
+       FROM restaurant_state WHERE id = $1 LIMIT 1`,
+      [data.restaurantId]
+    )) as { sold_out: boolean; is_open: boolean }[];
     if (state[0]?.sold_out)
       return { ok: false, error: "Prevádzka je momentálne vypredaná." };
+    if (!state[0]?.is_open)
+      return {
+        ok: false,
+        error: "Prevádzka ešte nie je dnes otvorená. Skúste neskôr.",
+      };
+
+    // items the admin marked unavailable for today
+    const unavRows = (await sql.query(
+      `SELECT product_id FROM daily_unavailable
+       WHERE restaurant_id = $1 AND service_date = ${SERVICE_DATE}`,
+      [data.restaurantId]
+    )) as { product_id: string }[];
+    const unavToday = new Set(
+      unavRows.map((u) => `${data.restaurantId}-${u.product_id}`)
+    );
 
     const products = await loadProducts();
     const pizza = pizzaIds(products.length ? products : PRODUCTS);
@@ -454,6 +523,8 @@ export async function createOrder(
     // re-price every line from the menu (ignore client prices)
     const lines: CartLine[] = [];
     for (const l of data.lines) {
+      if (unavToday.has((l as CartLine).productId))
+        return { ok: false, error: "Niektorá položka dnes nie je dostupná." };
       const priced = repriceLine(
         l as CartLine,
         products.length ? products : PRODUCTS,
@@ -864,6 +935,250 @@ export async function setOrderStatus(
     meta: { status },
   });
   return { ok: true };
+}
+
+// ===========================================================================
+// Daily open • availability • staff shifts
+// ---------------------------------------------------------------------------
+// Each day the pizzeria is opened manually: ~1h before opening a green button
+// appears in the admin. Opening asks which menu items are unavailable today
+// (they vanish from the site; the list resets at 12:00) and which staff have a
+// shift (only they can work that day; the shift is logged). Prune of old orders
+// lives here too.
+// ===========================================================================
+
+function toMinutes(hhmm: string): number {
+  const [h, m] = hhmm.split(":").map(Number);
+  return (h || 0) * 60 + (m || 0);
+}
+
+// Current weekday (0 = Monday … 6 = Sunday) and minutes-since-midnight in the
+// Europe/Bratislava timezone, matching the seed opening-hours format.
+function bratislavaNow(): { weekdayIdx: number; minutes: number } {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Bratislava",
+    weekday: "long",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date());
+  const wd = parts.find((p) => p.type === "weekday")?.value ?? "Monday";
+  const hour = Number(parts.find((p) => p.type === "hour")?.value ?? "0");
+  const min = Number(parts.find((p) => p.type === "minute")?.value ?? "0");
+  const map: Record<string, number> = {
+    Monday: 0, Tuesday: 1, Wednesday: 2, Thursday: 3,
+    Friday: 4, Saturday: 5, Sunday: 6,
+  };
+  return { weekdayIdx: map[wd] ?? 0, minutes: hour * 60 + min };
+}
+
+export interface ServiceStatus {
+  serviceDate: string;
+  open: boolean; // opened for today's service day
+  canOpenNow: boolean; // within the 1h-before-open window and not open yet
+  openTime: string | null;
+  closedToday: boolean; // today is a non-opening day
+}
+
+export async function getServiceStatus(
+  restaurantId: string
+): Promise<ServiceStatus> {
+  await requireAdmin(restaurantId);
+  await ensureOrderColumns();
+  const rows = (await sql.query(
+    `SELECT COALESCE(open_date = ${SERVICE_DATE}, false) AS is_open,
+            (${SERVICE_DATE})::text AS svc
+     FROM restaurant_state WHERE id = $1 LIMIT 1`,
+    [restaurantId]
+  )) as { is_open: boolean; svc: string }[];
+  const open = rows[0]?.is_open ?? false;
+  const serviceDate = rows[0]?.svc ?? "";
+
+  const { weekdayIdx, minutes } = bratislavaNow();
+  const r = RESTAURANTS.find((x) => x.id === restaurantId);
+  const today = r?.openingHours.find((h) => h.day === weekdayIdx);
+  const closedToday = !today || today.closed === true;
+  let canOpenNow = false;
+  let openTime: string | null = null;
+  if (!closedToday && today) {
+    openTime = today.open;
+    canOpenNow =
+      !open &&
+      minutes >= toMinutes(today.open) - 60 &&
+      minutes < toMinutes(today.close);
+  }
+  return { serviceDate, open, canOpenNow, openTime, closedToday };
+}
+
+export interface OpenPrep {
+  products: { id: string; name: string; category: string; unavailable: boolean }[];
+  staff: { id: string; name: string; role: string; onShift: boolean }[];
+}
+
+export async function getOpenPrep(restaurantId: string): Promise<OpenPrep> {
+  await requireAdmin(restaurantId);
+  await ensureContent();
+  await ensureOrderColumns();
+  const prodRows = (await sql`
+    SELECT id, name, category FROM products
+    WHERE restaurant_id = 'all' AND category <> 'drinks'
+    ORDER BY sort, name`) as { id: string; name: string; category: string }[];
+  const unav = (await sql.query(
+    `SELECT product_id FROM daily_unavailable
+     WHERE restaurant_id = $1 AND service_date = ${SERVICE_DATE}`,
+    [restaurantId]
+  )) as { product_id: string }[];
+  const unavSet = new Set(unav.map((u) => u.product_id));
+  const staffRows = (await sql`
+    SELECT id, name, role FROM users
+    WHERE restaurant_id = ${restaurantId} AND role IN ('driver', 'kuchar')
+    ORDER BY role, name`) as { id: string; name: string; role: string }[];
+  const shiftRows = (await sql.query(
+    `SELECT user_id FROM shifts
+     WHERE restaurant_id = $1 AND service_date = ${SERVICE_DATE}`,
+    [restaurantId]
+  )) as { user_id: string }[];
+  const shiftSet = new Set(shiftRows.map((s) => s.user_id));
+  return {
+    products: prodRows.map((p) => ({
+      id: p.id,
+      name: p.name,
+      category: p.category,
+      unavailable: unavSet.has(p.id),
+    })),
+    staff: staffRows.map((s) => ({
+      id: s.id,
+      name: s.name,
+      role: s.role,
+      onShift: shiftSet.has(s.id),
+    })),
+  };
+}
+
+export async function openRestaurant(
+  restaurantId: string,
+  unavailableIds: string[],
+  shiftUserIds: string[]
+): Promise<{ ok: boolean; error?: string }> {
+  const session = await requireAdmin(restaurantId);
+  await ensureOrderColumns();
+  // Mark open for today's service day.
+  await sql.query(
+    `UPDATE restaurant_state SET open_date = ${SERVICE_DATE}, updated_at = now()
+     WHERE id = $1`,
+    [restaurantId]
+  );
+  // Replace today's unavailable set.
+  await sql.query(
+    `DELETE FROM daily_unavailable
+     WHERE restaurant_id = $1 AND service_date = ${SERVICE_DATE}`,
+    [restaurantId]
+  );
+  for (const pid of unavailableIds.slice(0, 500)) {
+    await sql.query(
+      `INSERT INTO daily_unavailable (restaurant_id, product_id, service_date)
+       VALUES ($1, $2, ${SERVICE_DATE}) ON CONFLICT DO NOTHING`,
+      [restaurantId, pid]
+    );
+  }
+  // Replace today's shift set.
+  await sql.query(
+    `DELETE FROM shifts WHERE restaurant_id = $1 AND service_date = ${SERVICE_DATE}`,
+    [restaurantId]
+  );
+  if (shiftUserIds.length) {
+    const staff = (await sql.query(
+      `SELECT id, name, role FROM users
+       WHERE id = ANY($1::text[]) AND restaurant_id = $2`,
+      [shiftUserIds, restaurantId]
+    )) as { id: string; name: string; role: string }[];
+    for (const s of staff) {
+      await sql.query(
+        `INSERT INTO shifts (id, restaurant_id, user_id, name, role, service_date)
+         VALUES ($1, $2, $3, $4, $5, ${SERVICE_DATE})
+         ON CONFLICT (restaurant_id, user_id, service_date) DO NOTHING`,
+        [shortId(), restaurantId, s.id, s.name, s.role]
+      );
+    }
+  }
+  await audit({
+    action: "restaurant.opened",
+    actorId: session.user.id,
+    actorEmail: session.user.email,
+    restaurantId,
+    meta: { unavailable: unavailableIds.length, shift: shiftUserIds.length },
+  });
+  return { ok: true };
+}
+
+// Whether a staff member has a shift for today's service day (admins always do).
+async function hasShiftToday(
+  restaurantId: string,
+  userId: string
+): Promise<boolean> {
+  const rows = (await sql.query(
+    `SELECT 1 FROM shifts
+     WHERE restaurant_id = $1 AND user_id = $2 AND service_date = ${SERVICE_DATE}
+     LIMIT 1`,
+    [restaurantId, userId]
+  )) as unknown[];
+  return rows.length > 0;
+}
+
+// Prune orders older than two weeks (admin housekeeping; confirmed in the UI).
+export async function resetOldOrders(
+  restaurantId: string
+): Promise<{ ok: boolean; deleted: number }> {
+  const session = await requireAdmin(restaurantId);
+  const rows = (await sql`
+    DELETE FROM orders
+    WHERE restaurant_id = ${restaurantId}
+      AND created_at < now() - interval '14 days'
+    RETURNING id`) as { id: string }[];
+  await audit({
+    action: "orders.pruned",
+    actorId: session.user.id,
+    actorEmail: session.user.email,
+    restaurantId,
+    meta: { deleted: rows.length },
+  });
+  return { ok: true, deleted: rows.length };
+}
+
+export interface ShiftDay {
+  serviceDate: string;
+  staff: string[];
+  orders: number;
+  revenue: number;
+}
+
+// Who worked which days + the orders/revenue booked on each of those days.
+export async function getShiftsReport(
+  restaurantId: string
+): Promise<ShiftDay[]> {
+  await requireAdmin(restaurantId);
+  await ensureOrderColumns();
+  const shiftRows = (await sql`
+    SELECT service_date::text AS d, array_agg(name ORDER BY name) AS staff
+    FROM shifts WHERE restaurant_id = ${restaurantId}
+    GROUP BY service_date ORDER BY service_date DESC LIMIT 21`) as {
+    d: string;
+    staff: string[];
+  }[];
+  const orderRows = (await sql.query(
+    `SELECT (((created_at AT TIME ZONE 'Europe/Bratislava') - interval '12 hours')::date)::text AS d,
+            COUNT(*)::int AS n, COALESCE(SUM(total), 0)::float AS rev
+     FROM orders WHERE restaurant_id = $1 AND status <> 'cancelled'
+     GROUP BY 1`,
+    [restaurantId]
+  )) as { d: string; n: number; rev: number }[];
+  const byDate = new Map(orderRows.map((o) => [o.d, o]));
+  return shiftRows.map((s) => ({
+    serviceDate: s.d,
+    staff: Array.isArray(s.staff) ? s.staff : [],
+    orders: byDate.get(s.d)?.n ?? 0,
+    revenue: Math.round((byDate.get(s.d)?.rev ?? 0) * 100) / 100,
+  }));
 }
 
 // ===========================================================================
@@ -1353,6 +1668,7 @@ export interface DispatchContext {
   restaurantName: string;
   restaurantAddress: string;
   userId: string;
+  onShift: boolean; // false for a driver with no shift today
 }
 
 export async function getDispatchContext(): Promise<DispatchContext | null> {
@@ -1365,6 +1681,12 @@ export async function getDispatchContext(): Promise<DispatchContext | null> {
   )
     return null;
   const r = RESTAURANTS.find((x) => x.id === session.user.restaurantId);
+  const isStaffAdmin = role === "admin" || role === "super_admin";
+  const onShift = isStaffAdmin
+    ? true
+    : await hasShiftToday(session.user.restaurantId, session.user.id).catch(
+        () => false
+      );
   return {
     role: role!,
     name: session.user.name ?? "Kuriér",
@@ -1372,6 +1694,7 @@ export async function getDispatchContext(): Promise<DispatchContext | null> {
     restaurantName: r?.name ?? "Prevádzka",
     restaurantAddress: r?.address ?? "",
     userId: session.user.id,
+    onShift,
   };
 }
 
@@ -1601,6 +1924,7 @@ export interface KitchenContext {
   restaurantId: string;
   restaurantName: string;
   userId: string;
+  onShift: boolean; // false for a cook with no shift today
 }
 
 export async function getKitchenContext(): Promise<KitchenContext | null> {
@@ -1613,12 +1937,19 @@ export async function getKitchenContext(): Promise<KitchenContext | null> {
   )
     return null;
   const r = RESTAURANTS.find((x) => x.id === session.user.restaurantId);
+  const onShift =
+    role === "admin" || role === "super_admin"
+      ? true
+      : await hasShiftToday(session.user.restaurantId, session.user.id).catch(
+          () => false
+        );
   return {
     role: role!,
     name: session.user.name ?? "Kuchár",
     restaurantId: session.user.restaurantId,
     restaurantName: r?.name ?? "Prevádzka",
     userId: session.user.id,
+    onShift,
   };
 }
 

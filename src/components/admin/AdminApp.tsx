@@ -26,10 +26,18 @@ import {
   markDispatchPaid,
   advanceKitchenOrder,
   returnKitchenOrder,
+  getServiceStatus,
+  getOpenPrep,
+  openRestaurant,
+  resetOldOrders,
+  getShiftsReport,
   type AdminSummary,
   type OrderDetail,
   type CouponInput,
   type DispatchOrder,
+  type ServiceStatus,
+  type OpenPrep,
+  type ShiftDay,
 } from "@/lib/server-actions";
 import {
   LayoutDashboard,
@@ -63,6 +71,9 @@ import {
   Phone,
   RefreshCw,
   PackageCheck,
+  DoorOpen,
+  Users,
+  CalendarDays,
 } from "lucide-react";
 
 type Tab =
@@ -303,7 +314,9 @@ export function AdminApp({
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
           >
-            {tab === "dashboard" && <Dashboard summary={summary} />}
+            {tab === "dashboard" && (
+              <Dashboard summary={summary} restaurantId={restaurantId} />
+            )}
             {tab === "kitchen" && (
               <Kitchen
                 summary={summary}
@@ -418,7 +431,13 @@ function ThemeToggle() {
 const CARD = "rounded-2xl bg-white p-5 ring-1 ring-black/[0.06] dark:bg-[#1a1a1a] dark:ring-white/5";
 
 // ---------------- DASHBOARD (real stats) ----------------
-function Dashboard({ summary }: { summary: AdminSummary | null }) {
+function Dashboard({
+  summary,
+  restaurantId,
+}: {
+  summary: AdminSummary | null;
+  restaurantId: string;
+}) {
   const stats = [
     {
       label: "Predané pizze dnes",
@@ -518,6 +537,8 @@ function Dashboard({ summary }: { summary: AdminSummary | null }) {
           )}
         </div>
       </div>
+
+      <ShiftsReport restaurantId={restaurantId} />
     </div>
   );
 }
@@ -1139,6 +1160,8 @@ function Operations({
 
   return (
     <div className="space-y-6">
+      <ServiceOpen restaurantId={restaurantId} />
+
       <div className="grid gap-4 lg:grid-cols-2">
         <div
           className={cn(
@@ -1247,6 +1270,8 @@ function Operations({
         </p>
       </div>
 
+      <PruneOrders restaurantId={restaurantId} onDone={refresh} />
+
       <AnimatePresence>
         {confirming && (
           <motion.div
@@ -1292,6 +1317,401 @@ function Operations({
           </motion.div>
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+// ---------------- DAILY OPEN (availability + staff shifts) ----------------
+function ServiceOpen({ restaurantId }: { restaurantId: string }) {
+  const [status, setStatus] = useState<ServiceStatus | null>(null);
+  const [prep, setPrep] = useState<OpenPrep | null>(null);
+  const [loadingPrep, setLoadingPrep] = useState(false);
+
+  const load = useCallback(() => {
+    getServiceStatus(restaurantId).then(setStatus).catch(() => {});
+  }, [restaurantId]);
+  useEffect(() => load(), [load]);
+
+  async function startOpen() {
+    setLoadingPrep(true);
+    try {
+      setPrep(await getOpenPrep(restaurantId));
+    } finally {
+      setLoadingPrep(false);
+    }
+  }
+
+  const open = status?.open ?? false;
+  const showButton = open || status?.canOpenNow;
+
+  return (
+    <div
+      className={cn(
+        "flex flex-col justify-between gap-4 rounded-2xl border p-5 sm:flex-row sm:items-center",
+        open
+          ? "border-brand-success/40 bg-brand-success/10"
+          : "border-black/[0.08] bg-white dark:border-white/5 dark:bg-[#1a1a1a]"
+      )}
+    >
+      <div className="flex items-center gap-3">
+        <span
+          className={cn(
+            "flex h-11 w-11 items-center justify-center rounded-xl",
+            open
+              ? "bg-brand-success/15 text-brand-success"
+              : "bg-brand-secondary/15 text-brand-secondary"
+          )}
+        >
+          <DoorOpen className="h-5 w-5" />
+        </span>
+        <div>
+          <p className="font-semibold text-neutral-900 dark:text-white">
+            {open ? "Prevádzka je dnes otvorená" : "Prevádzka je zatvorená"}
+          </p>
+          <p className="text-sm text-neutral-500">
+            {open
+              ? "Prijímame objednávky. Dostupnosť a služby môžete upraviť."
+              : status?.closedToday
+              ? "Dnes je podľa otváracích hodín zatvorené."
+              : status?.canOpenNow
+              ? "Otvorte prevádzku pre dnešný deň."
+              : status?.openTime
+              ? `Otvoriť sa dá hodinu pred otváraním (dnes o ${status.openTime}).`
+              : "Načítavam…"}
+          </p>
+        </div>
+      </div>
+      {showButton && (
+        <button
+          onClick={startOpen}
+          disabled={loadingPrep}
+          className="shrink-0 rounded-full bg-brand-success px-5 py-2.5 text-sm font-bold text-white hover:brightness-110 disabled:opacity-50"
+        >
+          {loadingPrep
+            ? "Načítavam…"
+            : open
+            ? "Upraviť dostupnosť / služby"
+            : "Otvoriť prevádzku"}
+        </button>
+      )}
+
+      {prep && (
+        <OpenFlow
+          restaurantId={restaurantId}
+          prep={prep}
+          onClose={() => setPrep(null)}
+          onDone={() => {
+            setPrep(null);
+            load();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function OpenFlow({
+  restaurantId,
+  prep,
+  onClose,
+  onDone,
+}: {
+  restaurantId: string;
+  prep: OpenPrep;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [unavailable, setUnavailable] = useState<Set<string>>(
+    () => new Set(prep.products.filter((p) => p.unavailable).map((p) => p.id))
+  );
+  const [shift, setShift] = useState<Set<string>>(
+    () => new Set(prep.staff.filter((s) => s.onShift).map((s) => s.id))
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  function toggle(set: Set<string>, id: string) {
+    const n = new Set(set);
+    if (n.has(id)) n.delete(id);
+    else n.add(id);
+    return n;
+  }
+
+  async function confirm() {
+    setSaving(true);
+    setError("");
+    try {
+      const res = await openRestaurant(
+        restaurantId,
+        [...unavailable],
+        [...shift]
+      );
+      if (!res.ok) {
+        setError(res.error ?? "Nepodarilo sa otvoriť.");
+        return;
+      }
+      onDone();
+    } catch {
+      setError("Nepodarilo sa otvoriť. Skúste znova.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const cats = Array.from(new Set(prep.products.map((p) => p.category)));
+
+  return (
+    <Modal title="Otvoriť prevádzku" onClose={onClose}>
+      <div className="space-y-5">
+        {/* Availability */}
+        <div>
+          <h4 className="font-display font-bold text-neutral-900 dark:text-white">
+            Ktoré položky dnes nie sú k dispozícii?
+          </h4>
+          <p className="mt-1 text-xs text-neutral-500">
+            Označené položky dnes zmiznú z webu. Zoznam sa každý deň o 12:00
+            resetuje.
+          </p>
+          <div className="mt-3 max-h-64 space-y-3 overflow-y-auto pr-1">
+            {cats.map((cat) => (
+              <div key={cat}>
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-neutral-400">
+                  {CATEGORIES.find((c) => c.id === cat)?.name ?? cat}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {prep.products
+                    .filter((p) => p.category === cat)
+                    .map((p) => {
+                      const off = unavailable.has(p.id);
+                      return (
+                        <button
+                          key={p.id}
+                          onClick={() =>
+                            setUnavailable((s) => toggle(s, p.id))
+                          }
+                          className={cn(
+                            "rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors",
+                            off
+                              ? "border-brand-error/50 bg-brand-error/10 text-brand-error line-through"
+                              : "border-black/10 text-neutral-600 hover:bg-black/[0.03] dark:border-white/10 dark:text-neutral-300 dark:hover:bg-white/5"
+                          )}
+                        >
+                          {p.name}
+                        </button>
+                      );
+                    })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Staff shifts */}
+        <div>
+          <h4 className="font-display font-bold text-neutral-900 dark:text-white">
+            Kto má dnes službu?
+          </h4>
+          <p className="mt-1 text-xs text-neutral-500">
+            Len vybraní zamestnanci môžu dnes pracovať. Služba sa zapíše k
+            dnešnému dňu.
+          </p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {prep.staff.length === 0 && (
+              <p className="text-sm text-neutral-500">
+                Žiadni zamestnanci pre túto prevádzku.
+              </p>
+            )}
+            {prep.staff.map((s) => {
+              const on = shift.has(s.id);
+              return (
+                <button
+                  key={s.id}
+                  onClick={() => setShift((v) => toggle(v, s.id))}
+                  className={cn(
+                    "flex items-center justify-between rounded-xl border px-3 py-2 text-left text-sm transition-colors",
+                    on
+                      ? "border-brand-success/50 bg-brand-success/10"
+                      : "border-black/10 dark:border-white/10"
+                  )}
+                >
+                  <span>
+                    <span className="font-semibold text-neutral-900 dark:text-white">
+                      {s.name}
+                    </span>
+                    <span className="ml-1 text-xs text-neutral-400">
+                      {s.role === "kuchar" ? "kuchár" : "rozvoz"}
+                    </span>
+                  </span>
+                  <span
+                    className={cn(
+                      "flex h-5 w-5 items-center justify-center rounded-full",
+                      on
+                        ? "bg-brand-success text-white"
+                        : "border border-black/15 dark:border-white/20"
+                    )}
+                  >
+                    {on && <Check className="h-3.5 w-3.5" />}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {error && <p className="text-sm text-brand-error">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="rounded-full border border-black/10 px-4 py-2 text-sm font-semibold dark:border-white/10"
+          >
+            Zrušiť
+          </button>
+          <button
+            onClick={confirm}
+            disabled={saving}
+            className="btn-primary text-sm disabled:opacity-50"
+          >
+            {saving ? "Otváram…" : "Potvrdiť a otvoriť"}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// Housekeeping: delete orders older than two weeks (with confirmation).
+function PruneOrders({
+  restaurantId,
+  onDone,
+}: {
+  restaurantId: string;
+  onDone: () => void;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState("");
+
+  async function run() {
+    setBusy(true);
+    try {
+      const res = await resetOldOrders(restaurantId);
+      setResult(`Vymazaných objednávok: ${res.deleted}.`);
+      onDone();
+    } finally {
+      setBusy(false);
+      setConfirming(false);
+    }
+  }
+
+  return (
+    <div className={CARD}>
+      <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+        <div className="flex items-center gap-3">
+          <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-error/15 text-brand-error">
+            <Trash2 className="h-5 w-5" />
+          </span>
+          <div>
+            <p className="font-semibold text-neutral-900 dark:text-white">
+              Vymazať staré objednávky
+            </p>
+            <p className="text-sm text-neutral-500">
+              Natrvalo odstráni objednávky staršie ako 2 týždne.
+            </p>
+          </div>
+        </div>
+        {confirming ? (
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-neutral-600 dark:text-neutral-300">
+              Naozaj?
+            </span>
+            <button
+              onClick={run}
+              disabled={busy}
+              className="rounded-full bg-brand-error px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
+            >
+              {busy ? "Mažem…" : "Áno, vymazať"}
+            </button>
+            <button
+              onClick={() => setConfirming(false)}
+              className="rounded-full border border-black/10 px-4 py-2 text-sm font-semibold dark:border-white/10"
+            >
+              Zrušiť
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setConfirming(true)}
+            className="shrink-0 rounded-full border border-brand-error/40 px-5 py-2.5 text-sm font-bold text-brand-error hover:bg-brand-error/10"
+          >
+            Vymazať staršie ako 2 týždne
+          </button>
+        )}
+      </div>
+      {result && (
+        <p className="mt-3 text-sm font-semibold text-brand-success">{result}</p>
+      )}
+    </div>
+  );
+}
+
+// Who worked which days + the orders/revenue booked on each day.
+function ShiftsReport({ restaurantId }: { restaurantId: string }) {
+  const [days, setDays] = useState<ShiftDay[] | null>(null);
+  useEffect(() => {
+    getShiftsReport(restaurantId)
+      .then(setDays)
+      .catch(() => setDays([]));
+  }, [restaurantId]);
+
+  return (
+    <div className={CARD}>
+      <h3 className="mb-4 flex items-center gap-2 font-display font-bold text-neutral-900 dark:text-white">
+        <CalendarDays className="h-5 w-5 text-brand-secondary" /> Služby a tržby
+        po dňoch
+      </h3>
+      {!days ? (
+        <p className="text-sm text-neutral-500">Načítavam…</p>
+      ) : days.length === 0 ? (
+        <p className="text-sm text-neutral-500">
+          Zatiaľ žiadne zaznamenané služby. Zapíšu sa pri otvorení prevádzky.
+        </p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="border-b border-black/[0.08] text-neutral-500 dark:border-white/5">
+              <tr>
+                {["Deň", "Služba", "Objednávky", "Tržba"].map((h) => (
+                  <th key={h} className="py-2 pr-4 font-semibold">
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {days.map((d) => (
+                <tr
+                  key={d.serviceDate}
+                  className="border-b border-black/[0.06] last:border-0 dark:border-white/5"
+                >
+                  <td className="py-2 pr-4 font-medium text-neutral-900 dark:text-white">
+                    {d.serviceDate}
+                  </td>
+                  <td className="py-2 pr-4 text-neutral-500">
+                    <span className="flex flex-wrap items-center gap-1">
+                      <Users className="h-3.5 w-3.5 text-brand-secondary" />
+                      {d.staff.length ? d.staff.join(", ") : "—"}
+                    </span>
+                  </td>
+                  <td className="py-2 pr-4">{d.orders}</td>
+                  <td className="py-2 pr-4 font-semibold text-brand-primary">
+                    {eur(d.revenue)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

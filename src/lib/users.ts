@@ -55,6 +55,14 @@ let staffSeedPromise: Promise<void> | null = null;
 export async function ensureStaffAccounts(): Promise<void> {
   if (staffSeedPromise) return staffSeedPromise;
   staffSeedPromise = (async () => {
+    // The role check constraint predates the "kuchar" role — widen it so cook
+    // accounts can be created. Idempotent (drop-if-exists, then add).
+    await sql`ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_chk`.catch(
+      () => {}
+    );
+    await sql`ALTER TABLE users ADD CONSTRAINT users_role_chk CHECK (role IN ('customer','employee','driver','kuchar','admin','super_admin'))`.catch(
+      () => {}
+    );
     for (const s of STAFF_SEED) {
       const e = s.email.toLowerCase();
       const existing = (await sql`

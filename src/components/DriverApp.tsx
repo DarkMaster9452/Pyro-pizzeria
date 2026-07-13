@@ -55,6 +55,7 @@ export function DriverApp({
   restaurantName,
   restaurantAddress,
   userId,
+  onShift,
 }: {
   role: string;
   name: string;
@@ -62,8 +63,13 @@ export function DriverApp({
   restaurantName: string;
   restaurantAddress: string;
   userId: string;
+  onShift: boolean;
 }) {
   const isAdmin = role === "admin" || role === "super_admin";
+
+  if (!onShift) {
+    return <NoShift name={name} restaurantName={restaurantName} />;
+  }
   const [orders, setOrders] = useState<DispatchOrder[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -600,5 +606,37 @@ function OrderCard({
         </p>
       )}
     </motion.div>
+  );
+}
+
+// Shown to a staff member who has no shift today. They stay logged in but can't
+// work — the admin assigns shifts when opening the pizzeria.
+export function NoShift({
+  name,
+  restaurantName,
+}: {
+  name: string;
+  restaurantName: string;
+}) {
+  return (
+    <main className="flex min-h-screen flex-col items-center justify-center bg-[#0a0a0a] p-6 text-center text-white">
+      <div className="w-full max-w-sm rounded-3xl border border-white/10 bg-white/[0.02] p-8">
+        <span className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-white/5 text-3xl">
+          😴
+        </span>
+        <h1 className="font-heading text-2xl uppercase tracking-tight">
+          Dnes nemáš šichtu
+        </h1>
+        <p className="mt-2 text-sm text-white/50">
+          {name}, na dnes ti v prevádzke {restaurantName} nebola pridelená
+          služba. Ak je to omyl, ozvi sa vedúcemu.
+        </p>
+        <form action={logoutAction} className="mt-6">
+          <button className="inline-flex items-center gap-2 rounded-full border border-white/15 px-5 py-2.5 text-sm font-semibold text-white/80 transition-colors hover:bg-white/5">
+            <LogOut className="h-4 w-4" /> Odhlásiť
+          </button>
+        </form>
+      </div>
+    </main>
   );
 }

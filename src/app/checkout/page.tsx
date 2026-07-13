@@ -45,6 +45,10 @@ export default function CheckoutPage() {
   const queue = useApp((s) => (restaurantId ? s.kitchenQueue[restaurantId] ?? 0 : 0));
   const dbCoupons = useApp((s) => s.dbCoupons);
   const dbZones = useApp((s) => s.dbZones);
+  const dbOpen = useApp((s) => s.dbOpen);
+  // Not opened yet for today. Unknown (null) fails open on the client — the
+  // server enforces it authoritatively either way.
+  const notOpen = restaurantId ? dbOpen?.[restaurantId] === false : false;
 
   const r = RESTAURANTS.find((x) => x.id === restaurantId);
   const [fulfillment, setFulfillment] = useState<FulfillmentType>("delivery");
@@ -77,7 +81,8 @@ export default function CheckoutPage() {
   const deliveryOk =
     fulfillment === "pickup" || (verify?.zone != null && meetsMinimum);
   const detailsOk = name.trim() && phone.trim();
-  const canOrder = cart.length > 0 && deliveryOk && detailsOk && !soldOut;
+  const canOrder =
+    cart.length > 0 && deliveryOk && detailsOk && !soldOut && !notOpen;
 
   const eta =
     fulfillment === "delivery"
@@ -162,6 +167,12 @@ export default function CheckoutPage() {
         <div className="mt-6 rounded-2xl border border-brand-error/30 bg-brand-error/10 px-5 py-4 text-sm font-semibold text-[#ff8f8f]">
           Momentálne máme vypredané — objednávky sú dočasne pozastavené.
           Ďakujeme za pochopenie.
+        </div>
+      )}
+
+      {notOpen && !soldOut && (
+        <div className="mt-6 rounded-2xl border border-brand-error/30 bg-brand-error/10 px-5 py-4 text-sm font-semibold text-[#ff8f8f]">
+          Prevádzka dnes ešte nie je otvorená. Objednávky spustíme, keď otvoríme.
         </div>
       )}
 

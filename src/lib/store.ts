@@ -43,10 +43,12 @@ interface AppState {
   dbProducts: Product[] | null;
   dbCoupons: Coupon[] | null;
   dbZones: Record<string, DeliveryZone[]> | null;
+  dbOpen: Record<string, boolean> | null;
   setStorefront: (data: {
     products: Product[];
     coupons: Coupon[];
     zones: Record<string, DeliveryZone[]>;
+    open: Record<string, boolean>;
   }) => void;
 }
 
@@ -98,17 +100,24 @@ export const useApp = create<AppState>()(
       dbProducts: null,
       dbCoupons: null,
       dbZones: null,
-      setStorefront: ({ products, coupons, zones }) =>
-        set({ dbProducts: products, dbCoupons: coupons, dbZones: zones }),
+      dbOpen: null,
+      setStorefront: ({ products, coupons, zones, open }) =>
+        set({
+          dbProducts: products,
+          dbCoupons: coupons,
+          dbZones: zones,
+          dbOpen: open,
+        }),
     }),
     {
       name: "pyro-platform",
       // Never persist the live storefront snapshot — it is refetched on load.
       partialize: (s) => {
-        const { dbProducts, dbCoupons, dbZones, ...rest } = s;
+        const { dbProducts, dbCoupons, dbZones, dbOpen, ...rest } = s;
         void dbProducts;
         void dbCoupons;
         void dbZones;
+        void dbOpen;
         return rest;
       },
     }
