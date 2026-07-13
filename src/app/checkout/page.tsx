@@ -1,13 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { useApp } from "@/lib/store";
+import { useApp, type CheckoutDraft } from "@/lib/store";
 import { RESTAURANTS, COUPONS } from "@/lib/data";
 import { computeTotals } from "@/lib/pricing";
-import { createOrder } from "@/lib/server-actions";
+import {
+  createOrder,
+  getCustomerProfile,
+  saveCustomerProfile,
+} from "@/lib/server-actions";
 import { eur, shortId, cn, estimatedWait } from "@/lib/utils";
 import {
   AddressVerification,
@@ -70,6 +74,36 @@ export default function CheckoutPage() {
   const [scheduleTime, setScheduleTime] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [orderError, setOrderError] = useState("");
+  const [loggedIn, setLoggedIn] = useState(false);
+  const [saveProfile, setSaveProfile] = useState(true);
+
+  // If a customer is signed in on this device, pull their saved details in to
+  // pre-fill checkout (only fills blanks — never overwrites in-progress edits).
+  useEffect(() => {
+    let active = true;
+    getCustomerProfile()
+      .then((p) => {
+        if (!active || !p.loggedIn) return;
+        setLoggedIn(true);
+        const cur = useApp.getState().checkoutDraft;
+        const patch: Partial<CheckoutDraft> = {};
+        if (!cur.name && p.name) patch.name = p.name;
+        if (!cur.phone && p.phone) patch.phone = p.phone;
+        if (!cur.email && p.email) patch.email = p.email;
+        if (p.address) {
+          if (!cur.street && p.address.street) patch.street = p.address.street;
+          if (!cur.houseNumber && p.address.houseNumber)
+            patch.houseNumber = p.address.houseNumber;
+          if (!cur.city && p.address.city) patch.city = p.address.city;
+          if (!cur.zip && p.address.zip) patch.zip = p.address.zip;
+        }
+        if (Object.keys(patch).length) setDraft(patch);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [setDraft]);
 
   if (!r) return null;
 
@@ -137,6 +171,24 @@ export default function CheckoutPage() {
       setOrderError(res.error ?? "Objednávku sa nepodarilo odoslať.");
       setSubmitting(false);
       return;
+    }
+
+    // Signed-in customer chose to remember details → persist to their account.
+    if (loggedIn && saveProfile) {
+      const profileAddress =
+        draft.street || draft.city
+          ? {
+              street: draft.street,
+              houseNumber: draft.houseNumber,
+              city: draft.city,
+              zip: draft.zip,
+            }
+          : undefined;
+      await saveCustomerProfile({
+        name: draft.name,
+        phone: draft.phone,
+        address: profileAddress,
+      }).catch(() => {});
     }
 
     const order: Order = {
@@ -376,6 +428,25 @@ export default function CheckoutPage() {
                 </button>
               ))}
             </div>
+
+            {loggedIn && (
+              <label className="mt-4 flex cursor-pointer items-center gap-3 rounded-2xl bg-black/[0.03] p-4 text-sm dark:bg-white/5">
+                <input
+                  type="checkbox"
+                  checked={saveProfile}
+                  onChange={(e) => setSaveProfile(e.target.checked)}
+                  className="h-5 w-5 shrink-0 accent-brand-primary"
+                />
+                <span>
+                  <span className="font-semibold">
+                    Uložiť údaje pre ďalšie objednávky
+                  </span>
+                  <span className="block text-xs text-neutral-500">
+                    Meno, telefón a adresa sa uložia k vášmu účtu.
+                  </span>
+                </span>
+              </label>
+            )}
           </Panel>
         </div>
 

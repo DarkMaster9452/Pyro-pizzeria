@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useApp } from "@/lib/store";
 import { RESTAURANTS } from "@/lib/data";
 import { eur } from "@/lib/utils";
 import { useEffect, useState } from "react";
@@ -39,7 +38,6 @@ export function AccountDashboard({
   name: string;
   email: string;
 }) {
-  const localOrders = useApp((s) => s.orders);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [dbOrders, setDbOrders] = useState<MyOrderRow[] | null>(null);
 
@@ -49,26 +47,16 @@ export function AccountDashboard({
       .catch(() => setDbOrders([]));
   }, []);
 
-  // Prefer the account-linked orders from the database (they persist across
-  // devices); fall back to the locally-stored ones until they load.
-  const orders =
-    dbOrders && dbOrders.length
-      ? dbOrders.map((o) => ({
-          id: o.id,
-          restaurantId: o.restaurantId,
-          total: o.total,
-          lineCount: o.lines.length,
-          status: o.status,
-          paid: o.paid,
-        }))
-      : localOrders.map((o) => ({
-          id: o.id,
-          restaurantId: o.restaurantId,
-          total: o.total,
-          lineCount: o.lines.length,
-          status: o.status,
-          paid: false,
-        }));
+  // Only orders actually linked to this account (placed while signed in on this
+  // device). Orders made logged-out belong to the name, not the account.
+  const orders = (dbOrders ?? []).map((o) => ({
+    id: o.id,
+    restaurantId: o.restaurantId,
+    total: o.total,
+    lineCount: o.lines.length,
+    status: o.status,
+    paid: o.paid,
+  }));
 
   async function exportData() {
     const data = await exportAccountAction();

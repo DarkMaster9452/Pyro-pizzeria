@@ -1654,6 +1654,87 @@ export async function getMyOrders(): Promise<MyOrderRow[]> {
   }
 }
 
+// ---- Saved customer profile (only for signed-in customers) ----
+let profileColsPromise: Promise<void> | null = null;
+async function ensureUserProfileColumns(): Promise<void> {
+  if (profileColsPromise) return profileColsPromise;
+  profileColsPromise = (async () => {
+    await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS phone text`;
+    await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS address jsonb`;
+  })().catch((e) => {
+    profileColsPromise = null;
+    throw e;
+  });
+  return profileColsPromise;
+}
+
+export interface CustomerProfile {
+  loggedIn: boolean;
+  name: string;
+  phone: string;
+  email: string;
+  address: { street: string; houseNumber: string; city: string; zip: string } | null;
+}
+
+// The signed-in customer's saved details, used to pre-fill checkout. Returns
+// loggedIn:false when nobody is signed in on this device.
+export async function getCustomerProfile(): Promise<CustomerProfile> {
+  const empty: CustomerProfile = {
+    loggedIn: false,
+    name: "",
+    phone: "",
+    email: "",
+    address: null,
+  };
+  const session = await auth();
+  if (!session?.user?.id) return empty;
+  try {
+    await ensureUserProfileColumns();
+    const rows = (await sql`
+      SELECT name, email, phone, address FROM users WHERE id = ${session.user.id} LIMIT 1
+    `) as {
+      name: string;
+      email: string;
+      phone: string | null;
+      address: CustomerProfile["address"];
+    }[];
+    const u = rows[0];
+    return {
+      loggedIn: true,
+      name: u?.name ?? session.user.name ?? "",
+      email: u?.email ?? session.user.email ?? "",
+      phone: u?.phone ?? "",
+      address: u?.address ?? null,
+    };
+  } catch {
+    return { ...empty, loggedIn: true };
+  }
+}
+
+// Persist the customer's default order details to their account (Neon). Only
+// works when signed in — a logged-out order is never attached to an account.
+export async function saveCustomerProfile(input: {
+  name: string;
+  phone: string;
+  address?: { street: string; houseNumber: string; city: string; zip: string };
+}): Promise<{ ok: boolean }> {
+  const session = await auth();
+  if (!session?.user?.id) return { ok: false };
+  try {
+    await ensureUserProfileColumns();
+    await sql`
+      UPDATE users
+      SET name = ${input.name.trim() || session.user.name || ""},
+          phone = ${input.phone.trim() || null},
+          address = ${input.address ? JSON.stringify(input.address) : null}
+      WHERE id = ${session.user.id}
+    `;
+    return { ok: true };
+  } catch {
+    return { ok: false };
+  }
+}
+
 // ===========================================================================
 // Delivery dispatch — drivers ("brigádnici") and admins.
 // Orders appear here only once the kitchen marks them `ready`. Drivers claim

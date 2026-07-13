@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { Restaurant, DeliveryZone, CustomerAddress } from "@/lib/types";
 import { findZone, eur } from "@/lib/utils";
@@ -32,6 +32,21 @@ export function AddressVerification({
   const [checking, setChecking] = useState(false);
   const [result, setResult] = useState<VerifyResult | null>(null);
   const [missing, setMissing] = useState(false);
+
+  // Hydrate from a saved profile/draft once it arrives — but only while the
+  // fields are still empty, so it never overwrites what the guest is typing.
+  useEffect(() => {
+    if (
+      initialAddress &&
+      !address.street &&
+      !address.houseNumber &&
+      !address.city &&
+      (initialAddress.street || initialAddress.city || initialAddress.houseNumber)
+    ) {
+      setAddress(initialAddress);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialAddress]);
 
   function update(patch: Partial<CustomerAddress>) {
     const next = { ...address, ...patch };
