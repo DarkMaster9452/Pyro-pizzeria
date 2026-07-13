@@ -32,7 +32,10 @@ import {
   closeRestaurant,
   resetOldOrders,
   getShiftsReport,
+  getOrderDays,
+  getAdminOrdersByDay,
   type AdminSummary,
+  type AdminOrderRow,
   type OrderDetail,
   type CouponInput,
   type DispatchOrder,
@@ -365,7 +368,7 @@ export function AdminApp({
               </div>
             )}
             {tab === "orders" && (
-              <Orders summary={summary} onOpen={setOpenOrderId} />
+              <Orders restaurantId={restaurantId} onOpen={setOpenOrderId} />
             )}
             {tab === "products" && <Products restaurantId={restaurantId} />}
             {tab === "restaurants" && (
@@ -579,6 +582,18 @@ function driverInitials(name: string): string {
     .slice(0, 2)
     .map((w) => w[0]?.toUpperCase() ?? "")
     .join("");
+}
+
+// Give each driver a stable, distinct colour (hashed from their name) so orders
+// are easy to tell apart at a glance.
+const DRIVER_COLORS = [
+  "#E85D04", "#2E7D32", "#1565C0", "#6A1B9A",
+  "#00838F", "#C2185B", "#B8860B", "#4E342E",
+];
+function driverColor(name: string): string {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return DRIVER_COLORS[h % DRIVER_COLORS.length];
 }
 
 // Clock time an order came in (HH:MM), shown on the kitchen cards.
@@ -919,81 +934,170 @@ function Handover({ restaurantId }: { restaurantId: string }) {
 }
 
 // ---------------- ORDERS (real, clickable) ----------------
+function FilterChip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "shrink-0 rounded-full px-3.5 py-1.5 text-sm font-semibold capitalize transition-colors",
+        active
+          ? "bg-brand-primary text-white"
+          : "bg-black/[0.05] text-neutral-600 hover:bg-black/10 dark:bg-white/5 dark:text-neutral-300 dark:hover:bg-white/10"
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
 function Orders({
-  summary,
+  restaurantId,
   onOpen,
 }: {
-  summary: AdminSummary | null;
+  restaurantId: string;
   onOpen: (id: string) => void;
 }) {
-  const rows = summary?.orders ?? [];
+  const [days, setDays] = useState<string[]>([]);
+  const [day, setDay] = useState<string | null>(null); // null = všetky (recent)
+  const [rows, setRows] = useState<AdminOrderRow[] | null>(null);
+
+  useEffect(() => {
+    getOrderDays(restaurantId).then(setDays).catch(() => setDays([]));
+  }, [restaurantId]);
+
+  const load = useCallback(() => {
+    getAdminOrdersByDay(restaurantId, day)
+      .then(setRows)
+      .catch(() => setRows([]));
+  }, [restaurantId, day]);
+  useEffect(() => {
+    load();
+    const t = setInterval(load, 5000);
+    return () => clearInterval(t);
+  }, [load]);
+
+  // today / yesterday in the Europe/Bratislava calendar
+  const todayStr = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Bratislava",
+  }).format(new Date());
+  const yDate = new Date(todayStr + "T00:00:00");
+  yDate.setDate(yDate.getDate() - 1);
+  const yesterdayStr = `${yDate.getFullYear()}-${String(
+    yDate.getMonth() + 1
+  ).padStart(2, "0")}-${String(yDate.getDate()).padStart(2, "0")}`;
+
+  function dayLabel(d: string): string {
+    if (d === todayStr) return "Dnes";
+    if (d === yesterdayStr) return "Včera";
+    const [, m, dd] = d.split("-");
+    return `${Number(dd)}.${Number(m)}.`;
+  }
+
+  const list = rows ?? [];
+
   return (
-    <div className="overflow-x-auto rounded-2xl bg-white ring-1 ring-black/[0.06] dark:bg-[#1a1a1a] dark:ring-white/5">
-      <table className="w-full text-left text-sm">
-        <thead className="border-b border-black/[0.08] text-neutral-500 dark:border-white/5">
-          <tr>
-            {["ID", "Zákazník", "Typ", "Suma", "Stav", "Doručil", ""].map(
-              (h) => (
-                <th key={h} className="p-4 font-semibold">
-                  {h}
-                </th>
-              )
-            )}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.length === 0 && (
+    <div className="space-y-4">
+      {/* day filter — only days that actually have orders */}
+      <div className="no-scrollbar -mx-1 flex items-center gap-2 overflow-x-auto px-1">
+        <FilterChip active={day === null} onClick={() => setDay(null)}>
+          Všetky
+        </FilterChip>
+        {days.map((d) => (
+          <FilterChip key={d} active={day === d} onClick={() => setDay(d)}>
+            {dayLabel(d)}
+          </FilterChip>
+        ))}
+      </div>
+
+      <div className="overflow-x-auto rounded-2xl bg-white ring-1 ring-black/[0.06] dark:bg-[#1a1a1a] dark:ring-white/5">
+        <table className="w-full text-left text-sm">
+          <thead className="border-b border-black/[0.08] text-neutral-500 dark:border-white/5">
             <tr>
-              <td colSpan={7} className="p-8 text-center text-neutral-500">
-                Zatiaľ žiadne objednávky.
-              </td>
+              {["ID", "Zákazník", "Typ", "Suma", "Stav", "Doručil", ""].map(
+                (h) => (
+                  <th key={h} className="p-4 font-semibold">
+                    {h}
+                  </th>
+                )
+              )}
             </tr>
-          )}
-          {rows.map((r) => (
-            <tr
-              key={r.id}
-              onClick={() => onOpen(r.id)}
-              className="cursor-pointer border-b border-black/[0.08] last:border-0 hover:bg-black/[0.03] dark:border-white/5 dark:hover:bg-white/5"
-            >
-              <td className="p-4 font-mono font-bold text-neutral-900 dark:text-white">
-                #{r.id}
-              </td>
-              <td className="p-4">{r.customerName}</td>
-              <td className="p-4 text-neutral-400">
-                {r.fulfillment === "delivery" ? "Rozvoz" : "Odber"}
-              </td>
-              <td className="p-4 font-semibold">{eur(r.total)}</td>
-              <td className="p-4">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="chip bg-brand-primary/15 text-brand-primary">
-                    {STATUS_LABEL[r.status] ?? r.status}
-                  </span>
-                  {r.paid && (
-                    <span className="chip bg-brand-success/15 text-brand-success">
-                      Zaplatené
-                    </span>
-                  )}
-                </div>
-              </td>
-              <td className="p-4">
-                {r.driverName ? (
-                  <span
-                    title={`Doručil: ${r.driverName}`}
-                    className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-brand-secondary/20 text-xs font-bold text-brand-secondary"
-                  >
-                    {driverInitials(r.driverName)}
-                  </span>
-                ) : (
-                  <span className="text-neutral-400">—</span>
-                )}
-              </td>
-              <td className="p-4 text-right text-xs font-semibold text-brand-secondary">
-                Detail →
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {rows !== null && list.length === 0 && (
+              <tr>
+                <td colSpan={7} className="p-8 text-center text-neutral-500">
+                  Žiadne objednávky.
+                </td>
+              </tr>
+            )}
+            {list.map((r) => {
+              const color = r.driverName ? driverColor(r.driverName) : null;
+              return (
+                <tr
+                  key={r.id}
+                  onClick={() => onOpen(r.id)}
+                  className="cursor-pointer border-b border-black/[0.08] last:border-0 hover:bg-black/[0.03] dark:border-white/5 dark:hover:bg-white/5"
+                >
+                  <td className="p-4 font-mono font-bold text-neutral-900 dark:text-white">
+                    #{r.id}
+                  </td>
+                  <td className="p-4">{r.customerName}</td>
+                  <td className="p-4 text-neutral-400">
+                    {r.fulfillment === "delivery" ? "Rozvoz" : "Odber"}
+                  </td>
+                  <td className="p-4 font-semibold">{eur(r.total)}</td>
+                  <td className="p-4">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="chip bg-brand-primary/15 text-brand-primary">
+                        {STATUS_LABEL[r.status] ?? r.status}
+                      </span>
+                      {r.paid && (
+                        <span className="chip bg-brand-success/15 text-brand-success">
+                          Zaplatené
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="p-4">
+                    {r.driverName && color ? (
+                      <span
+                        className="inline-flex items-center gap-2"
+                        title={`Doručil: ${r.driverName}`}
+                      >
+                        <span
+                          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold"
+                          style={{ backgroundColor: `${color}26`, color }}
+                        >
+                          {driverInitials(r.driverName)}
+                        </span>
+                        <span
+                          className="hidden whitespace-nowrap text-xs font-semibold lg:inline"
+                          style={{ color }}
+                        >
+                          {r.driverName}
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="text-neutral-400">—</span>
+                    )}
+                  </td>
+                  <td className="p-4 text-right text-xs font-semibold text-brand-secondary">
+                    Detail →
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

@@ -701,6 +701,78 @@ export interface AdminOrderRow {
   lines: { name: string; quantity: number }[];
 }
 
+interface AdminOrderRaw {
+  id: string;
+  status: string;
+  fulfillment: string;
+  customer_name: string;
+  total: number;
+  pizza_count: number;
+  lines: { name: string; quantity: number }[];
+  paid: boolean;
+  driver_name: string | null;
+  created_at: string;
+  mins_ago: number;
+}
+
+function mapAdminOrderRow(o: AdminOrderRaw): AdminOrderRow {
+  return {
+    id: o.id,
+    status: o.status,
+    fulfillment: o.fulfillment,
+    customerName: o.customer_name,
+    total: o.total,
+    pizzaCount: o.pizza_count,
+    minsAgo: Math.max(0, Math.round(o.mins_ago)),
+    createdAt: o.created_at,
+    paid: o.paid,
+    driverName: o.driver_name,
+    lines: Array.isArray(o.lines) ? o.lines : [],
+  };
+}
+
+const ADMIN_ORDER_COLS = `id, status, fulfillment, customer_name, total::float AS total,
+  pizza_count, lines, COALESCE(paid, false) AS paid, driver_name, created_at,
+  EXTRACT(EPOCH FROM (now() - created_at))/60 AS mins_ago`;
+
+// Distinct calendar days (Europe/Bratislava) that have orders — powers the day
+// filter in the admin orders tab. Days with no orders never appear.
+export async function getOrderDays(restaurantId: string): Promise<string[]> {
+  await requireAdmin(restaurantId);
+  await ensureOrderColumns();
+  const rows = (await sql`
+    SELECT DISTINCT (created_at AT TIME ZONE 'Europe/Bratislava')::date::text AS d
+    FROM orders WHERE restaurant_id = ${restaurantId}
+    ORDER BY d DESC LIMIT 30
+  `) as { d: string }[];
+  return rows.map((r) => r.d);
+}
+
+// Orders for a specific calendar day (YYYY-MM-DD), or the most recent when day
+// is null.
+export async function getAdminOrdersByDay(
+  restaurantId: string,
+  day: string | null
+): Promise<AdminOrderRow[]> {
+  await requireAdmin(restaurantId);
+  await ensureOrderColumns();
+  const rows = day
+    ? ((await sql.query(
+        `SELECT ${ADMIN_ORDER_COLS} FROM orders
+         WHERE restaurant_id = $1
+           AND (created_at AT TIME ZONE 'Europe/Bratislava')::date = $2::date
+         ORDER BY created_at DESC LIMIT 200`,
+        [restaurantId, day]
+      )) as AdminOrderRaw[])
+    : ((await sql.query(
+        `SELECT ${ADMIN_ORDER_COLS} FROM orders
+         WHERE restaurant_id = $1
+         ORDER BY created_at DESC LIMIT 60`,
+        [restaurantId]
+      )) as AdminOrderRaw[]);
+  return rows.map(mapAdminOrderRow);
+}
+
 export interface AdminSummary {
   soldOut: boolean;
   pendingCount: number;
