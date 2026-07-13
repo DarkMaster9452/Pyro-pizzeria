@@ -27,33 +27,40 @@ import {
 
 const ease = [0.22, 1, 0.36, 1] as const;
 
-const FEATURES = [
-  {
-    icon: <Rocket className="h-6 w-6" />,
-    t: "Rýchly rozvoz",
-    d: "Doručenie do 45 minút · zadarmo.",
-    tint: "bg-brand-primary/12 text-brand-primary",
-  },
-  {
-    icon: <ShieldCheck className="h-6 w-6" />,
-    t: "Čerstvé suroviny",
-    d: "Denne pripravované cesto a omáčky.",
-    tint: "bg-brand-accent/12 text-brand-accent",
-  },
-  {
-    icon: <Flame className="h-6 w-6" />,
-    t: "Pec na dreve",
-    d: "Pizza pečená pri vysokej teplote.",
-    tint: "bg-brand-secondary/12 text-brand-secondary",
-  },
-];
+// Features shown in the hero strip. The delivery estimate is dynamic — it
+// tracks the current kitchen load (the same ~wait value shown in the hero
+// info row) instead of a fixed "45 min".
+function buildFeatures(wait: number) {
+  return [
+    {
+      icon: <Rocket className="h-6 w-6" />,
+      t: "Rýchly rozvoz",
+      d: `Doručenie ~${wait} min · zadarmo.`,
+      tint: "bg-brand-primary/12 text-brand-primary",
+    },
+    {
+      icon: <ShieldCheck className="h-6 w-6" />,
+      t: "Čerstvé suroviny",
+      d: "Denne pripravované cesto a omáčky.",
+      tint: "bg-brand-accent/12 text-brand-accent",
+    },
+    {
+      icon: <Flame className="h-6 w-6" />,
+      t: "Kamenná pec",
+      d: "Pizza pečená pri vysokej teplote.",
+      tint: "bg-brand-secondary/12 text-brand-secondary",
+    },
+  ];
+}
 
 export default function HomePage() {
   const restaurantId = useApp((s) => s.restaurantId);
   const dbProducts = useApp((s) => s.dbProducts);
+  const kitchenQueue = useApp((s) => s.kitchenQueue);
   const r = RESTAURANTS.find((x) => x.id === restaurantId);
   if (!r) return null; // selection modal covers screen
 
+  const wait = estimatedWait(r.prepTimeMinutes, kitchenQueue[r.id] ?? 0);
   const popular = (dbProducts ?? PRODUCTS).filter(
     (p) => p.restaurantId === r.id && p.badges.includes("bestseller")
   );
@@ -62,7 +69,7 @@ export default function HomePage() {
   return (
     <main>
       <Hero r={r} />
-      <FeatureStripSection />
+      <FeatureStripSection wait={wait} />
       <Popular popular={popular} />
       <Reviews reviews={reviews} />
       <ClosingCta />
@@ -165,8 +172,8 @@ function Hero({ r }: { r: Restaurant }) {
       className="max-w-[520px] text-[17px] text-[#B5B5B5] sm:text-lg"
       style={{ lineHeight: 1.7 }}
     >
-      Ručne pripravená pizza z kvalitných surovín, pečená do dokonalosti v peci
-      na dreve. Rozvoz priamo k vám alebo osobný odber — vždy čerstvé, vždy
+      Ručne pripravená pizza z kvalitných surovín, pečená do dokonalosti v
+      kamennej peci. Rozvoz priamo k vám alebo osobný odber — vždy čerstvé, vždy
       poctivé.
     </motion.p>
   );
@@ -221,7 +228,7 @@ function Hero({ r }: { r: Restaurant }) {
         <div className="absolute inset-0 bg-[#0d0a08]">
           <Image
             src={r.image}
-            alt={`${r.name} — pizza z pece na dreve`}
+            alt={`${r.name} — pizza z kamennej pece`}
             fill
             priority
             sizes="100vw"
@@ -272,7 +279,7 @@ function Hero({ r }: { r: Restaurant }) {
 
         {/* feature strip pinned to the bottom of the hero */}
         <div className="section absolute inset-x-0 bottom-6 z-10">
-          <FeatureBand />
+          <FeatureBand wait={wait} />
         </div>
       </div>
 
@@ -281,7 +288,7 @@ function Hero({ r }: { r: Restaurant }) {
         <div className="relative h-[46vh] min-h-[300px] w-full">
           <Image
             src={r.image}
-            alt={`${r.name} — pizza z pece na dreve`}
+            alt={`${r.name} — pizza z kamennej pece`}
             fill
             priority
             sizes="100vw"
@@ -310,10 +317,10 @@ function Hero({ r }: { r: Restaurant }) {
   );
 }
 
-function FeatureBand() {
+function FeatureBand({ wait }: { wait: number }) {
   return (
     <div className="grid grid-cols-3 overflow-hidden rounded-3xl border border-white/[0.08] bg-[#111111]/80 backdrop-blur-md divide-x divide-white/[0.06]">
-      {FEATURES.map((f) => (
+      {buildFeatures(wait).map((f) => (
         <div key={f.t} className="flex items-center gap-4 p-6">
           <div
             className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${f.tint}`}
@@ -331,11 +338,11 @@ function FeatureBand() {
 }
 
 /* feature strip for mobile (desktop uses the pinned band inside the hero) */
-function FeatureStripSection() {
+function FeatureStripSection({ wait }: { wait: number }) {
   return (
     <section id="features" className="section pt-10 lg:hidden">
       <div className="grid gap-2 overflow-hidden rounded-3xl border border-white/[0.08] bg-[#111111] sm:grid-cols-3 sm:divide-x sm:divide-white/[0.06]">
-        {FEATURES.map((f) => (
+        {buildFeatures(wait).map((f) => (
           <div key={f.t} className="flex items-center gap-4 p-6">
             <div
               className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${f.tint}`}
