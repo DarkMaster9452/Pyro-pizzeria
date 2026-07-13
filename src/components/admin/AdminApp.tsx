@@ -278,6 +278,14 @@ export function AdminApp({
               {n.label.split(" ")[0]}
             </button>
           ))}
+          {/* Driver dispatch board is a separate page — reachable on mobile too */}
+          <Link
+            href="/rozvoz"
+            className="flex shrink-0 flex-col items-center gap-0.5 rounded-lg px-3 py-1.5 text-[10px] font-semibold text-brand-primary"
+          >
+            <Truck className="h-5 w-5" />
+            Rozvoz
+          </Link>
         </div>
       </div>
 
