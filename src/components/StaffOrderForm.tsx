@@ -198,21 +198,24 @@ export function StaffOrderForm({
                   {/* Whole menu as tap-to-add buttons (tap adds one, badge shows
                       the count, the − removes one). No photos, so it stays
                       compact enough to fit the whole menu. */}
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                  {/* 2 columns on tablet (names stay readable), 3 only on very
+                      wide screens. Buttons are a comfortable tap size without
+                      crowding out the product name or spilling into neighbours. */}
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 2xl:grid-cols-3">
                     {items.map((p) => {
                       const n = qty[p.id] ?? 0;
                       return (
                         <div
                           key={p.id}
                           className={cn(
-                            "flex min-h-[76px] items-center gap-2 rounded-xl border px-3 py-2 transition-colors",
+                            "flex min-h-[60px] items-center gap-2 overflow-hidden rounded-xl border px-2.5 py-2 transition-colors",
                             n > 0
                               ? "border-brand-primary bg-brand-primary/10"
                               : "border-black/10 dark:border-white/10"
                           )}
                         >
                           <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-medium leading-tight text-neutral-900 dark:text-white">
+                            <p className="line-clamp-2 text-sm font-medium leading-tight text-neutral-900 dark:text-white">
                               {numberMap[p.id] != null && (
                                 <span className="text-brand-primary">
                                   {numberMap[p.id]}.{" "}
@@ -224,19 +227,18 @@ export function StaffOrderForm({
                               {eur(priceOf(p))}
                             </p>
                           </div>
-                          {/* Big, well-spaced +/- so it taps cleanly on phone/tablet. */}
-                          <div className="flex shrink-0 items-center gap-2">
+                          <div className="flex shrink-0 items-center gap-1.5">
                             {n > 0 && (
                               <>
                                 <button
                                   type="button"
                                   aria-label="Odobrať"
                                   onClick={() => bump(p.id, -1)}
-                                  className="flex h-14 w-14 items-center justify-center rounded-full bg-black/10 text-neutral-800 transition-colors hover:bg-black/20 active:scale-95 dark:bg-white/15 dark:text-white"
+                                  className="flex h-10 w-10 items-center justify-center rounded-full bg-black/10 text-neutral-800 transition-colors hover:bg-black/20 active:scale-95 dark:bg-white/15 dark:text-white"
                                 >
-                                  <Minus className="h-6 w-6" />
+                                  <Minus className="h-5 w-5" />
                                 </button>
-                                <span className="w-8 text-center text-xl font-bold tabular-nums text-neutral-900 dark:text-white">
+                                <span className="w-6 text-center text-base font-bold tabular-nums text-neutral-900 dark:text-white">
                                   {n}
                                 </span>
                               </>
@@ -245,9 +247,9 @@ export function StaffOrderForm({
                               type="button"
                               aria-label="Pridať"
                               onClick={() => bump(p.id, 1)}
-                              className="flex h-14 w-14 items-center justify-center rounded-full bg-brand-primary text-white transition-colors hover:brightness-110 active:scale-95"
+                              className="flex h-10 w-10 items-center justify-center rounded-full bg-brand-primary text-white transition-colors hover:brightness-110 active:scale-95"
                             >
-                              <Plus className="h-6 w-6" />
+                              <Plus className="h-5 w-5" />
                             </button>
                           </div>
                         </div>

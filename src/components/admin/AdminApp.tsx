@@ -206,8 +206,9 @@ export function AdminApp({
 
   return (
     <div className="flex min-h-screen bg-[#f4f4f5] text-neutral-800 dark:bg-[#0f0f0f] dark:text-neutral-200">
-      {/* sidebar */}
-      <aside className="hidden w-64 shrink-0 flex-col border-r border-black/[0.08] bg-white dark:border-white/5 dark:bg-[#161616] md:flex">
+      {/* sidebar — sticky full-height so the nav stays fully visible while the
+          content scrolls (tablet/desktop) */}
+      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col self-start overflow-y-auto border-r border-black/[0.08] bg-white dark:border-white/5 dark:bg-[#161616] md:flex">
         <div className="flex items-center gap-3 border-b border-black/[0.08] p-5 dark:border-white/5">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
@@ -864,6 +865,17 @@ function Handover({ restaurantId }: { restaurantId: string }) {
                   <Clock className="h-3 w-3" /> pred {o.minsAgo} min ·{" "}
                   {o.customerName}
                 </p>
+                {o.phone && (
+                  <p className="mt-1 flex items-center gap-1.5 text-sm font-semibold text-neutral-800 dark:text-neutral-100">
+                    <Phone className="h-4 w-4 shrink-0 text-brand-success" />
+                    <a
+                      href={`tel:${o.phone.replace(/[^+\d]/g, "")}`}
+                      className="select-all tabular-nums hover:text-brand-primary"
+                    >
+                      {o.phone}
+                    </a>
+                  </p>
+                )}
                 <ul className="mt-1 text-sm text-neutral-700 dark:text-neutral-300">
                   {o.lines.map((l, i) => (
                     <li key={i}>
@@ -877,14 +889,6 @@ function Handover({ restaurantId }: { restaurantId: string }) {
                   </p>
                 )}
                 <div className="mt-2 flex flex-wrap gap-2">
-                  {o.phone && (
-                    <a
-                      href={`tel:${o.phone.replace(/[^+\d]/g, "")}`}
-                      className="inline-flex items-center gap-1.5 rounded-full bg-black/[0.06] px-3 py-2 text-xs font-semibold text-neutral-700 hover:bg-black/10 dark:bg-white/10 dark:text-white"
-                    >
-                      <Phone className="h-4 w-4 text-brand-success" /> Zavolať
-                    </a>
-                  )}
                   <button
                     disabled={busyId === o.id}
                     onClick={() => settle(o.id)}
