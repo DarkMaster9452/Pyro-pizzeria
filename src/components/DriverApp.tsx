@@ -29,6 +29,7 @@ import {
   MapPin,
   Clock,
   Home,
+  LayoutDashboard,
   LogOut,
   Hand,
   RotateCcw,
@@ -157,6 +158,16 @@ export function DriverApp({
             >
               <RefreshCw className="h-4 w-4" />
             </button>
+            {isAdmin && (
+              <Link
+                href="/admin"
+                title="Späť do administrácie (bez odhlásenia)"
+                className="flex items-center gap-1.5 rounded-full border border-brand-primary/40 bg-brand-primary/10 px-3 py-2 text-xs font-semibold text-brand-primary transition-colors hover:bg-brand-primary/20"
+              >
+                <LayoutDashboard className="h-4 w-4" />
+                <span className="hidden sm:inline">Admin</span>
+              </Link>
+            )}
             <Link
               href="/"
               title="Späť na web (bez odhlásenia)"
