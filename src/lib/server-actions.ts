@@ -2503,9 +2503,21 @@ export interface CallOrder {
   fulfillment: string; // 'delivery' | 'pickup'
   customerName: string;
   phone: string;
+  callable: boolean; // true only when `phone` is a real, dial-able number
+  note: string | null;
   status: string;
   minsAgo: number;
   total: number;
+  lines: { name: string; quantity: number }[];
+}
+
+// A phone field is dial-able only if it really is a number. Staff sometimes key
+// a name instead (e.g. a regular they know) — those must never become a tel:
+// link that would open the dialer with a name.
+function isCallablePhone(phone: string | null): boolean {
+  if (!phone) return false;
+  const digits = phone.replace(/[^\d]/g, "");
+  return digits.length >= 6; // shortest sensible SK number
 }
 
 // Finished ("done") orders the call account may ring the customer about:
@@ -2523,7 +2535,7 @@ export async function getCallBoard(): Promise<CallOrder[]> {
   const restaurantId = session.user.restaurantId;
   await ensureOrderColumns();
   const rows = (await sql`
-    SELECT id, fulfillment, customer_name, phone, status,
+    SELECT id, fulfillment, customer_name, phone, note, status, lines,
            total::float AS total,
            EXTRACT(EPOCH FROM (now() - created_at))/60 AS mins_ago
     FROM orders
@@ -2536,7 +2548,9 @@ export async function getCallBoard(): Promise<CallOrder[]> {
     fulfillment: string;
     customer_name: string;
     phone: string;
+    note: string | null;
     status: string;
+    lines: { name: string; quantity: number }[];
     total: number;
     mins_ago: number;
   }>;
@@ -2545,9 +2559,12 @@ export async function getCallBoard(): Promise<CallOrder[]> {
     fulfillment: o.fulfillment,
     customerName: o.customer_name,
     phone: o.phone,
+    callable: isCallablePhone(o.phone),
+    note: o.note,
     status: o.status,
     minsAgo: Math.max(0, Math.round(o.mins_ago)),
     total: o.total,
+    lines: Array.isArray(o.lines) ? o.lines : [],
   }));
 }
 
