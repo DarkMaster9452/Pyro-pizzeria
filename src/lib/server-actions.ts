@@ -1088,8 +1088,8 @@ export async function openRestaurant(
   );
   if (shiftUserIds.length) {
     const staff = (await sql.query(
-      `SELECT id, name, role FROM users
-       WHERE id = ANY($1::text[]) AND restaurant_id = $2`,
+      `SELECT id::text AS id, name, role FROM users
+       WHERE id::text = ANY($1::text[]) AND restaurant_id = $2`,
       [shiftUserIds, restaurantId]
     )) as { id: string; name: string; role: string }[];
     for (const s of staff) {

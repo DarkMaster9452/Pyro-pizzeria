@@ -77,9 +77,13 @@ function Hero({ r }: { r: Restaurant }) {
   const clearRestaurant = useApp((s) => s.clearRestaurant);
   const soldOut = useApp((s) => s.soldOut[r.id] ?? false);
   const queue = useApp((s) => s.kitchenQueue[r.id] ?? 0);
+  const dbOpen = useApp((s) => s.dbOpen);
   const state = getOpenState(r);
   const wait = estimatedWait(r.prepTimeMinutes, queue);
-  const canOrder = state.open && !soldOut;
+  // Customer-facing open state = the admin's manual daily open. Falls back to
+  // the opening-hours estimate until the storefront snapshot has loaded.
+  const open = dbOpen != null ? (dbOpen[r.id] ?? false) : state.open;
+  const canOrder = open && !soldOut;
 
   const stagger = {
     hidden: {},
@@ -94,27 +98,27 @@ function Hero({ r }: { r: Restaurant }) {
     <motion.div variants={item} className="flex flex-wrap items-center gap-2.5">
       <span
         className={`inline-flex items-center gap-2 rounded-full px-3.5 py-2 text-[13px] font-semibold ${
-          state.open
+          open
             ? "bg-brand-success/12 text-brand-success"
             : "bg-brand-error/12 text-[#ff6b6b]"
         }`}
       >
         <span className="relative flex h-2 w-2">
-          {state.open && (
+          {open && (
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-brand-success opacity-70" />
           )}
           <span
             className={`relative h-2 w-2 rounded-full ${
-              state.open ? "bg-brand-success" : "bg-[#ff6b6b]"
+              open ? "bg-brand-success" : "bg-[#ff6b6b]"
             }`}
             style={{
-              boxShadow: state.open
+              boxShadow: open
                 ? "0 0 10px rgba(34,197,94,.8)"
                 : "0 0 10px rgba(239,68,68,.8)",
             }}
           />
         </span>
-        {state.open ? "OTVORENÉ" : "ZATVORENÉ"}
+        {open ? "OTVORENÉ" : "ZATVORENÉ"}
       </span>
       <button
         onClick={clearRestaurant}

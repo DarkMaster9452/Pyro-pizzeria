@@ -65,6 +65,7 @@ export function Navbar() {
   const clearRestaurant = useApp((s) => s.clearRestaurant);
   const cart = useApp((s) => s.cart);
   const setCartOpen = useApp((s) => s.setCartOpen);
+  const dbOpen = useApp((s) => s.dbOpen);
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -169,7 +170,10 @@ export function Navbar() {
                   className="mb-1 flex items-center justify-between rounded-xl bg-white/5 px-4 py-3 text-sm font-semibold text-white"
                 >
                   <span className="flex items-center gap-2">
-                    {mounted && getOpenState(restaurant).open
+                    {mounted &&
+                    (dbOpen != null
+                      ? dbOpen[restaurant.id] ?? false
+                      : getOpenState(restaurant).open)
                       ? "🟢 Otvorené"
                       : "🔴 Zatvorené"}{" "}
                     · {restaurant.city}

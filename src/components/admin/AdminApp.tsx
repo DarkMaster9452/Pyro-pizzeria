@@ -1472,25 +1472,40 @@ function OpenFlow({
 
   const cats = Array.from(new Set(prep.products.map((p) => p.category)));
 
+  const offCount = unavailable.size;
+
   return (
-    <Modal title="Otvoriť prevádzku" onClose={onClose}>
-      <div className="space-y-5">
+    <Modal title="Otvoriť prevádzku" onClose={onClose} wide>
+      <div className="space-y-6">
         {/* Availability */}
         <div>
-          <h4 className="font-display font-bold text-neutral-900 dark:text-white">
-            Ktoré položky dnes nie sú k dispozícii?
-          </h4>
-          <p className="mt-1 text-xs text-neutral-500">
-            Označené položky dnes zmiznú z webu. Zoznam sa každý deň o 12:00
-            resetuje.
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h4 className="font-display text-base font-bold text-neutral-900 dark:text-white">
+              Dostupnosť položiek
+            </h4>
+            <span
+              className={cn(
+                "rounded-full px-3 py-1 text-xs font-semibold",
+                offCount > 0
+                  ? "bg-brand-error/10 text-brand-error"
+                  : "bg-brand-success/10 text-brand-success"
+              )}
+            >
+              {offCount > 0 ? `${offCount} nedostupných` : "Všetko dostupné"}
+            </span>
+          </div>
+          <p className="mt-1 text-sm text-neutral-500">
+            Klepnite na položku, ktorá dnes <strong>nie je</strong> k dispozícii —
+            zmizne z webu. Zoznam sa každý deň o 12:00 resetuje na „všetko
+            dostupné“.
           </p>
-          <div className="mt-3 max-h-64 space-y-3 overflow-y-auto pr-1">
+          <div className="mt-3 max-h-[46vh] space-y-4 overflow-y-auto pr-1">
             {cats.map((cat) => (
               <div key={cat}>
-                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-neutral-400">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-400">
                   {CATEGORIES.find((c) => c.id === cat)?.name ?? cat}
                 </p>
-                <div className="flex flex-wrap gap-2">
+                <div className="grid gap-2 sm:grid-cols-2">
                   {prep.products
                     .filter((p) => p.category === cat)
                     .map((p) => {
@@ -1502,13 +1517,32 @@ function OpenFlow({
                             setUnavailable((s) => toggle(s, p.id))
                           }
                           className={cn(
-                            "rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors",
+                            "flex items-center justify-between gap-2 rounded-xl border px-3 py-2.5 text-left text-sm transition-colors",
                             off
-                              ? "border-brand-error/50 bg-brand-error/10 text-brand-error line-through"
-                              : "border-black/10 text-neutral-600 hover:bg-black/[0.03] dark:border-white/10 dark:text-neutral-300 dark:hover:bg-white/5"
+                              ? "border-brand-error/50 bg-brand-error/10"
+                              : "border-black/10 hover:border-brand-success/40 hover:bg-black/[0.02] dark:border-white/10 dark:hover:bg-white/5"
                           )}
                         >
-                          {p.name}
+                          <span
+                            className={cn(
+                              "font-medium",
+                              off
+                                ? "text-brand-error line-through"
+                                : "text-neutral-900 dark:text-white"
+                            )}
+                          >
+                            {p.name}
+                          </span>
+                          <span
+                            className={cn(
+                              "shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold",
+                              off
+                                ? "bg-brand-error/15 text-brand-error"
+                                : "bg-brand-success/15 text-brand-success"
+                            )}
+                          >
+                            {off ? "Nedostupné" : "Dostupné"}
+                          </span>
                         </button>
                       );
                     })}
@@ -2494,10 +2528,12 @@ function Modal({
   title,
   onClose,
   children,
+  wide,
 }: {
   title: string;
   onClose: () => void;
   children: React.ReactNode;
+  wide?: boolean;
 }) {
   return (
     <motion.div
@@ -2511,7 +2547,10 @@ function Modal({
         initial={{ y: 24, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         onClick={(e) => e.stopPropagation()}
-        className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white p-6 dark:bg-[#1b1b1b] sm:rounded-3xl"
+        className={cn(
+          "max-h-[92vh] w-full overflow-y-auto rounded-t-3xl bg-white p-6 dark:bg-[#1b1b1b] sm:rounded-3xl",
+          wide ? "max-w-3xl" : "max-w-lg"
+        )}
       >
         <div className="mb-4 flex items-center justify-between">
           <h3 className="font-display text-lg font-extrabold text-neutral-900 dark:text-white">
