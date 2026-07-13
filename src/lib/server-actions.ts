@@ -429,7 +429,15 @@ export interface NewOrderInput {
   lines: CartLine[];
   couponCode?: string | null;
   note?: string;
+  payment?: "cash_delivery" | "card_delivery" | "cash_pickup" | "card_pickup";
 }
+
+const PAYMENT_LABELS: Record<string, string> = {
+  cash_delivery: "Hotovosť pri doručení",
+  card_delivery: "Karta pri doručení",
+  cash_pickup: "Hotovosť pri odbere",
+  card_pickup: "Karta pri odbere",
+};
 
 export interface CreateOrderResult {
   ok: boolean;
@@ -540,6 +548,15 @@ export async function createOrder(
     if (data.fulfillment === "delivery") {
       if (!data.address)
         return { ok: false, error: "Chýba adresa doručenia." };
+      if (
+        !data.address.street.trim() ||
+        !data.address.houseNumber.trim() ||
+        !data.address.city.trim()
+      )
+        return {
+          ok: false,
+          error: "Vyplňte ulicu, číslo domu a mesto.",
+        };
       const restaurantZones = (await sql`
         SELECT id, restaurant_id, name, minimum_order, delivery_fee,
                estimated_minutes, areas
@@ -598,6 +615,13 @@ export async function createOrder(
     );
     const eta = zone ? Math.max(zone.estimatedMinutes, wait) : wait;
 
+    // Payment label from the chosen method (validated), default per fulfillment.
+    const paymentLabel =
+      (data.payment && PAYMENT_LABELS[data.payment]) ??
+      (data.fulfillment === "delivery"
+        ? "Platba pri doručení"
+        : "Platba pri odbere");
+
     const id = await nextOrderId();
     await sql`
       INSERT INTO orders (
@@ -612,7 +636,7 @@ export async function createOrder(
         ${pizzaCount(lines, pizza)},
         ${totals.subtotal}, ${totals.deliveryFee}, ${totals.discount},
         ${totals.total},
-        ${data.fulfillment === "delivery" ? "Platba pri doručení" : "Platba pri odbere"},
+        ${paymentLabel},
         ${data.note || null}, ${eta}, ${userId}
       )
     `;

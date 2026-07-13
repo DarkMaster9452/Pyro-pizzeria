@@ -22,17 +22,25 @@ import {
   Banknote,
   ArrowRight,
   CheckCircle2,
+  Clock,
 } from "lucide-react";
 
 const PAYMENTS = {
   delivery: [
     { id: "cash_delivery", label: "Hotovosť pri doručení", icon: <Banknote className="h-5 w-5" /> },
+    { id: "card_delivery", label: "Karta pri doručení", icon: <CreditCard className="h-5 w-5" /> },
   ],
   pickup: [
     { id: "cash_pickup", label: "Hotovosť pri odbere", icon: <Wallet className="h-5 w-5" /> },
     { id: "card_pickup", label: "Karta pri odbere", icon: <CreditCard className="h-5 w-5" /> },
   ],
-};
+} as const;
+
+type PaymentId =
+  | "cash_delivery"
+  | "card_delivery"
+  | "cash_pickup"
+  | "card_pickup";
 
 export default function CheckoutPage() {
   const router = useRouter();
@@ -46,18 +54,20 @@ export default function CheckoutPage() {
   const dbCoupons = useApp((s) => s.dbCoupons);
   const dbZones = useApp((s) => s.dbZones);
   const dbOpen = useApp((s) => s.dbOpen);
-  // Not opened yet for today. Unknown (null) fails open on the client — the
-  // server enforces it authoritatively either way.
+  // Draft is kept in localStorage so details survive edits until an order is
+  // placed (see store). Cleared on success.
+  const draft = useApp((s) => s.checkoutDraft);
+  const setDraft = useApp((s) => s.setCheckoutDraft);
+  const clearDraft = useApp((s) => s.clearCheckoutDraft);
+
   const notOpen = restaurantId ? dbOpen?.[restaurantId] === false : false;
 
   const r = RESTAURANTS.find((x) => x.id === restaurantId);
   const [fulfillment, setFulfillment] = useState<FulfillmentType>("delivery");
   const [verify, setVerify] = useState<VerifyResult | null>(null);
-  const [name, setName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [email, setEmail] = useState("");
-  const [note, setNote] = useState("");
-  const [payment, setPayment] = useState("cash_delivery");
+  const [payment, setPayment] = useState<PaymentId>("cash_delivery");
+  const [schedule, setSchedule] = useState<"asap" | "time">("asap");
+  const [scheduleTime, setScheduleTime] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [orderError, setOrderError] = useState("");
 
@@ -73,21 +83,33 @@ export default function CheckoutPage() {
     dbCoupons ?? COUPONS
   );
 
-  // Delivery needs a valid (in-range) address AND, when the matched zone has a
-  // minimum order set by the admin, a subtotal that meets it.
   const minOrder = zone?.minimumOrder ?? 0;
   const meetsMinimum = totals.subtotal >= minOrder;
   const missingForMinimum = Math.max(0, minOrder - totals.subtotal);
   const deliveryOk =
     fulfillment === "pickup" || (verify?.zone != null && meetsMinimum);
-  const detailsOk = name.trim() && phone.trim();
+  const detailsOk = draft.name.trim() && draft.phone.trim();
+  const scheduleOk = schedule === "asap" || scheduleTime !== "";
   const canOrder =
-    cart.length > 0 && deliveryOk && detailsOk && !soldOut && !notOpen;
+    cart.length > 0 &&
+    deliveryOk &&
+    detailsOk &&
+    scheduleOk &&
+    !soldOut &&
+    !notOpen;
 
   const eta =
     fulfillment === "delivery"
       ? Math.max(zone?.estimatedMinutes ?? 45, estimatedWait(r.prepTimeMinutes, queue))
       : estimatedWait(r.prepTimeMinutes, queue);
+
+  function buildNote(): string {
+    const sched =
+      schedule === "time" && scheduleTime
+        ? `Objednávka na čas ${scheduleTime}. `
+        : "";
+    return (sched + (draft.note ?? "")).trim();
+  }
 
   async function placeOrder() {
     if (!canOrder || !r || submitting) return;
@@ -96,19 +118,19 @@ export default function CheckoutPage() {
     const paymentLabel =
       PAYMENTS[fulfillment].find((p) => p.id === payment)?.label ?? payment;
     const address = fulfillment === "delivery" ? verify?.address : undefined;
+    const note = buildNote();
 
-    // Server recomputes and validates all prices — the client total is only
-    // for display and is never trusted server-side.
     const res = await createOrder({
       restaurantId: r.id,
       fulfillment,
-      customerName: name,
-      phone,
-      email,
+      customerName: draft.name,
+      phone: draft.phone,
+      email: draft.email,
       address,
       lines: cart,
       couponCode: coupon,
       note,
+      payment,
     });
 
     if (!res.ok) {
@@ -123,9 +145,9 @@ export default function CheckoutPage() {
       createdAt: Date.now(),
       status: "received",
       fulfillment,
-      customerName: name,
-      phone,
-      email,
+      customerName: draft.name,
+      phone: draft.phone,
+      email: draft.email,
       address,
       zoneName: zone?.name,
       lines: cart,
@@ -139,6 +161,7 @@ export default function CheckoutPage() {
     };
     addOrder(order);
     clearCart();
+    clearDraft(); // details are only cleared once the order is paid/placed
     router.push(`/track?id=${order.id}`);
   }
 
@@ -155,7 +178,7 @@ export default function CheckoutPage() {
   }
 
   return (
-    <main className="section py-10">
+    <main className="section py-10 pb-32 lg:pb-10">
       <h1 className="font-heading text-4xl uppercase tracking-tight sm:text-5xl">
         Pokladňa
       </h1>
@@ -214,6 +237,20 @@ export default function CheckoutPage() {
                 restaurant={r}
                 zones={dbZones?.[r.id]}
                 onResult={setVerify}
+                initialAddress={{
+                  street: draft.street,
+                  houseNumber: draft.houseNumber,
+                  city: draft.city,
+                  zip: draft.zip,
+                }}
+                onAddressChange={(a) =>
+                  setDraft({
+                    street: a.street,
+                    houseNumber: a.houseNumber,
+                    city: a.city,
+                    zip: a.zip,
+                  })
+                }
               />
             </Panel>
           ) : (
@@ -230,35 +267,94 @@ export default function CheckoutPage() {
             </Panel>
           )}
 
+          {/* when */}
+          <Panel title="Kedy">
+            <div className="grid grid-cols-2 gap-3">
+              {(
+                [
+                  { id: "asap", label: "Čo najskôr" },
+                  { id: "time", label: "Na konkrétny čas" },
+                ] as const
+              ).map((opt) => (
+                <button
+                  key={opt.id}
+                  onClick={() => setSchedule(opt.id)}
+                  className={cn(
+                    "flex items-center gap-2 rounded-2xl border-2 p-4 text-sm font-semibold transition-all",
+                    schedule === opt.id
+                      ? "border-brand-primary bg-brand-primary/5"
+                      : "border-transparent bg-white dark:bg-[#242424]"
+                  )}
+                >
+                  <Clock className="h-5 w-5 text-brand-primary" />
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            {schedule === "time" && (
+              <div className="mt-3">
+                <label className="mb-1 block text-xs font-semibold text-neutral-500">
+                  Čas doručenia / odberu *
+                </label>
+                <input
+                  type="time"
+                  value={scheduleTime}
+                  onChange={(e) => setScheduleTime(e.target.value)}
+                  className="w-full rounded-xl border border-black/10 bg-white px-3 py-2.5 text-sm outline-none focus:border-brand-primary dark:border-white/10 dark:bg-[#242424]"
+                />
+                <p className="mt-1 text-xs text-neutral-400">
+                  Objednávku pripravíme na zvolený čas.
+                </p>
+              </div>
+            )}
+          </Panel>
+
           {/* customer */}
           <Panel title="Vaše údaje">
             <div className="grid grid-cols-2 gap-3">
               <Input
                 label="Meno a priezvisko *"
-                value={name}
-                onChange={setName}
+                value={draft.name}
+                onChange={(v) => setDraft({ name: v })}
+                autoComplete="name"
                 span
               />
-              <Input label="Telefón *" value={phone} onChange={setPhone} />
-              <Input label="Email" value={email} onChange={setEmail} />
+              <Input
+                label="Telefón *"
+                value={draft.phone}
+                onChange={(v) => setDraft({ phone: v.replace(/[^\d+ ]/g, "") })}
+                autoComplete="tel"
+                inputMode="tel"
+              />
+              <Input
+                label="Email"
+                value={draft.email}
+                onChange={(v) => setDraft({ email: v })}
+                autoComplete="email"
+                inputMode="email"
+              />
               <div className="col-span-2">
                 <label className="mb-1 block text-xs font-semibold text-neutral-500">
                   Poznámka k objednávke
                 </label>
                 <textarea
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
+                  value={draft.note}
+                  onChange={(e) => setDraft({ note: e.target.value })}
                   rows={2}
                   className="w-full resize-none rounded-xl border border-black/10 bg-white p-3 text-sm outline-none focus:border-brand-primary dark:border-white/10 dark:bg-[#242424]"
                 />
               </div>
             </div>
+            <p className="mt-2 text-xs text-neutral-400">
+              Údaje zostanú uložené vo vašom zariadení, kým neobjednáte.
+            </p>
           </Panel>
 
           {/* payment */}
           <Panel title="Platba">
             <p className="mb-3 text-xs text-neutral-400">
-              Online platby nie sú dostupné. Platíte pri odbere/doručení.
+              Online platby nie sú dostupné. Platíte pri odbere/doručení —
+              hotovosťou alebo kartou.
             </p>
             <div className="grid gap-2">
               {PAYMENTS[fulfillment].map((p) => (
@@ -328,7 +424,10 @@ export default function CheckoutPage() {
                 <span className="text-brand-primary">{eur(totals.total)}</span>
               </div>
               <p className="text-xs text-neutral-400">
-                Ceny sú vrátane DPH · odhad doručenia ~{eta} min
+                Ceny sú vrátane DPH ·{" "}
+                {schedule === "time" && scheduleTime
+                  ? `na ${scheduleTime}`
+                  : `odhad ~${eta} min`}
               </p>
             </div>
 
@@ -339,7 +438,7 @@ export default function CheckoutPage() {
             )}
             {fulfillment === "delivery" && verify?.zone == null && (
               <p className="mt-3 text-xs text-brand-error">
-                Zadajte a overte adresu doručenia.
+                Zadajte a overte adresu doručenia (ulica, číslo domu, mesto).
               </p>
             )}
             {fulfillment === "delivery" &&
@@ -350,6 +449,11 @@ export default function CheckoutPage() {
                   Pridajte ešte {eur(missingForMinimum)}.
                 </p>
               )}
+            {schedule === "time" && !scheduleTime && (
+              <p className="mt-3 text-xs text-brand-error">
+                Zvoľte čas objednávky.
+              </p>
+            )}
 
             {orderError && (
               <p className="mt-3 text-xs text-brand-error">{orderError}</p>
@@ -390,11 +494,15 @@ function Input({
   value,
   onChange,
   span,
+  autoComplete,
+  inputMode,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   span?: boolean;
+  autoComplete?: string;
+  inputMode?: "text" | "numeric" | "tel" | "email";
 }) {
   return (
     <div className={span ? "col-span-2" : ""}>
@@ -404,6 +512,8 @@ function Input({
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        autoComplete={autoComplete}
+        inputMode={inputMode}
         className="w-full rounded-xl border border-black/10 bg-white px-3 py-2.5 text-sm outline-none focus:border-brand-primary dark:border-white/10 dark:bg-[#242424]"
       />
     </div>

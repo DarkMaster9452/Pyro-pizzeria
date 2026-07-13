@@ -17,6 +17,8 @@ import {
   Drumstick,
   Droplets,
   UtensilsCrossed,
+  ArrowDownUp,
+  ChevronDown,
   type LucideIcon,
 } from "lucide-react";
 
@@ -117,48 +119,58 @@ function MenuInner() {
                 className="w-full bg-transparent py-2.5 text-sm outline-none"
               />
             </div>
-            <select
-              value={sort}
-              onChange={(e) => setSort(e.target.value as typeof sort)}
-              className="rounded-full border border-black/10 bg-white px-4 py-2.5 text-sm outline-none dark:border-white/10 dark:bg-[#242424]"
-            >
-              <option value="default">Zoradiť</option>
-              <option value="price-asc">Cena ↑</option>
-              <option value="price-desc">Cena ↓</option>
-            </select>
+            <div className="relative shrink-0">
+              <ArrowDownUp className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-brand-primary" />
+              <select
+                value={sort}
+                onChange={(e) => setSort(e.target.value as typeof sort)}
+                className="cursor-pointer appearance-none rounded-full border border-black/10 bg-white py-2.5 pl-9 pr-9 text-sm font-semibold text-neutral-700 shadow-sm outline-none transition-colors hover:border-brand-primary/40 focus:border-brand-primary dark:border-white/10 dark:bg-[#242424] dark:text-neutral-200"
+              >
+                <option value="default">Zoradiť</option>
+                <option value="price-asc">Cena · najlacnejšie</option>
+                <option value="price-desc">Cena · najdrahšie</option>
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
+            </div>
           </div>
 
-          <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4">
-            {CATEGORY_TABS.map((c) => {
-              const Icon = CATEGORY_ICONS[c.id] ?? UtensilsCrossed;
-              return (
-                <button
-                  key={c.id}
-                  onClick={() => setActiveCat(c.id)}
-                  className={cn(
-                    "flex shrink-0 items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-colors",
-                    activeCat === c.id
-                      ? "bg-brand-primary text-white shadow-glow"
-                      : "bg-white text-neutral-600 dark:bg-[#242424] dark:text-neutral-300"
-                  )}
-                >
-                  <Icon className="h-4 w-4" />
-                  {c.name}
-                </button>
-              );
-            })}
+          {/* categories — horizontal scroll; a right-edge fade hints there are
+              more so the next one peeks in when "Všetko" is selected */}
+          <div className="relative -mx-4">
+            <div className="no-scrollbar flex gap-2 overflow-x-auto px-4 pr-10">
+              {CATEGORY_TABS.map((c) => {
+                const Icon = CATEGORY_ICONS[c.id] ?? UtensilsCrossed;
+                return (
+                  <button
+                    key={c.id}
+                    onClick={() => setActiveCat(c.id)}
+                    className={cn(
+                      "flex shrink-0 items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition-colors",
+                      activeCat === c.id
+                        ? "bg-brand-primary text-white shadow-glow"
+                        : "bg-white text-neutral-600 dark:bg-[#242424] dark:text-neutral-300"
+                    )}
+                  >
+                    <Icon className="h-4 w-4" />
+                    {c.name}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-brand-bg to-transparent dark:from-brand-ink" />
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="flex items-center gap-1 text-xs font-semibold text-neutral-400">
-              <SlidersHorizontal className="h-3 w-3" /> Filtre:
+          {/* filters — single scrollable row so they never wrap to 2 lines */}
+          <div className="no-scrollbar -mx-4 flex items-center gap-2 overflow-x-auto px-4">
+            <span className="flex shrink-0 items-center gap-1 text-xs font-semibold text-neutral-400">
+              <SlidersHorizontal className="h-3 w-3" /> Filtre
             </span>
             {FILTERS.map((f) => (
               <button
                 key={f.id}
                 onClick={() => toggleFilter(f.id)}
                 className={cn(
-                  "chip border transition-colors",
+                  "chip shrink-0 border transition-colors",
                   filters.includes(f.id)
                     ? "border-brand-primary bg-brand-primary/10 text-brand-primary"
                     : "border-black/10 text-neutral-500 dark:border-white/10"

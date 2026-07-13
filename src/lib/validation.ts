@@ -71,6 +71,9 @@ export const orderInputSchema = z.object({
   lines: z.array(cartLineSchema).min(1, "Košík je prázdny.").max(60),
   couponCode: z.string().max(40).optional().nullable(),
   note: z.string().max(300).optional(),
+  payment: z
+    .enum(["cash_delivery", "card_delivery", "cash_pickup", "card_pickup"])
+    .optional(),
 });
 
 export function firstError(err: z.ZodError): string {

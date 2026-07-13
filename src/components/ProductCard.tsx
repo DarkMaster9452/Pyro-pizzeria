@@ -7,9 +7,9 @@ import type { Product } from "@/lib/types";
 import { BadgeRow } from "./Badges";
 import { PizzaCustomizer } from "./PizzaCustomizer";
 import { useApp } from "@/lib/store";
-import { extrasForProduct } from "@/lib/data";
+import { extrasForProduct, ALLERGENS } from "@/lib/data";
 import { eur, shortId } from "@/lib/utils";
-import { Plus } from "lucide-react";
+import { Plus, ChevronDown } from "lucide-react";
 
 export function ProductCard({
   product,
@@ -19,6 +19,7 @@ export function ProductCard({
   number?: number;
 }) {
   const [open, setOpen] = useState(false);
+  const [allergOpen, setAllergOpen] = useState(false);
   const addLine = useApp((s) => s.addLine);
   const soldOut = useApp((s) => s.soldOut[product.restaurantId] ?? false);
   const orderable = product.available && !soldOut;
@@ -82,12 +83,36 @@ export function ProductCard({
           <p className="mt-1 line-clamp-2 flex-1 text-sm text-neutral-500 dark:text-neutral-400">
             {product.description}
           </p>
+
+          {/* Allergens — collapsed by default, expands to the named list. */}
           {product.allergens.length > 0 && (
-            <p className="mt-2 text-[11px] text-neutral-400">
-              Alergény: {product.allergens.join(", ")}
-            </p>
+            <div className="mt-2">
+              <button
+                onClick={() => setAllergOpen((v) => !v)}
+                className="flex items-center gap-1 text-[11px] font-semibold text-neutral-400 transition-colors hover:text-brand-primary"
+                aria-expanded={allergOpen}
+              >
+                Alergény ({product.allergens.length})
+                <ChevronDown
+                  className={`h-3 w-3 transition-transform ${
+                    allergOpen ? "rotate-180" : ""
+                  }`}
+                />
+              </button>
+              {allergOpen && (
+                <ul className="mt-1 space-y-0.5 text-[11px] text-neutral-500">
+                  {product.allergens.map((code) => (
+                    <li key={code}>
+                      <span className="font-semibold">{code}</span> —{" "}
+                      {ALLERGENS.find((a) => a.code === code)?.name ?? code}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           )}
-          <div className="mt-3 flex items-center justify-between">
+
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <span className="text-[11px] text-neutral-400">
                 {product.sizes.length > 1 ? "od" : ""}
@@ -99,21 +124,21 @@ export function ProductCard({
             {!orderable ? (
               <button
                 disabled
-                className="cursor-not-allowed rounded-full bg-white/10 px-5 py-2.5 text-sm font-semibold text-white/50"
+                className="w-full cursor-not-allowed rounded-full bg-black/5 px-4 py-2.5 text-sm font-semibold text-neutral-400 dark:bg-white/10 dark:text-white/50 sm:w-auto sm:px-5"
               >
-                {soldOut ? "Vypredané" : "Aktuálne nedostupná"}
+                {soldOut ? "Vypredané" : "Nedostupná"}
               </button>
             ) : customizable ? (
               <button
                 onClick={() => setOpen(true)}
-                className="btn-primary px-5 py-2.5 text-sm"
+                className="btn-primary w-full justify-center px-4 py-2.5 text-sm sm:w-auto sm:px-5"
               >
                 Prispôsobiť
               </button>
             ) : (
               <button
                 onClick={quickAdd}
-                className="btn-primary px-5 py-2.5 text-sm"
+                className="btn-primary w-full justify-center px-4 py-2.5 text-sm sm:w-auto sm:px-5"
               >
                 <Plus className="h-4 w-4" /> Pridať
               </button>

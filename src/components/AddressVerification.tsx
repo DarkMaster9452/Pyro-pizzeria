@@ -16,23 +16,37 @@ export function AddressVerification({
   restaurant,
   zones,
   onResult,
+  initialAddress,
+  onAddressChange,
 }: {
   restaurant: Restaurant;
   // optional live zones (from DB); falls back to the restaurant's seed zones
   zones?: DeliveryZone[];
   onResult: (r: VerifyResult) => void;
+  initialAddress?: CustomerAddress;
+  onAddressChange?: (a: CustomerAddress) => void;
 }) {
-  const [address, setAddress] = useState<CustomerAddress>({
-    street: "",
-    houseNumber: "",
-    city: "",
-    zip: "",
-  });
+  const [address, setAddress] = useState<CustomerAddress>(
+    initialAddress ?? { street: "", houseNumber: "", city: "", zip: "" }
+  );
   const [checking, setChecking] = useState(false);
   const [result, setResult] = useState<VerifyResult | null>(null);
+  const [missing, setMissing] = useState(false);
+
+  function update(patch: Partial<CustomerAddress>) {
+    const next = { ...address, ...patch };
+    setAddress(next);
+    onAddressChange?.(next);
+  }
 
   function check() {
-    if (!address.street && !address.city) return;
+    // Street, house number and city are mandatory.
+    if (!address.street.trim() || !address.houseNumber.trim() || !address.city.trim()) {
+      setMissing(true);
+      setResult(null);
+      return;
+    }
+    setMissing(false);
     setChecking(true);
     setResult(null);
     // simulate database lookup
@@ -53,32 +67,43 @@ export function AddressVerification({
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3">
         <Field
-          label="Ulica"
+          label="Ulica *"
           value={address.street}
-          onChange={(v) => setAddress({ ...address, street: v })}
+          onChange={(v) => update({ street: v })}
           placeholder="napr. Hlavná / Kamenná Poruba"
+          autoComplete="address-line1"
           span
         />
         <Field
-          label="Číslo domu"
+          label="Číslo domu *"
           value={address.houseNumber}
-          onChange={(v) => setAddress({ ...address, houseNumber: v })}
+          onChange={(v) => update({ houseNumber: v })}
           placeholder="215"
+          autoComplete="address-line2"
         />
         <Field
           label="PSČ"
           value={address.zip}
-          onChange={(v) => setAddress({ ...address, zip: v })}
+          onChange={(v) => update({ zip: v })}
           placeholder="013 14"
+          autoComplete="postal-code"
+          inputMode="numeric"
         />
         <Field
-          label="Obec / mesto"
+          label="Obec / mesto *"
           value={address.city}
-          onChange={(v) => setAddress({ ...address, city: v })}
+          onChange={(v) => update({ city: v })}
           placeholder="Kamenná Poruba"
+          autoComplete="address-level2"
           span
         />
       </div>
+
+      {missing && (
+        <p className="text-xs text-brand-error">
+          Vyplňte ulicu, číslo domu a mesto.
+        </p>
+      )}
 
       <button
         onClick={check}
@@ -159,12 +184,16 @@ function Field({
   onChange,
   placeholder,
   span,
+  autoComplete,
+  inputMode,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
   span?: boolean;
+  autoComplete?: string;
+  inputMode?: "text" | "numeric" | "tel";
 }) {
   return (
     <div className={span ? "col-span-2" : ""}>
@@ -175,6 +204,8 @@ function Field({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
+        autoComplete={autoComplete}
+        inputMode={inputMode}
         className="w-full rounded-xl border border-black/10 bg-white px-3 py-2.5 text-sm outline-none focus:border-brand-primary dark:border-white/10 dark:bg-[#262626]"
       />
     </div>

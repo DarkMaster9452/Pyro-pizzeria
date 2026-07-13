@@ -4,6 +4,28 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { CartLine, Order, Product, Coupon, DeliveryZone } from "./types";
 
+export interface CheckoutDraft {
+  name: string;
+  phone: string;
+  email: string;
+  note: string;
+  street: string;
+  houseNumber: string;
+  city: string;
+  zip: string;
+}
+
+const EMPTY_DRAFT: CheckoutDraft = {
+  name: "",
+  phone: "",
+  email: "",
+  note: "",
+  street: "",
+  houseNumber: "",
+  city: "",
+  zip: "",
+};
+
 interface AppState {
   // restaurant selection
   restaurantId: string | null;
@@ -26,6 +48,12 @@ interface AppState {
   // coupon
   coupon: string | null;
   setCoupon: (code: string | null) => void;
+
+  // checkout draft — kept in localStorage so the customer doesn't have to
+  // retype details while editing; cleared once an order is placed.
+  checkoutDraft: CheckoutDraft;
+  setCheckoutDraft: (patch: Partial<CheckoutDraft>) => void;
+  clearCheckoutDraft: () => void;
 
   // orders (order history + tracking)
   orders: Order[];
@@ -80,6 +108,11 @@ export const useApp = create<AppState>()(
 
       coupon: null,
       setCoupon: (code) => set({ coupon: code }),
+
+      checkoutDraft: EMPTY_DRAFT,
+      setCheckoutDraft: (patch) =>
+        set((s) => ({ checkoutDraft: { ...s.checkoutDraft, ...patch } })),
+      clearCheckoutDraft: () => set({ checkoutDraft: EMPTY_DRAFT }),
 
       orders: [],
       addOrder: (order) => set((s) => ({ orders: [order, ...s.orders] })),
