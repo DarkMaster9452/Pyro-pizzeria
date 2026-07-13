@@ -1761,6 +1761,8 @@ export async function getCustomerProfile(): Promise<CustomerProfile> {
   };
   const session = await auth();
   if (!session?.user?.id) return empty;
+  // Staff accounts have no customer profile — never pre-fill checkout from them.
+  if (session.user.role !== "customer") return { ...empty, loggedIn: true };
   try {
     await ensureUserProfileColumns();
     const rows = (await sql`
@@ -1793,6 +1795,11 @@ export async function saveCustomerProfile(input: {
 }): Promise<{ ok: boolean }> {
   const session = await auth();
   if (!session?.user?.id) return { ok: false };
+  // Only real customers own a saved profile. Staff accounts (admin, driver,
+  // kuchar) must never have a name/phone/address written to them — otherwise a
+  // staff member going through checkout would overwrite e.g. the admin account
+  // with a personal identity and delivery/payment details.
+  if (session.user.role !== "customer") return { ok: false };
   try {
     await ensureUserProfileColumns();
     await sql`

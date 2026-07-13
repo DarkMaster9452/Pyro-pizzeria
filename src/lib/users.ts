@@ -78,12 +78,17 @@ export async function ensureStaffAccounts(): Promise<void> {
         ON CONFLICT (email) DO NOTHING
       `;
     }
-    // Strip any personal name previously stored on admin accounts. Admins are
-    // purely administrative and must not carry an assigned identity — this
-    // also normalises pre-existing seeds (e.g. "Pyro Admin") that the
-    // never-overwrite insert above would otherwise leave untouched.
+    // Strip any personal identity/profile previously stored on admin accounts.
+    // Admins are purely administrative: no assigned name and no customer
+    // profile (phone/address). This normalises both pre-existing seeds (e.g.
+    // "Pyro Admin") and accounts that got a name/phone/address written to them
+    // by a checkout while an admin was signed in.
     await sql`
       UPDATE users SET name = '' WHERE role IN ('admin','super_admin') AND name <> ''
+    `.catch(() => {});
+    await sql`
+      UPDATE users SET phone = NULL, address = NULL
+      WHERE role IN ('admin','super_admin') AND (phone IS NOT NULL OR address IS NOT NULL)
     `.catch(() => {});
   })().catch((err) => {
     staffSeedPromise = null; // allow a later retry
