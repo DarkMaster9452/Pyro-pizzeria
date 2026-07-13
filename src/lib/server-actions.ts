@@ -2067,10 +2067,21 @@ export async function getDispatchBoard(): Promise<DispatchOrder[]> {
 }
 
 // Claim an unassigned order (atomic: only succeeds if nobody else has it).
+// Admins are view-only on the delivery board — they can watch what stage an
+// order is at, but never claim/release/deliver/settle it. Only couriers manage
+// the actual dispatch.
+const ADMIN_DISPATCH_BLOCKED =
+  "Rozvoz spravujú len kuriéri — admin má iba náhľad.";
+function isAdminRole(role: string): boolean {
+  return role === "admin" || role === "super_admin";
+}
+
 export async function claimDispatchOrder(
   id: string
 ): Promise<{ ok: boolean; error?: string }> {
   const ctx = await requireDispatcher();
+  if (isAdminRole(ctx.role))
+    return { ok: false, error: ADMIN_DISPATCH_BLOCKED };
   await ensureOrderColumns();
   const rows = (await sql`
     UPDATE orders SET driver_id = ${ctx.userId}, driver_name = ${ctx.name}
@@ -2090,24 +2101,19 @@ export async function claimDispatchOrder(
   return { ok: true };
 }
 
-// Release an order the current dispatcher holds (admins can release any).
+// Release an order the current courier holds. Admins can't touch dispatch.
 export async function releaseDispatchOrder(
   id: string
 ): Promise<{ ok: boolean; error?: string }> {
   const ctx = await requireDispatcher();
+  if (isAdminRole(ctx.role))
+    return { ok: false, error: ADMIN_DISPATCH_BLOCKED };
   await ensureOrderColumns();
-  const isAdmin = ctx.role === "admin" || ctx.role === "super_admin";
-  const rows = isAdmin
-    ? ((await sql`
-        UPDATE orders SET driver_id = NULL, driver_name = NULL
-        WHERE id = ${id} AND restaurant_id = ${ctx.restaurantId}
-          AND COALESCE(paid, false) = false
-        RETURNING id`) as { id: string }[])
-    : ((await sql`
-        UPDATE orders SET driver_id = NULL, driver_name = NULL
-        WHERE id = ${id} AND restaurant_id = ${ctx.restaurantId}
-          AND driver_id = ${ctx.userId} AND COALESCE(paid, false) = false
-        RETURNING id`) as { id: string }[]);
+  const rows = (await sql`
+    UPDATE orders SET driver_id = NULL, driver_name = NULL
+    WHERE id = ${id} AND restaurant_id = ${ctx.restaurantId}
+      AND driver_id = ${ctx.userId} AND COALESCE(paid, false) = false
+    RETURNING id`) as { id: string }[];
   if (!rows.length) return { ok: false, error: "Nedá sa uvoľniť." };
   return { ok: true };
 }
@@ -2118,6 +2124,8 @@ export async function markDispatchDelivering(
   id: string
 ): Promise<{ ok: boolean; error?: string }> {
   const ctx = await requireDispatcher();
+  if (isAdminRole(ctx.role))
+    return { ok: false, error: ADMIN_DISPATCH_BLOCKED };
   await ensureOrderColumns();
   const rows = (await sql`
     UPDATE orders
@@ -2140,14 +2148,15 @@ export async function markDispatchDelivering(
 }
 
 // Mark the order paid — the terminal step. Finalises it as delivered + paid.
-// A driver may only settle an order assigned to them; admins may settle any
-// (covers pickups when no courier is present).
+// A driver may only settle a delivery order assigned to them. Admins never
+// touch delivery, but may settle a *pickup* order at the counter (výdaj), where
+// no courier is involved.
 export async function markDispatchPaid(
   id: string
 ): Promise<{ ok: boolean; error?: string }> {
   const ctx = await requireDispatcher();
   await ensureOrderColumns();
-  const isAdmin = ctx.role === "admin" || ctx.role === "super_admin";
+  const isAdmin = isAdminRole(ctx.role);
   const rows = isAdmin
     ? ((await sql`
         UPDATE orders
@@ -2155,6 +2164,7 @@ export async function markDispatchPaid(
             driver_id = COALESCE(driver_id, ${ctx.userId}),
             driver_name = COALESCE(driver_name, ${ctx.name})
         WHERE id = ${id} AND restaurant_id = ${ctx.restaurantId}
+          AND fulfillment = 'pickup'
           AND COALESCE(paid, false) = false
         RETURNING id`) as { id: string }[])
     : ((await sql`
@@ -2638,6 +2648,9 @@ export async function updateStaffOrder(
   input: StaffOrderInput
 ): Promise<CreateOrderResult> {
   const ctx = await requireDispatcher();
+  // Admins don't manage live orders on the board — that's the courier's job.
+  if (isAdminRole(ctx.role))
+    return { ok: false, error: ADMIN_DISPATCH_BLOCKED };
   if (input.restaurantId !== ctx.restaurantId)
     return { ok: false, error: "Nesprávna prevádzka." };
   if (!Array.isArray(input.lines) || input.lines.length === 0)
@@ -2646,7 +2659,6 @@ export async function updateStaffOrder(
   try {
     await ensureContent();
     await ensureOrderColumns();
-    const isAdmin = ctx.role === "admin" || ctx.role === "super_admin";
 
     const existing = (await sql`
       SELECT driver_id, COALESCE(paid, false) AS paid
@@ -2656,7 +2668,7 @@ export async function updateStaffOrder(
     if (!ex) return { ok: false, error: "Objednávka sa nenašla." };
     if (ex.paid)
       return { ok: false, error: "Zaplatenú objednávku nie je možné upraviť." };
-    if (!isAdmin && ex.driver_id !== ctx.userId)
+    if (ex.driver_id !== ctx.userId)
       return {
         ok: false,
         error: "Upraviť môžete len objednávku, ktorú máte pridelenú.",

@@ -192,7 +192,17 @@ export function DriverApp({
           </div>
         )}
 
-        {/* phone-order entry */}
+        {/* Admins can watch the delivery board but never manage it. */}
+        {isAdmin && (
+          <div className="mb-6 flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.02] px-4 py-3 text-sm text-white/60">
+            <Bike className="h-4 w-4 text-brand-primary" />
+            Náhľad rozvozu — vidíte, v akom štádiu sú objednávky. Rozvoz
+            spravujú kuriéri.
+          </div>
+        )}
+
+        {/* phone-order entry — couriers only, admins are view-only */}
+        {!isAdmin && (
         <div className="mb-6 rounded-2xl border border-white/10 bg-white/[0.02]">
           <button
             onClick={() => setShowNew((v) => !v)}
@@ -228,6 +238,7 @@ export function DriverApp({
             )}
           </AnimatePresence>
         </div>
+        )}
 
         {!loaded ? (
           <p className="py-20 text-center text-white/40">Načítavam…</p>
@@ -447,7 +458,8 @@ function OrderCard({
   const isMine = o.driverId === userId;
   const isOther = o.driverId != null && !isMine;
   const isDelivery = o.fulfillment === "delivery";
-  const canAct = isMine || isAdmin;
+  // Admins are view-only on the delivery board — no dispatch actions at all.
+  const canAct = isMine && !isAdmin;
   const nav = navUrl(o);
   const addr = formatAddress(o.address) || null;
 
@@ -536,8 +548,8 @@ function OrderCard({
         </p>
       )}
 
-      {/* actions */}
-      {!o.paid && (
+      {/* actions — hidden entirely for admins (view-only) */}
+      {!o.paid && !isAdmin && (
         <div className="mt-3 flex flex-wrap gap-2">
           {nav && canAct && (
             <a
@@ -558,7 +570,7 @@ function OrderCard({
             </a>
           )}
 
-          {!o.driverId && (
+          {!o.driverId && !isAdmin && (
             <button
               disabled={busy}
               onClick={() => onClaim(o.id)}
@@ -588,7 +600,7 @@ function OrderCard({
             </button>
           )}
 
-          {(isMine || isAdmin) && o.driverId && (
+          {canAct && o.driverId && (
             <button
               disabled={busy}
               onClick={() => onRelease(o.id)}
