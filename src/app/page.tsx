@@ -405,6 +405,9 @@ function SectionHead({ kicker, title }: { kicker: string; title: string }) {
 }
 
 function Popular({ popular }: { popular: (typeof PRODUCTS)[number][] }) {
+  // Bestsellers are admin-controlled (the "Bestseller" badge). If none are set
+  // for this pizzeria, hide the whole section rather than show an empty heading.
+  if (!popular.length) return null;
   return (
     <section className="section pt-8 pb-16 lg:pt-14 lg:pb-20">
       <div className="mb-8 flex items-end justify-between">

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { Providers } from "@/components/Providers";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 
 export const metadata: Metadata = {
   title: {
@@ -69,6 +70,8 @@ export default function RootLayout({
       </head>
       <body>
         <Providers>{children}</Providers>
+        {/* Vercel Speed Insights — same-origin (/_vercel/…), CSP-compatible. */}
+        <SpeedInsights />
       </body>
     </html>
   );

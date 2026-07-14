@@ -2119,7 +2119,7 @@ function ShiftsReport({ restaurantId }: { restaurantId: string }) {
 
 // ---------------- PRODUCTS (DB-backed CRUD) ----------------
 const BADGE_OPTIONS: { id: Badge; label: string }[] = [
-  { id: "bestseller", label: "Populárne" },
+  { id: "bestseller", label: "Bestseller" },
   { id: "recommended", label: "Odporúčame" },
   { id: "new", label: "Novinka" },
   { id: "spicy", label: "Pikantné" },
@@ -2383,6 +2383,10 @@ function ProductEditor({
         />
         <div>
           <FieldLabel>Štítky</FieldLabel>
+          <p className="mb-2 text-xs text-neutral-500">
+            Štítok „Bestseller“ zaradí produkt do sekcie{" "}
+            <strong>Bestsellery</strong> na hlavnej stránke.
+          </p>
           <div className="flex flex-wrap gap-2">
             {BADGE_OPTIONS.map((b) => (
               <button
