@@ -7,9 +7,9 @@ import type { Product } from "@/lib/types";
 import { BadgeRow } from "./Badges";
 import { PizzaCustomizer } from "./PizzaCustomizer";
 import { useApp } from "@/lib/store";
-import { extrasForProduct, ALLERGENS } from "@/lib/data";
+import { extrasForProduct } from "@/lib/data";
 import { eur, shortId } from "@/lib/utils";
-import { Plus, ChevronDown } from "lucide-react";
+import { Plus } from "lucide-react";
 
 export function ProductCard({
   product,
@@ -19,8 +19,6 @@ export function ProductCard({
   number?: number;
 }) {
   const [open, setOpen] = useState(false);
-  const [ingrOpen, setIngrOpen] = useState(false);
-  const [allergOpen, setAllergOpen] = useState(false);
   const addLine = useApp((s) => s.addLine);
   const soldOut = useApp((s) => s.soldOut[product.restaurantId] ?? false);
   const orderable = product.available && !soldOut;
@@ -85,56 +83,12 @@ export function ProductCard({
             {product.description}
           </p>
 
-          {/* Composition / ingredients — collapsed by default so guests can
-              check what a product contains before adding it to the cart. */}
-          {product.ingredients.length > 0 && (
-            <div className="mt-2">
-              <button
-                onClick={() => setIngrOpen((v) => !v)}
-                className="flex items-center gap-1 text-[11px] font-semibold text-neutral-400 transition-colors hover:text-brand-primary"
-                aria-expanded={ingrOpen}
-              >
-                Zloženie ({product.ingredients.length})
-                <ChevronDown
-                  className={`h-3 w-3 transition-transform ${
-                    ingrOpen ? "rotate-180" : ""
-                  }`}
-                />
-              </button>
-              {ingrOpen && (
-                <p className="mt-1 text-[11px] leading-relaxed text-neutral-500">
-                  {product.ingredients.join(", ")}
-                </p>
-              )}
-            </div>
-          )}
-
-          {/* Allergens — collapsed by default, expands to the named list. */}
+          {/* Allergens — shown inline as plain numbers under the description
+              (no toggle). */}
           {product.allergens.length > 0 && (
-            <div className="mt-2">
-              <button
-                onClick={() => setAllergOpen((v) => !v)}
-                className="flex items-center gap-1 text-[11px] font-semibold text-neutral-400 transition-colors hover:text-brand-primary"
-                aria-expanded={allergOpen}
-              >
-                Alergény ({product.allergens.length})
-                <ChevronDown
-                  className={`h-3 w-3 transition-transform ${
-                    allergOpen ? "rotate-180" : ""
-                  }`}
-                />
-              </button>
-              {allergOpen && (
-                <ul className="mt-1 space-y-0.5 text-[11px] text-neutral-500">
-                  {product.allergens.map((code) => (
-                    <li key={code}>
-                      <span className="font-semibold">{code}</span> —{" "}
-                      {ALLERGENS.find((a) => a.code === code)?.name ?? code}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
+            <p className="mt-1.5 text-[11px] text-neutral-400">
+              Alergény: {product.allergens.join(", ")}
+            </p>
           )}
 
           <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
