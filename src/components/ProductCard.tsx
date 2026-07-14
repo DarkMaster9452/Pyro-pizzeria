@@ -19,6 +19,7 @@ export function ProductCard({
   number?: number;
 }) {
   const [open, setOpen] = useState(false);
+  const [ingrOpen, setIngrOpen] = useState(false);
   const [allergOpen, setAllergOpen] = useState(false);
   const addLine = useApp((s) => s.addLine);
   const soldOut = useApp((s) => s.soldOut[product.restaurantId] ?? false);
@@ -83,6 +84,30 @@ export function ProductCard({
           <p className="mt-1 line-clamp-2 flex-1 text-sm text-neutral-500 dark:text-neutral-400">
             {product.description}
           </p>
+
+          {/* Composition / ingredients — collapsed by default so guests can
+              check what a product contains before adding it to the cart. */}
+          {product.ingredients.length > 0 && (
+            <div className="mt-2">
+              <button
+                onClick={() => setIngrOpen((v) => !v)}
+                className="flex items-center gap-1 text-[11px] font-semibold text-neutral-400 transition-colors hover:text-brand-primary"
+                aria-expanded={ingrOpen}
+              >
+                Zloženie ({product.ingredients.length})
+                <ChevronDown
+                  className={`h-3 w-3 transition-transform ${
+                    ingrOpen ? "rotate-180" : ""
+                  }`}
+                />
+              </button>
+              {ingrOpen && (
+                <p className="mt-1 text-[11px] leading-relaxed text-neutral-500">
+                  {product.ingredients.join(", ")}
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Allergens — collapsed by default, expands to the named list. */}
           {product.allergens.length > 0 && (
