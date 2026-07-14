@@ -102,7 +102,7 @@ export function RestaurantModal() {
                       className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full opacity-40 blur-3xl transition-opacity group-hover:opacity-70"
                       style={{ background: r.accent }}
                     />
-                    <div className="relative h-24 overflow-hidden sm:h-44">
+                    <div className="relative h-32 overflow-hidden sm:h-44">
                       <Image
                         src={r.image}
                         alt={r.name}
@@ -147,13 +147,28 @@ export function RestaurantModal() {
                     />
 
                     <div className="space-y-2.5 p-4 sm:space-y-4 sm:p-5">
-                      <div className="sm:pr-24">
-                        <h2 className="font-heading text-xl uppercase tracking-tight text-white sm:text-2xl">
-                          {r.name}
-                        </h2>
-                        <p className="hidden text-sm text-white/50 sm:block">
-                          {r.tagline}
-                        </p>
+                      <div className="flex items-center gap-3 sm:block sm:pr-24">
+                        {/* Round brand logo inline on phones (the overlapping
+                            desktop logo is hidden on mobile). */}
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={r.logo}
+                          alt=""
+                          className="h-12 w-12 shrink-0 rounded-full border border-white/15 object-cover sm:hidden"
+                          style={{ boxShadow: `0 6px 18px -6px ${r.accent}66` }}
+                          onError={(e) => {
+                            (e.currentTarget as HTMLImageElement).style.display =
+                              "none";
+                          }}
+                        />
+                        <div className="min-w-0">
+                          <h2 className="font-heading text-xl uppercase tracking-tight text-white sm:text-2xl">
+                            {r.name}
+                          </h2>
+                          <p className="truncate text-sm text-white/50 sm:whitespace-normal">
+                            {r.tagline}
+                          </p>
+                        </div>
                       </div>
 
                       <div className="flex items-start gap-2 text-sm text-white/70">
@@ -172,10 +187,10 @@ export function RestaurantModal() {
                         </span>
                       </div>
 
-                      <div className="hidden grid-cols-2 gap-3 text-sm sm:grid">
-                        <div className="flex items-center gap-2 rounded-xl bg-white/[0.04] px-3 py-2 text-white/70">
+                      <div className="grid grid-cols-2 gap-2 text-xs sm:gap-3 sm:text-sm">
+                        <div className="flex items-center gap-2 rounded-xl bg-white/[0.04] px-2.5 py-2 text-white/70 sm:px-3">
                           <Clock
-                            className="h-4 w-4"
+                            className="h-4 w-4 shrink-0"
                             style={{ color: r.accent }}
                           />
                           {state.open
@@ -184,9 +199,9 @@ export function RestaurantModal() {
                             ? `Otvára ${state.opensAt}`
                             : "Dnes zatvorené"}
                         </div>
-                        <div className="flex items-center gap-2 rounded-xl bg-white/[0.04] px-3 py-2 text-white/70">
+                        <div className="flex items-center gap-2 rounded-xl bg-white/[0.04] px-2.5 py-2 text-white/70 sm:px-3">
                           <Timer
-                            className="h-4 w-4"
+                            className="h-4 w-4 shrink-0"
                             style={{ color: r.accent }}
                           />
                           ~{r.prepTimeMinutes} min

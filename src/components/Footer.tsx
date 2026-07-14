@@ -11,7 +11,7 @@ export function Footer() {
 
   return (
     <footer
-      className="mt-20 border-t border-white/[0.06] bg-[#0c0c0c] text-neutral-300 lg:!pb-0"
+      className="mt-12 border-t border-white/[0.06] bg-[#0c0c0c] text-neutral-300 lg:!pb-0"
       style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 6rem)" }}
     >
       <div className="section grid gap-10 py-14 md:grid-cols-4">

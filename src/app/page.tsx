@@ -406,7 +406,7 @@ function SectionHead({ kicker, title }: { kicker: string; title: string }) {
 
 function Popular({ popular }: { popular: (typeof PRODUCTS)[number][] }) {
   return (
-    <section className="section pb-16 lg:pb-20">
+    <section className="section pt-8 pb-16 lg:pt-14 lg:pb-20">
       <div className="mb-8 flex items-end justify-between">
         <div>
           <p className="mb-2 text-sm font-bold uppercase tracking-[0.2em] text-brand-primary">
@@ -424,7 +424,7 @@ function Popular({ popular }: { popular: (typeof PRODUCTS)[number][] }) {
           <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
         </Link>
       </div>
-      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-2 gap-4 sm:gap-5 lg:grid-cols-3">
         {popular.map((p) => (
           <ProductCard key={p.id} product={p} />
         ))}
@@ -472,7 +472,7 @@ function Reviews({ reviews }: { reviews: typeof REVIEWS }) {
 
 function ClosingCta() {
   return (
-    <section className="section pb-20">
+    <section className="section pb-6">
       <div className="relative overflow-hidden rounded-[2rem] border border-white/[0.08] bg-[#111111] px-8 py-14 sm:px-16 sm:py-20">
         <div
           className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full"
