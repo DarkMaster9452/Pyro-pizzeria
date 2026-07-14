@@ -71,15 +71,19 @@ export function Providers({ children }: { children: React.ReactNode }) {
   // Swap the browser-tab favicon to the rounded logo of the pizzeria the guest
   // is currently on (falls back to the neutral brand icon before they pick one).
   useEffect(() => {
-    // Pyro logo is the default/Pyro favicon (self-contained SVG so it renders
-    // reliably in the tab); Polomárik keeps its own icon while browsing it.
+    let link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+    // No pizzeria picked yet (restaurant-selection screen) — show no favicon.
+    if (!restaurantId) {
+      if (link) link.remove();
+      return;
+    }
+    // Each pizzeria's own logo as a self-contained SVG (renders reliably in the
+    // tab; the rounded -icon.svg variants embed an external image ref that
+    // browsers won't render as a favicon).
     const href =
       restaurantId === "polomarik"
-        ? "/logos/polomarik-icon.svg"
+        ? "/logos/polomarik.svg"
         : "/logos/pyro.svg";
-    let link = document.querySelector<HTMLLinkElement>(
-      'link[rel="icon"]'
-    );
     if (!link) {
       link = document.createElement("link");
       link.rel = "icon";

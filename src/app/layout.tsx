@@ -22,9 +22,9 @@ export const metadata: Metadata = {
     description: "Prémiová pizza. Rozvoz a osobný odber.",
     type: "website",
   },
-  // Pyro brand logo as the browser-tab favicon (self-contained SVG). Swapped
-  // client-side to the current pizzeria's logo while browsing (see Providers).
-  icons: { icon: "/logos/pyro.svg" },
+  // No default favicon on purpose: the restaurant-selection screen shows none.
+  // Providers sets each pizzeria's own logo as the favicon once one is picked.
+  icons: { icon: [] },
 };
 
 export const viewport: Viewport = {
