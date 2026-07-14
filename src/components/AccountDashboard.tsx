@@ -10,7 +10,13 @@ import {
   deleteAccountAction,
   exportAccountAction,
 } from "@/lib/auth-actions";
-import { getMyOrders, type MyOrderRow } from "@/lib/server-actions";
+import {
+  getMyOrders,
+  getNotificationPrefs,
+  setEmailNotifications,
+  type MyOrderRow,
+} from "@/lib/server-actions";
+import { ChangePasswordForm } from "@/components/ChangePasswordForm";
 import {
   Clock,
   Bell,
@@ -19,6 +25,7 @@ import {
   Trash2,
   ShieldCheck,
   MonitorSmartphone,
+  KeyRound,
 } from "lucide-react";
 
 const ORDER_STATUS_LABEL: Record<string, string> = {
@@ -40,12 +47,26 @@ export function AccountDashboard({
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [dbOrders, setDbOrders] = useState<MyOrderRow[] | null>(null);
+  const [emailOptIn, setEmailOptIn] = useState(true);
+  const [savingEmail, setSavingEmail] = useState(false);
+  const [showChangePw, setShowChangePw] = useState(false);
 
   useEffect(() => {
     getMyOrders()
       .then(setDbOrders)
       .catch(() => setDbOrders([]));
+    getNotificationPrefs()
+      .then((p) => setEmailOptIn(p.email))
+      .catch(() => {});
   }, []);
+
+  async function toggleEmail(next: boolean) {
+    setEmailOptIn(next); // optimistic
+    setSavingEmail(true);
+    const res = await setEmailNotifications(next).catch(() => ({ ok: false }));
+    setSavingEmail(false);
+    if (!res.ok) setEmailOptIn(!next); // revert on failure
+  }
 
   // Only orders actually linked to this account (placed while signed in on this
   // device). Orders made logged-out belong to the name, not the account.
@@ -147,21 +168,21 @@ export function AccountDashboard({
           <h2 className="mb-4 flex items-center gap-2 font-display text-lg font-bold text-white">
             <Bell className="h-5 w-5 text-brand-accent" /> Notifikácie
           </h2>
-          <div className="grid gap-2">
-            {["Email", "SMS", "Push"].map((n) => (
-              <label
-                key={n}
-                className="flex items-center justify-between rounded-xl bg-white/[0.03] p-3 text-white"
-              >
-                <span className="font-medium">{n}</span>
-                <input
-                  type="checkbox"
-                  defaultChecked
-                  className="h-5 w-5 accent-brand-primary"
-                />
-              </label>
-            ))}
-          </div>
+          <label className="flex items-center justify-between rounded-xl bg-white/[0.03] p-3 text-white">
+            <span>
+              <span className="font-medium">Emailové notifikácie</span>
+              <span className="block text-xs text-[#B5B5B5]">
+                Novinky a informácie o objednávkach na váš email.
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              checked={emailOptIn}
+              disabled={savingEmail}
+              onChange={(e) => toggleEmail(e.target.checked)}
+              className="h-5 w-5 accent-brand-primary"
+            />
+          </label>
         </section>
 
         {/* GDPR / security */}
@@ -178,6 +199,29 @@ export function AccountDashboard({
               <Download className="h-4 w-4 text-brand-secondary" />
               Exportovať moje údaje (GDPR)
             </button>
+            {showChangePw ? (
+              <div className="rounded-xl bg-white/[0.03] p-3">
+                <p className="mb-2 flex items-center gap-2 font-semibold text-white">
+                  <KeyRound className="h-4 w-4 text-brand-secondary" /> Zmeniť
+                  heslo
+                </p>
+                <ChangePasswordForm note="Heslo je možné zmeniť raz za týždeň." />
+                <button
+                  onClick={() => setShowChangePw(false)}
+                  className="mt-2 text-xs font-semibold text-[#B5B5B5] hover:text-white"
+                >
+                  Zavrieť
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowChangePw(true)}
+                className="flex w-full items-center gap-3 rounded-xl bg-white/[0.03] p-3 text-left text-white hover:bg-white/[0.06]"
+              >
+                <KeyRound className="h-4 w-4 text-brand-secondary" />
+                Zmeniť heslo
+              </button>
+            )}
             <form action={logoutAllDevicesAction}>
               <button className="flex w-full items-center gap-3 rounded-xl bg-white/[0.03] p-3 text-left text-white hover:bg-white/[0.06]">
                 <MonitorSmartphone className="h-4 w-4 text-brand-secondary" />

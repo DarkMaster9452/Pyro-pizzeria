@@ -11,6 +11,11 @@ import { BarChart } from "@/components/admin/AdminCharts";
 import { logoutAction } from "@/lib/auth-actions";
 import { StaffOrderForm } from "@/components/StaffOrderForm";
 import {
+  StaffPasswordBanner,
+  OperatorContact,
+  StaffPasswordPanel,
+} from "@/components/StaffSecurity";
+import {
   getAdminSummary,
   getOrderDetail,
   setSoldOut as setSoldOutServer,
@@ -342,6 +347,8 @@ export function AdminApp({
             because live tabs (kitchen polling, confirm states) keep re-rendering
             and interrupt the exit animation, leaving the next tab blank until a
             refresh. */}
+        <StaffPasswordBanner />
+
         <motion.div
           key={tab}
           initial={{ opacity: 0, y: 8 }}
@@ -1463,6 +1470,11 @@ function Operations({
   return (
     <div className="space-y-6">
       <ServiceOpen restaurantId={restaurantId} />
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <StaffPasswordPanel />
+        <OperatorContact />
+      </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <div

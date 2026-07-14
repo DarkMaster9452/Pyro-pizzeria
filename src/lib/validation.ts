@@ -34,6 +34,13 @@ export const loginSchema = z.object({
   password: z.string().min(1).max(200),
 });
 
+// Self-service password change (customers + staff). The current password is
+// verified server-side; the new one must meet the full password policy.
+export const changePasswordSchema = z.object({
+  current: z.string().min(1, "Zadajte súčasné heslo.").max(200),
+  next: passwordSchema,
+});
+
 export const addressSchema = z.object({
   street: z.string().trim().max(120),
   houseNumber: z.string().trim().max(20),

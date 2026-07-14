@@ -9,8 +9,14 @@ import {
   deleteAccount,
   exportAccount,
   getRoleByEmail,
+  changeUserPassword,
 } from "./users";
-import { loginSchema, registerSchema, firstError } from "./validation";
+import {
+  loginSchema,
+  registerSchema,
+  changePasswordSchema,
+  firstError,
+} from "./validation";
 import { rateLimit, audit, clientIp } from "./security";
 
 export type FormState = { error?: string } | undefined;
@@ -131,6 +137,38 @@ export async function deleteAccountAction() {
     actorEmail: session.user.email,
   });
   await signOut({ redirectTo: "/" });
+}
+
+// Self-service password change for customers (once a week) and staff (used to
+// clear a 30-day expiry). Verifies the current password, applies the policy,
+// and — because changeUserPassword bumps session_version — the caller signs out
+// afterwards and logs back in with the new password.
+export async function changePasswordAction(
+  current: string,
+  next: string
+): Promise<{ ok: boolean; error?: string }> {
+  const session = await auth();
+  if (!session?.user?.id) return { ok: false, error: "Neprihlásený." };
+  const parsed = changePasswordSchema.safeParse({ current, next });
+  if (!parsed.success) return { ok: false, error: firstError(parsed.error) };
+
+  const rl = await rateLimit("pwchange", session.user.id, 5, 60 * 60);
+  if (!rl.allowed)
+    return { ok: false, error: "Príliš veľa pokusov. Skúste to neskôr." };
+
+  const res = await changeUserPassword(
+    session.user.id,
+    parsed.data.current,
+    parsed.data.next
+  );
+  if (res.ok) {
+    await audit({
+      action: "account.password_changed",
+      actorId: session.user.id,
+      actorEmail: session.user.email,
+    });
+  }
+  return res;
 }
 
 export async function exportAccountAction() {

@@ -3,7 +3,16 @@
 import { randomUUID } from "crypto";
 import { sql } from "./db";
 import { auth } from "@/auth";
-import { registerUser, getSessionVersion } from "./users";
+import {
+  registerUser,
+  getSessionVersion,
+  getPasswordAgeDays,
+  isPasswordExpired,
+  getEmailOptIn,
+  setEmailOptIn,
+  PASSWORD_MAX_AGE_DAYS,
+  PASSWORD_REMIND_DAYS,
+} from "./users";
 import {
   RESTAURANTS,
   PRODUCTS,
@@ -843,24 +852,40 @@ export async function getAdminSummary(
     [restaurantId]
   )) as { pizzas: number; cnt: number; revenue: number }[];
 
-  // real 7-day revenue (for the dashboard bar chart)
+  // real 7-day revenue (for the dashboard bar chart). Bucket by the
+  // Europe/Bratislava calendar day and return the key as text; the JS side
+  // builds matching Bratislava-day keys. (The previous code keyed the lookup on
+  // UTC `toISOString()` dates while grouping by Bratislava days, so the keys
+  // never matched and every bar read 0.)
   const weekRows = (await sql`
-    SELECT EXTRACT(DOW FROM (created_at AT TIME ZONE 'Europe/Bratislava'))::int AS dow,
-           (date_trunc('day', (created_at AT TIME ZONE 'Europe/Bratislava')))::date AS d,
+    SELECT (date_trunc('day', (created_at AT TIME ZONE 'Europe/Bratislava')))::date::text AS d,
            COALESCE(SUM(total),0)::float AS revenue
     FROM orders
     WHERE restaurant_id = ${restaurantId} AND status <> 'cancelled'
       AND created_at >= now() - interval '7 days'
-    GROUP BY 1, 2
-  `) as { dow: number; d: string; revenue: number }[];
+    GROUP BY 1
+  `) as { d: string; revenue: number }[];
   const revByDate = new Map(weekRows.map((r) => [r.d, r.revenue]));
+  // YYYY-MM-DD and short weekday, both in Europe/Bratislava.
+  const dayKeyFmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Bratislava",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
   const week: { label: string; value: number }[] = [];
   for (let i = 6; i >= 0; i--) {
-    const dt = new Date();
-    dt.setDate(dt.getDate() - i);
-    const key = dt.toISOString().slice(0, 10);
+    const dt = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
+    const key = dayKeyFmt.format(dt); // Bratislava calendar day
+    const braWeekday = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Europe/Bratislava",
+      weekday: "short",
+    }).format(dt);
+    const dowMap: Record<string, number> = {
+      Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
+    };
     week.push({
-      label: DAY_LABELS[dt.getDay()],
+      label: DAY_LABELS[dowMap[braWeekday] ?? 0],
       value: Math.round(revByDate.get(key) ?? 0),
     });
   }
@@ -1191,6 +1216,15 @@ export async function openRestaurant(
   shiftUserIds: string[]
 ): Promise<{ ok: boolean; error?: string }> {
   const session = await requireAdmin(restaurantId);
+  // Monthly password rotation: an admin whose password is 30+ days old cannot
+  // start the service day until they change it (Prevádzka → zmena hesla).
+  if (await isPasswordExpired(session.user.id)) {
+    return {
+      ok: false,
+      error:
+        "Uplynulo 30 dní od zmeny hesla. Pred otvorením prevádzky si zmeňte heslo v sekcii Prevádzka.",
+    };
+  }
   await ensureOrderColumns();
   // Mark open for today's service day.
   await sql.query(
@@ -1945,6 +1979,67 @@ export async function saveCustomerProfile(input: {
   } catch {
     return { ok: false };
   }
+}
+
+// ---- Notification preferences (customers) — email is the only channel ----
+export interface NotificationPrefs {
+  loggedIn: boolean;
+  email: boolean; // opted in to email notifications (default: yes)
+}
+
+export async function getNotificationPrefs(): Promise<NotificationPrefs> {
+  const session = await auth();
+  if (!session?.user?.id) return { loggedIn: false, email: true };
+  try {
+    return { loggedIn: true, email: await getEmailOptIn(session.user.id) };
+  } catch {
+    return { loggedIn: true, email: true };
+  }
+}
+
+export async function setEmailNotifications(
+  value: boolean
+): Promise<{ ok: boolean }> {
+  const session = await auth();
+  if (!session?.user?.id) return { ok: false };
+  try {
+    await setEmailOptIn(session.user.id, value);
+    return { ok: true };
+  } catch {
+    return { ok: false };
+  }
+}
+
+// ---- Staff password rotation notice (monthly, primarily admin) ----
+export interface StaffPasswordNotice {
+  ageDays: number;
+  maxAgeDays: number;
+  mustChange: boolean; // 30d reached — hard-blocks opening the day
+  remindSoon: boolean; // within the 4-day window, and only on operating days
+}
+
+// Only meaningful for staff. Customers get null. The reminder shows only in the
+// 4 days before the 30-day mark AND only on operating days (Thu–Sun), matching
+// when staff actually log in to work.
+export async function getStaffPasswordNotice(): Promise<StaffPasswordNotice | null> {
+  const session = await auth();
+  const role = session?.user?.role;
+  if (!session?.user?.id || !role || role === "customer") return null;
+  const ageDays = await getPasswordAgeDays(session.user.id).catch(() => null);
+  if (ageDays == null) return null;
+  const mustChange = ageDays >= PASSWORD_MAX_AGE_DAYS;
+  const { weekdayIdx } = bratislavaNow(); // 0=Mon … 6=Sun
+  const isOperatingDay = weekdayIdx >= 3; // Thu(3) … Sun(6)
+  const remindSoon =
+    !mustChange &&
+    ageDays >= PASSWORD_MAX_AGE_DAYS - PASSWORD_REMIND_DAYS &&
+    isOperatingDay;
+  return {
+    ageDays,
+    maxAgeDays: PASSWORD_MAX_AGE_DAYS,
+    mustChange,
+    remindSoon,
+  };
 }
 
 // ===========================================================================

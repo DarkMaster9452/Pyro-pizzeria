@@ -8,6 +8,15 @@ import type {
   Badge,
 } from "./types";
 
+// Operator / owner emergency contact. Shown ONLY inside the admin & staff
+// panels (never to the public) so staff know who to call if something goes
+// wrong during service.
+export const OPERATOR_CONTACT = {
+  name: "Prevádzkar",
+  email: "strananekm@gmail.com",
+  phone: "0904 917 9880",
+} as const;
+
 export const CATEGORIES: Category[] = [
   { id: "pizza", name: "Pizza", icon: "🍕" },
   { id: "burgers", name: "Burgery", icon: "🍔" },

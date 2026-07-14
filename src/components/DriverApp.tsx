@@ -15,6 +15,7 @@ import {
 } from "@/lib/server-actions";
 import { logoutAction } from "@/lib/auth-actions";
 import { StaffOrderForm } from "@/components/StaffOrderForm";
+import { StaffPasswordBanner, OperatorContact } from "@/components/StaffSecurity";
 import { eur, formatAddress } from "@/lib/utils";
 import {
   Bike,
@@ -186,6 +187,8 @@ export function DriverApp({
       </header>
 
       <div className="mx-auto max-w-3xl px-4 py-6">
+        <StaffPasswordBanner />
+        <OperatorContact className="mb-4" />
         {error && (
           <div className="mb-4 rounded-2xl border border-brand-error/30 bg-brand-error/10 px-4 py-3 text-sm text-[#ff9d9d]">
             {error}

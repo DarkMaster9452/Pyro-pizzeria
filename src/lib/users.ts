@@ -259,3 +259,107 @@ export async function exportAccount(userId: string) {
   `) as Record<string, unknown>[];
   return rows[0] ?? null;
 }
+
+// ---------------------------------------------------------------------------
+// Password lifecycle + notification preference
+// ---------------------------------------------------------------------------
+// Staff passwords must be rotated every 30 days ("primarily admin"). Customers
+// may change their password themselves, at most once a week.
+export const PASSWORD_MAX_AGE_DAYS = 30;
+export const PASSWORD_REMIND_DAYS = 4; // reminder window before the 30d mark
+export const CUSTOMER_CHANGE_MIN_DAYS = 7; // customers: once a week
+
+let userSecColsPromise: Promise<void> | null = null;
+async function ensureUserSecurityColumns(): Promise<void> {
+  if (userSecColsPromise) return userSecColsPromise;
+  userSecColsPromise = (async () => {
+    // Existing rows get now() as their baseline, so nobody is force-expired the
+    // instant this ships — the 30-day clock starts at deploy.
+    await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_changed_at timestamptz NOT NULL DEFAULT now()`;
+    // Email is the only notification channel; opted in by default.
+    await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_opt_in boolean NOT NULL DEFAULT true`;
+  })().catch((e) => {
+    userSecColsPromise = null;
+    throw e;
+  });
+  return userSecColsPromise;
+}
+
+// Days since the user's password was last set (floored). Null if no such user.
+export async function getPasswordAgeDays(userId: string): Promise<number | null> {
+  await ensureUserSecurityColumns();
+  const rows = (await sql`
+    SELECT EXTRACT(EPOCH FROM (now() - password_changed_at)) / 86400 AS age
+    FROM users WHERE id = ${userId} LIMIT 1
+  `) as { age: number | string }[];
+  if (rows[0]?.age == null) return null;
+  return Math.floor(Number(rows[0].age));
+}
+
+export async function isPasswordExpired(userId: string): Promise<boolean> {
+  const d = await getPasswordAgeDays(userId);
+  return d != null && d >= PASSWORD_MAX_AGE_DAYS;
+}
+
+// Verify the current password and set a new one. Enforces the once-a-week limit
+// for customers. Bumps session_version so every OTHER device is signed out
+// after a password change (the caller re-authenticates).
+export async function changeUserPassword(
+  userId: string,
+  currentPassword: string,
+  newPassword: string
+): Promise<{ ok: boolean; error?: string }> {
+  await ensureUserSecurityColumns();
+  const rows = (await sql`
+    SELECT password_hash, role,
+           EXTRACT(EPOCH FROM (now() - password_changed_at)) / 86400 AS age
+    FROM users WHERE id = ${userId} LIMIT 1
+  `) as { password_hash: string; role: DbUser["role"]; age: number | string }[];
+  const row = rows[0];
+  if (!row) return { ok: false, error: "Účet sa nenašiel." };
+
+  let ok = false;
+  try {
+    ok = await argonVerify(row.password_hash, currentPassword);
+  } catch {
+    ok = false;
+  }
+  if (!ok) return { ok: false, error: "Súčasné heslo je nesprávne." };
+
+  if (newPassword === currentPassword)
+    return { ok: false, error: "Nové heslo musí byť iné ako súčasné." };
+
+  const ageDays = Math.floor(Number(row.age));
+  if (row.role === "customer" && ageDays < CUSTOMER_CHANGE_MIN_DAYS) {
+    return {
+      ok: false,
+      error: "Heslo môžete zmeniť raz za týždeň. Skúste to neskôr.",
+    };
+  }
+
+  const newHash = await hashPassword(newPassword);
+  await sql`
+    UPDATE users
+    SET password_hash = ${newHash}, password_changed_at = now(),
+        failed_attempts = 0, locked_until = NULL,
+        session_version = session_version + 1
+    WHERE id = ${userId}
+  `;
+  return { ok: true };
+}
+
+export async function getEmailOptIn(userId: string): Promise<boolean> {
+  await ensureUserSecurityColumns();
+  const rows = (await sql`
+    SELECT email_opt_in FROM users WHERE id = ${userId} LIMIT 1
+  `) as { email_opt_in: boolean }[];
+  return rows[0]?.email_opt_in ?? true;
+}
+
+export async function setEmailOptIn(
+  userId: string,
+  value: boolean
+): Promise<void> {
+  await ensureUserSecurityColumns();
+  await sql`UPDATE users SET email_opt_in = ${value} WHERE id = ${userId}`;
+}
