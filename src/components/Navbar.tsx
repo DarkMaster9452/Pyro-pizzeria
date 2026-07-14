@@ -86,7 +86,7 @@ export function Navbar() {
       className={cn(
         "sticky top-0 z-50 transition-all duration-300",
         scrolled
-          ? "border-b border-white/5 bg-brand-ink/80 backdrop-blur-xl"
+          ? "bg-brand-ink/80 backdrop-blur-xl"
           : "bg-transparent"
       )}
     >

@@ -22,9 +22,9 @@ export const metadata: Metadata = {
     description: "Prémiová pizza. Rozvoz a osobný odber.",
     type: "website",
   },
-  // Neutral default; swapped client-side to the rounded logo of the pizzeria
-  // the guest is currently browsing (see Providers).
-  icons: { icon: "/icon.svg" },
+  // Pyro brand logo as the browser-tab favicon (self-contained SVG). Swapped
+  // client-side to the current pizzeria's logo while browsing (see Providers).
+  icons: { icon: "/logos/pyro.svg" },
 };
 
 export const viewport: Viewport = {
