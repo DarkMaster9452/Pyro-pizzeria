@@ -14,7 +14,7 @@ import type {
 export const OPERATOR_CONTACT = {
   name: "Prevádzkar",
   email: "strananekm@gmail.com",
-  phone: "0904 917 9880",
+  phone: "0904 917 880",
 } as const;
 
 export const CATEGORIES: Category[] = [

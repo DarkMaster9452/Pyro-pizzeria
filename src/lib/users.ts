@@ -276,6 +276,10 @@ async function ensureUserSecurityColumns(): Promise<void> {
     // Existing rows get now() as their baseline, so nobody is force-expired the
     // instant this ships — the 30-day clock starts at deploy.
     await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_changed_at timestamptz NOT NULL DEFAULT now()`;
+    // Timestamp of the last *self-service* password change (null until the user
+    // actually changes it). The customer once-a-week limit is based on this, so
+    // a brand-new customer is never blocked from their first change.
+    await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_pw_change timestamptz`;
     // Email is the only notification channel; opted in by default.
     await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS email_opt_in boolean NOT NULL DEFAULT true`;
   })().catch((e) => {
@@ -312,9 +316,13 @@ export async function changeUserPassword(
   await ensureUserSecurityColumns();
   const rows = (await sql`
     SELECT password_hash, role,
-           EXTRACT(EPOCH FROM (now() - password_changed_at)) / 86400 AS age
+           EXTRACT(EPOCH FROM (now() - last_pw_change)) / 86400 AS since_change
     FROM users WHERE id = ${userId} LIMIT 1
-  `) as { password_hash: string; role: DbUser["role"]; age: number | string }[];
+  `) as {
+    password_hash: string;
+    role: DbUser["role"];
+    since_change: number | string | null;
+  }[];
   const row = rows[0];
   if (!row) return { ok: false, error: "Účet sa nenašiel." };
 
@@ -329,11 +337,18 @@ export async function changeUserPassword(
   if (newPassword === currentPassword)
     return { ok: false, error: "Nové heslo musí byť iné ako súčasné." };
 
-  const ageDays = Math.floor(Number(row.age));
-  if (row.role === "customer" && ageDays < CUSTOMER_CHANGE_MIN_DAYS) {
+  // Customer limit: not forced, purely a cap of one change per week. The first
+  // change is always allowed (last_pw_change is null until then).
+  const sinceChange =
+    row.since_change == null ? null : Math.floor(Number(row.since_change));
+  if (
+    row.role === "customer" &&
+    sinceChange != null &&
+    sinceChange < CUSTOMER_CHANGE_MIN_DAYS
+  ) {
     return {
       ok: false,
-      error: "Heslo môžete zmeniť raz za týždeň. Skúste to neskôr.",
+      error: "Heslo môžete zmeniť najviac raz za týždeň. Skúste to neskôr.",
     };
   }
 
@@ -341,7 +356,7 @@ export async function changeUserPassword(
   await sql`
     UPDATE users
     SET password_hash = ${newHash}, password_changed_at = now(),
-        failed_attempts = 0, locked_until = NULL,
+        last_pw_change = now(), failed_attempts = 0, locked_until = NULL,
         session_version = session_version + 1
     WHERE id = ${userId}
   `;

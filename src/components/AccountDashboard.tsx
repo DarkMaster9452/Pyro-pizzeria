@@ -205,7 +205,7 @@ export function AccountDashboard({
                   <KeyRound className="h-4 w-4 text-brand-secondary" /> Zmeniť
                   heslo
                 </p>
-                <ChangePasswordForm note="Heslo je možné zmeniť raz za týždeň." />
+                <ChangePasswordForm note="Nepovinné — heslo môžete zmeniť najviac raz za týždeň." />
                 <button
                   onClick={() => setShowChangePw(false)}
                   className="mt-2 text-xs font-semibold text-[#B5B5B5] hover:text-white"
