@@ -33,6 +33,13 @@ const securityHeaders = [
     value: "geolocation=(self), camera=(), microphone=(), payment=()",
   },
   { key: "X-DNS-Prefetch-Control", value: "on" },
+  // Cross-origin isolation. COOP severs the opener relationship so a popup can't
+  // reach back into window.opener; CORP stops other origins embedding our
+  // documents/resources as no-cors subresources. (COEP is intentionally omitted
+  // — require-corp would break the third-party map tiles / Unsplash images.)
+  { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+  { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
+  { key: "X-Permitted-Cross-Domain-Policies", value: "none" },
 ];
 
 /** @type {import('next').NextConfig} */

@@ -103,8 +103,19 @@ Legend: ✅ done in code · ⚙️ needs your config/keys · 📋 documented/nex
 ## CORS
 - ⚙️ Server actions are same-origin by design. If you add public JSON APIs, restrict `Access-Control-Allow-Origin` to your production domain only.
 
+## Staff account seeding (production safety)
+- ✅ Demo staff accounts (`admin@…`, `kuchar@…`, drivers) use guessable demo passwords and are **only auto-seeded outside production**. In production they are skipped unless `SEED_DEMO_STAFF="true"` is set for a deliberate one-off bootstrap — `src/lib/users.ts`
+- ⚙️ For a live launch: leave `SEED_DEMO_STAFF` unset, provision staff with strong per-account passwords, and change any previously-seeded demo passwords (see below)
+
+## Order tracking / IDOR
+- ✅ `getOrderStatus` no longer treats the sequential order id as a bearer secret — it requires the per-order **cancel token**, order **ownership**, or a **same-restaurant staff** session, and is IP rate-limited (anti-enumeration) — `src/lib/server-actions.ts`
+- ✅ `cancelOrder` is IP rate-limited so the UUID cancel token can't be brute-forced
+
+## Privacy / GDPR erasure
+- ✅ Deleting an account **anonymises the customer's past orders** (name/phone/email/address stripped, `user_id` nulled) so no PII is orphaned in `orders` — `deleteAccount` in `src/lib/users.ts`
+
 ## Password Requirements
-- ✅ Min **10 chars**, upper + lower + number (Zod) — enforced on register
+- ✅ Min **10 chars**, max **128 chars** (Argon2 DoS guard), upper + lower + number (Zod) — enforced on register
 - ⚙️ Password reset via email: needs SMTP (Resend/Postmark). Reset tokens must be single-use, hashed, short-TTL. Passwords remain non-recoverable (hash only).
 
 ## GDPR

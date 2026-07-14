@@ -6,6 +6,9 @@ const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 export const passwordSchema = z
   .string()
   .min(10, "Heslo musí mať aspoň 10 znakov.")
+  // Cap the length: Argon2id memory/CPU cost scales with the input, so an
+  // unbounded password is a cheap DoS vector against the login/register path.
+  .max(128, "Heslo môže mať najviac 128 znakov.")
   .regex(/[A-Z]/, "Heslo musí obsahovať veľké písmeno.")
   .regex(/[a-z]/, "Heslo musí obsahovať malé písmeno.")
   .regex(/[0-9]/, "Heslo musí obsahovať číslicu.");

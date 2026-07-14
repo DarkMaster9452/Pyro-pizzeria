@@ -1671,15 +1671,25 @@ export interface PublicOrderStatus {
 }
 
 export async function getOrderStatus(
-  id: string
+  id: string,
+  token?: string | null
 ): Promise<PublicOrderStatus | null> {
   if (!id) return null;
   try {
     await ensureOrderColumns();
+    // Anti-enumeration: order ids are short and sequential, so treating the id
+    // alone as a bearer secret would let anyone scrape every order's status,
+    // total and paid state. Require the per-order cancel token (handed to the
+    // device at checkout) or ownership by the signed-in customer. A lenient IP
+    // rate limit further blunts scraping while allowing the 5s tracking poll.
+    const ip = await clientIp();
+    const rl = await rateLimit("order_status", ip, 240, 60);
+    if (!rl.allowed) return null;
     const rows = (await sql`
       SELECT id, restaurant_id, status, fulfillment,
              COALESCE(paid, false) AS paid, total::float AS total, eta,
-             EXTRACT(EPOCH FROM (now() - paid_at)) AS paid_ago
+             EXTRACT(EPOCH FROM (now() - paid_at)) AS paid_ago,
+             cancel_token, user_id
       FROM orders WHERE id = ${id} LIMIT 1
     `) as Array<{
       id: string;
@@ -1690,9 +1700,23 @@ export async function getOrderStatus(
       total: number;
       eta: number;
       paid_ago: number | null;
+      cancel_token: string | null;
+      user_id: string | null;
     }>;
     const o = rows[0];
     if (!o) return null;
+    const session = await auth();
+    const owns =
+      !!session?.user?.id && !!o.user_id && session.user.id === o.user_id;
+    const tokenOk = !!token && !!o.cancel_token && token === o.cancel_token;
+    // Staff (admin/kitchen/dispatch/call) may see any order in their own
+    // restaurant — they already have far richer views of it elsewhere.
+    const staffRole = session?.user?.role;
+    const isStaff =
+      !!staffRole &&
+      staffRole !== "customer" &&
+      session?.user?.restaurantId === o.restaurant_id;
+    if (!owns && !tokenOk && !isStaff) return null;
     return {
       id: o.id,
       restaurantId: o.restaurant_id,
@@ -1723,6 +1747,12 @@ export async function cancelOrder(
   if (!id) return { ok: false, error: "Neznáma objednávka." };
   try {
     await ensureOrderColumns();
+    // Defence-in-depth: rate-limit cancellation attempts so the per-order
+    // cancel token (a UUID) can't be brute-forced by hammering this action.
+    const ip = await clientIp();
+    const rl = await rateLimit("order_cancel", ip, 30, 10 * 60);
+    if (!rl.allowed)
+      return { ok: false, error: "Príliš veľa pokusov. Skúste o chvíľu." };
     const rows = (await sql`
       SELECT restaurant_id, status, COALESCE(paid, false) AS paid,
              cancel_token, user_id

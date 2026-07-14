@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /
+# Staff / operational areas — no SEO value, keep them out of the index.
+Disallow: /admin
+Disallow: /rozvoz
+Disallow: /kuchyna
+Disallow: /call
+Disallow: /track
+Disallow: /account
+Disallow: /checkout

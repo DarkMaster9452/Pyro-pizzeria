@@ -48,7 +48,7 @@ function TrackInner() {
     if (!order) return;
     let active = true;
     const poll = () =>
-      getOrderStatus(order.id)
+      getOrderStatus(order.id, order.cancelToken)
         .then((s) => active && setDb(s))
         .catch(() => {});
     poll();

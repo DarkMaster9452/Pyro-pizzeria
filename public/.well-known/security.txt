@@ -1,0 +1,5 @@
+# RFC 9116 — security contact for coordinated disclosure.
+# Update Contact / Expires (and add Canonical for your live domain) before launch.
+Contact: mailto:security@pyro-polomarik.sk
+Expires: 2027-01-01T00:00:00.000Z
+Preferred-Languages: sk, en

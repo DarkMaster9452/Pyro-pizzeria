@@ -76,18 +76,30 @@ export async function ensureStaffAccounts(): Promise<void> {
     await sql`ALTER TABLE users ADD CONSTRAINT users_role_chk CHECK (role IN ('customer','employee','driver','kuchar','call','admin','super_admin'))`.catch(
       () => {}
     );
-    for (const s of STAFF_SEED) {
-      const e = s.email.toLowerCase();
-      const existing = (await sql`
-        SELECT 1 FROM users WHERE email = ${e} LIMIT 1
-      `) as unknown[];
-      if (existing.length) continue; // never overwrite an existing account
-      const pwHash = await hashPassword(s.password);
-      await sql`
-        INSERT INTO users (email, name, password_hash, role, restaurant_id, consent_at)
-        VALUES (${e}, ${s.name}, ${pwHash}, ${s.role}, ${s.restaurantId}, now())
-        ON CONFLICT (email) DO NOTHING
-      `;
+    // SECURITY: the STAFF_SEED passwords are trivially guessable demo values
+    // ("admin", "kuchar", …). Auto-provisioning them on a live deployment would
+    // hand an attacker the admin panel via credential guessing. Seed them only
+    // outside production, or when an operator explicitly opts in for a one-off
+    // bootstrap with SEED_DEMO_STAFF="true" (then rotate the passwords and unset
+    // the flag). In production the operator provisions staff with strong,
+    // per-account passwords instead. See SECURITY.md.
+    const seedDemoStaff =
+      process.env.NODE_ENV !== "production" ||
+      process.env.SEED_DEMO_STAFF === "true";
+    if (seedDemoStaff) {
+      for (const s of STAFF_SEED) {
+        const e = s.email.toLowerCase();
+        const existing = (await sql`
+          SELECT 1 FROM users WHERE email = ${e} LIMIT 1
+        `) as unknown[];
+        if (existing.length) continue; // never overwrite an existing account
+        const pwHash = await hashPassword(s.password);
+        await sql`
+          INSERT INTO users (email, name, password_hash, role, restaurant_id, consent_at)
+          VALUES (${e}, ${s.name}, ${pwHash}, ${s.role}, ${s.restaurantId}, now())
+          ON CONFLICT (email) DO NOTHING
+        `;
+      }
     }
     // Strip any personal identity/profile previously stored on admin accounts.
     // Admins are purely administrative: no assigned name and no customer
@@ -227,6 +239,16 @@ export async function bumpSessionVersion(userId: string): Promise<void> {
 }
 
 export async function deleteAccount(userId: string): Promise<void> {
+  // GDPR erasure: an order retains the customer's name / phone / address, so
+  // deleting only the users row would orphan that PII in the orders table.
+  // Anonymise the customer's past orders first (keep the financial record for
+  // accounting, strip the personal data), then remove the account.
+  await sql`
+    UPDATE orders
+    SET customer_name = 'Zmazaný účet', phone = '', email = NULL,
+        address = NULL, user_id = NULL
+    WHERE user_id = ${userId}
+  `.catch(() => {});
   await sql`DELETE FROM users WHERE id = ${userId}`;
 }
 
