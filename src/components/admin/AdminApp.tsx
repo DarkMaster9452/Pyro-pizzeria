@@ -1477,11 +1477,6 @@ function Operations({
       <ServiceOpen restaurantId={restaurantId} />
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <StaffPasswordPanel />
-        <OperatorContact />
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-2">
         <div
           className={cn(
             "flex flex-col justify-between gap-4 rounded-2xl border p-5",
@@ -1590,6 +1585,13 @@ function Operations({
       </div>
 
       <PruneOrders restaurantId={restaurantId} onDone={refresh} />
+
+      {/* Password change + operator contact — staff-only, kept at the bottom of
+          the Prevádzka section (nowhere else in the app). */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <StaffPasswordPanel />
+        <OperatorContact />
+      </div>
 
       <AnimatePresence>
         {confirming && (

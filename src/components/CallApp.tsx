@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { getCallBoard, type CallOrder } from "@/lib/server-actions";
 import { logoutAction } from "@/lib/auth-actions";
 import { eur } from "@/lib/utils";
-import { StaffPasswordBanner, OperatorContact } from "@/components/StaffSecurity";
+import { StaffPasswordBanner } from "@/components/StaffSecurity";
 import {
   PhoneCall,
   Phone,
@@ -92,7 +92,6 @@ export function CallApp({
 
       <div className="mx-auto max-w-3xl px-4 py-6">
         <StaffPasswordBanner />
-        <OperatorContact className="mb-4" />
         {/* dovoz / odber toggle */}
         <div className="mb-6 grid grid-cols-2 gap-2">
           {(

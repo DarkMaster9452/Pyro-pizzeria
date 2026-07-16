@@ -8,9 +8,9 @@ import type {
   Badge,
 } from "./types";
 
-// Operator / owner emergency contact. Shown ONLY inside the admin & staff
-// panels (never to the public) so staff know who to call if something goes
-// wrong during service.
+// Operator / owner emergency contact. Shown ONLY at the bottom of the admin
+// Prevádzka section (never in the kitchen/driver/call boards or to the public)
+// so the operator knows who to call if something goes wrong during service.
 export const OPERATOR_CONTACT = {
   name: "Prevádzkar",
   email: "strananekm@gmail.com",

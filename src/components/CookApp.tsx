@@ -12,7 +12,7 @@ import {
 import { eur, POL_POL_SURCHARGE } from "@/lib/utils";
 import { logoutAction } from "@/lib/auth-actions";
 import { NoShift } from "@/components/DriverApp";
-import { StaffPasswordBanner, OperatorContact } from "@/components/StaffSecurity";
+import { StaffPasswordBanner } from "@/components/StaffSecurity";
 import {
   ChefHat,
   Clock,
@@ -147,7 +147,6 @@ export function CookApp({
 
       <div className="mx-auto max-w-5xl px-4 py-6">
         <StaffPasswordBanner />
-        <OperatorContact className="mb-4" />
         {error && (
           <div className="mb-4 rounded-2xl border border-brand-error/30 bg-brand-error/10 px-4 py-3 text-sm text-[#ff9d9d]">
             {error}
