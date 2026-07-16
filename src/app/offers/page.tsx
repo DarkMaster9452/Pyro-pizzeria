@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { useApp } from "@/lib/store";
-import { COUPONS, RESTAURANTS } from "@/lib/data";
+import { RESTAURANTS } from "@/lib/data";
 import { Footer } from "@/components/Footer";
 import { Ticket, Clock, Gift, Percent } from "lucide-react";
 
@@ -33,7 +33,19 @@ const CARDS = [
 
 export default function OffersPage() {
   const restaurantId = useApp((s) => s.restaurantId);
+  const dbCoupons = useApp((s) => s.dbCoupons);
   const r = RESTAURANTS.find((x) => x.id === restaurantId);
+
+  // Only real, currently-active coupons (from the admin/DB) — filtered to this
+  // pizzeria. Before the storefront snapshot loads, dbCoupons is null; show
+  // nothing rather than stale demo coupons.
+  const coupons = (dbCoupons ?? []).filter(
+    (c) => c.restaurantId === "all" || c.restaurantId === restaurantId
+  );
+  const activeCodes = new Set(coupons.map((c) => c.code));
+  // Marketing cards only make sense while their promo code actually exists.
+  const cards = CARDS.filter((c) => activeCodes.has(c.tag));
+
   if (!r) return null;
 
   return (
@@ -47,8 +59,9 @@ export default function OffersPage() {
         </p>
       </div>
 
+      {cards.length > 0 && (
       <div className="grid gap-5 md:grid-cols-3">
-        {CARDS.map((c, i) => (
+        {cards.map((c, i) => (
           <motion.div
             key={c.title}
             initial={{ opacity: 0, y: 16 }}
@@ -72,6 +85,7 @@ export default function OffersPage() {
           </motion.div>
         ))}
       </div>
+      )}
 
       {/* buy 2 get 1 banner */}
       <div className="mt-8 flex flex-col items-center justify-between gap-4 rounded-3xl bg-brand-dark p-8 text-white sm:flex-row">
@@ -91,30 +105,32 @@ export default function OffersPage() {
         </Link>
       </div>
 
-      <div className="mt-10">
-        <h2 className="mb-3 flex items-center gap-2 font-display text-xl font-bold">
-          <Clock className="h-5 w-5 text-brand-secondary" /> Všetky dostupné
-          kupóny
-        </h2>
-        <div className="grid gap-3 sm:grid-cols-2">
-          {COUPONS.map((c) => (
-            <div
-              key={c.code}
-              className="flex items-center justify-between rounded-2xl bg-white p-4 shadow-card dark:bg-[#1e1e1e]"
-            >
-              <div>
-                <p className="font-mono font-bold text-brand-primary">
-                  {c.code}
-                </p>
-                <p className="text-sm text-neutral-500">{c.label}</p>
+      {coupons.length > 0 && (
+        <div className="mt-10">
+          <h2 className="mb-3 flex items-center gap-2 font-display text-xl font-bold">
+            <Clock className="h-5 w-5 text-brand-secondary" /> Všetky dostupné
+            kupóny
+          </h2>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {coupons.map((c) => (
+              <div
+                key={c.code}
+                className="flex items-center justify-between rounded-2xl bg-white p-4 shadow-card dark:bg-[#1e1e1e]"
+              >
+                <div>
+                  <p className="font-mono font-bold text-brand-primary">
+                    {c.code}
+                  </p>
+                  <p className="text-sm text-neutral-500">{c.label}</p>
+                </div>
+                <span className="chip bg-brand-primary/10 text-brand-primary">
+                  od {c.minSubtotal}€
+                </span>
               </div>
-              <span className="chip bg-brand-primary/10 text-brand-primary">
-                od {c.minSubtotal}€
-              </span>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-      </div>
+      )}
       <Footer />
     </main>
   );
