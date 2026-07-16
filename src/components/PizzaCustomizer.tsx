@@ -7,6 +7,7 @@ import type { Product } from "@/lib/types";
 import { extrasForProduct } from "@/lib/data";
 import { useApp } from "@/lib/store";
 import { eur, shortId, cn } from "@/lib/utils";
+import { BadgeRow } from "./Badges";
 import { Check, Minus, Plus, X } from "lucide-react";
 
 export function PizzaCustomizer({
@@ -104,6 +105,11 @@ export function PizzaCustomizer({
           </div>
 
           <div className="flex-1 space-y-5 overflow-y-auto p-5">
+            {/* badges (moved off the menu card — readable here on a solid bg) */}
+            {product.badges.length > 0 && (
+              <BadgeRow badges={product.badges} />
+            )}
+
             {/* size (only when there is a real choice) */}
             {hasSizes && (
               <Section title="Veľkosť">

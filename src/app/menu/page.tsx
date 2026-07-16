@@ -120,19 +120,22 @@ function MenuInner() {
                 className="w-full bg-transparent py-2.5 text-sm outline-none"
               />
             </div>
+            {/* On phones this collapses to just the sort icon (the value text is
+                transparent) so the search field gets the width; from sm up the
+                label + chevron show. */}
             <div className="relative shrink-0">
-              <ArrowDownUp className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-brand-primary" />
+              <ArrowDownUp className="pointer-events-none absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 text-brand-primary sm:left-3.5 sm:translate-x-0" />
               <select
                 value={sort}
                 onChange={(e) => setSort(e.target.value as typeof sort)}
                 aria-label="Zoradiť"
-                className="w-[104px] cursor-pointer appearance-none rounded-full border border-black/10 bg-white py-2.5 pl-9 pr-8 text-sm font-semibold text-neutral-700 shadow-sm outline-none transition-colors hover:border-brand-primary/40 focus:border-brand-primary dark:border-white/10 dark:bg-[#242424] dark:text-neutral-200"
+                className="w-11 cursor-pointer appearance-none rounded-full border border-black/10 bg-white py-2.5 text-center text-sm font-semibold text-transparent shadow-sm outline-none transition-colors hover:border-brand-primary/40 focus:border-brand-primary dark:border-white/10 dark:bg-[#242424] sm:w-[132px] sm:pl-9 sm:pr-8 sm:text-left sm:text-neutral-700 sm:dark:text-neutral-200"
               >
-                <option value="default">Zoradiť</option>
-                <option value="price-asc">Cena ↑</option>
-                <option value="price-desc">Cena ↓</option>
+                <option value="default" className="text-neutral-900">Zoradiť</option>
+                <option value="price-asc" className="text-neutral-900">Cena ↑</option>
+                <option value="price-desc" className="text-neutral-900">Cena ↓</option>
               </select>
-              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
+              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 hidden h-4 w-4 -translate-y-1/2 text-neutral-400 sm:block" />
             </div>
           </div>
 
