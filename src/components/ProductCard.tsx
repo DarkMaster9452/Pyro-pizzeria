@@ -2,7 +2,6 @@
 
 import Image from "next/image";
 import { useState } from "react";
-import { motion } from "framer-motion";
 import type { Product } from "@/lib/types";
 import { BadgeRow } from "./Badges";
 import { PizzaCustomizer } from "./PizzaCustomizer";
@@ -45,11 +44,10 @@ export function ProductCard({
 
   return (
     <>
-      <motion.div
-        layout
-        whileHover={{ y: -4 }}
-        className="group relative flex flex-col overflow-hidden rounded-2xl bg-white shadow-card transition-all duration-200 hover:-translate-y-1 hover:shadow-lift dark:border dark:border-white/[0.08] dark:bg-[#141414] dark:hover:border-brand-primary/30"
-      >
+      {/* Plain div (no framer-motion layout/hover): the CSS hover lift below is
+          enough, and per-card layout animations across the whole grid made the
+          menu janky / unresponsive on mobile when filtering or searching. */}
+      <div className="group relative flex flex-col overflow-hidden rounded-2xl bg-white shadow-card transition-all duration-200 hover:-translate-y-1 hover:shadow-lift dark:border dark:border-white/[0.08] dark:bg-[#141414] dark:hover:border-brand-primary/30">
         <div className="relative aspect-[4/3] overflow-hidden">
           <Image
             src={product.image}
@@ -124,7 +122,7 @@ export function ProductCard({
             )}
           </div>
         </div>
-      </motion.div>
+      </div>
 
       {open && (
         <PizzaCustomizer product={product} onClose={() => setOpen(false)} />

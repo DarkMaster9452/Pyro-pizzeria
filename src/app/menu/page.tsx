@@ -2,7 +2,6 @@
 
 import { Suspense, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { motion } from "framer-motion";
 import { useApp } from "@/lib/store";
 import { PRODUCTS, CATEGORIES } from "@/lib/data";
 import type { Badge, CategoryId } from "@/lib/types";
@@ -194,14 +193,11 @@ function MenuInner() {
             </p>
           </div>
         ) : (
-          <motion.div
-            layout
-            className="grid grid-cols-2 gap-4 sm:gap-5 lg:grid-cols-3 xl:grid-cols-4"
-          >
+          <div className="grid grid-cols-2 gap-4 sm:gap-5 lg:grid-cols-3 xl:grid-cols-4">
             {products.map((p) => (
               <ProductCard key={p.id} product={p} number={numberMap[p.id]} />
             ))}
-          </motion.div>
+          </div>
         )}
       </div>
     </main>
