@@ -85,8 +85,15 @@ export function StaffOrderForm({
     const list = products ?? [];
     const norm = (s: string) => s.toLowerCase();
     const query = norm(q.trim());
-    return list.filter((p) => !query || norm(p.name).includes(query));
-  }, [products, q]);
+    if (!query) return list;
+    return list.filter((p) => {
+      if (norm(p.name).includes(query)) return true;
+      // Also match the flyer number (e.g. type "12" to find pizza #12) so staff
+      // can enter orders straight from the leaflet, for pickup and delivery.
+      const num = numberMap[p.id];
+      return num != null && String(num).startsWith(query);
+    });
+  }, [products, q, numberMap]);
 
   const priceOf = (p: Product) => p.basePrice + (p.sizes[0]?.priceDelta ?? 0);
   const total = useMemo(() => {
@@ -175,7 +182,7 @@ export function StaffOrderForm({
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Hľadať produkt…"
+            placeholder="Hľadať produkt alebo číslo…"
             className={cn(inputCls, "pl-9")}
           />
         </div>

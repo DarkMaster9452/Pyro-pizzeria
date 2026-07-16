@@ -210,6 +210,8 @@ async function ensureOrderColumns(): Promise<void> {
     await sql`CREATE SEQUENCE IF NOT EXISTS order_number_seq START 1001`;
     // Daily open / availability / staff shifts.
     await sql`ALTER TABLE restaurant_state ADD COLUMN IF NOT EXISTS open_date date`;
+    // Calendar date the "vypredané" flag was set — it clears itself at midnight.
+    await sql`ALTER TABLE restaurant_state ADD COLUMN IF NOT EXISTS sold_out_date date`;
     await sql`
       CREATE TABLE IF NOT EXISTS daily_unavailable (
         restaurant_id text NOT NULL,
@@ -236,10 +238,16 @@ async function ensureOrderColumns(): Promise<void> {
   return orderColumnsPromise;
 }
 
-// The service day rolls over at 12:00 Europe/Bratislava — that's also when the
-// daily "available items" reset. Inlined into queries as a literal expression.
+// The service day rolls over at 12:00 Europe/Bratislava — used for the manual
+// open flag and staff shifts (an evening service never crosses midnight, so the
+// noon pivot keeps late orders on the right day). Inlined as a literal.
 const SERVICE_DATE =
   "((now() AT TIME ZONE 'Europe/Bratislava') - interval '12 hours')::date";
+
+// The plain Bratislava calendar date. Daily state that must clear at midnight —
+// the "vypredané" flag and today's unavailable items — is keyed to this, so it
+// resets at 00:00 rather than at noon.
+const RESET_DATE = "(now() AT TIME ZONE 'Europe/Bratislava')::date";
 
 // Next sequential order number (as text, since the order id is a text PK).
 // Falls back to a random code if the sequence is somehow unavailable.
@@ -361,7 +369,7 @@ export async function getStorefront(): Promise<Storefront> {
     // admin per-product availability toggle. We don't drop them from the list.
     const unavRows = (await sql.query(
       `SELECT restaurant_id, product_id FROM daily_unavailable
-       WHERE service_date = ${SERVICE_DATE}`,
+       WHERE service_date = ${RESET_DATE}`,
       []
     )) as { restaurant_id: string; product_id: string }[];
     if (unavRows.length) {
@@ -434,7 +442,11 @@ export async function registerAction(
 // -------- Sold-out state (public read) --------
 export async function getRestaurantStates(): Promise<Record<string, boolean>> {
   try {
-    const rows = (await sql`SELECT id, sold_out FROM restaurant_state`) as {
+    const rows = (await sql.query(
+      `SELECT id, (sold_out AND sold_out_date = ${RESET_DATE}) AS sold_out
+       FROM restaurant_state`,
+      []
+    )) as {
       id: string;
       sold_out: boolean;
     }[];
@@ -532,7 +544,8 @@ export async function createOrder(
 
     // sold-out + manually-opened (authoritative, from DB)
     const state = (await sql.query(
-      `SELECT sold_out, COALESCE(open_date = ${SERVICE_DATE}, false) AS is_open
+      `SELECT (sold_out AND sold_out_date = ${RESET_DATE}) AS sold_out,
+              COALESCE(open_date = ${SERVICE_DATE}, false) AS is_open
        FROM restaurant_state WHERE id = $1 LIMIT 1`,
       [data.restaurantId]
     )) as { sold_out: boolean; is_open: boolean }[];
@@ -547,7 +560,7 @@ export async function createOrder(
     // items the admin marked unavailable for today
     const unavRows = (await sql.query(
       `SELECT product_id FROM daily_unavailable
-       WHERE restaurant_id = $1 AND service_date = ${SERVICE_DATE}`,
+       WHERE restaurant_id = $1 AND service_date = ${RESET_DATE}`,
       [data.restaurantId]
     )) as { product_id: string }[];
     const unavToday = new Set(
@@ -921,9 +934,11 @@ export async function getAdminSummary(
     mins_ago: number;
   }>;
 
-  const state = (await sql`
-    SELECT sold_out FROM restaurant_state WHERE id = ${restaurantId} LIMIT 1
-  `) as { sold_out: boolean }[];
+  const state = (await sql.query(
+    `SELECT (sold_out AND sold_out_date = ${RESET_DATE}) AS sold_out
+     FROM restaurant_state WHERE id = $1 LIMIT 1`,
+    [restaurantId]
+  )) as { sold_out: boolean }[];
 
   const pendingPizzas = pending[0]?.pizzas ?? 0;
   return {
@@ -1045,10 +1060,30 @@ export async function getOrderDetail(
 
 export async function setSoldOut(restaurantId: string, value: boolean) {
   const session = await requireAdmin(restaurantId);
-  await sql`
-    UPDATE restaurant_state SET sold_out = ${value}, updated_at = now()
-    WHERE id = ${restaurantId}
-  `;
+  await ensureOrderColumns();
+  if (value) {
+    // Marking sold out closes the pizzeria for the rest of the day (clears the
+    // manual open flag). The "vypredané" flag stays visible until it resets on
+    // its own at midnight (sold_out_date no longer matches today).
+    await sql.query(
+      `UPDATE restaurant_state
+       SET sold_out = true, sold_out_date = ${RESET_DATE},
+           open_date = NULL, updated_at = now()
+       WHERE id = $1`,
+      [restaurantId]
+    );
+  } else {
+    // Resuming clears the flag and reopens the pizzeria for today's service day
+    // (today's unavailable items and staff shifts set at open are still in
+    // effect), so "Znovu spustiť objednávky" takes orders again right away.
+    await sql.query(
+      `UPDATE restaurant_state
+       SET sold_out = false, sold_out_date = NULL,
+           open_date = ${SERVICE_DATE}, updated_at = now()
+       WHERE id = $1`,
+      [restaurantId]
+    );
+  }
   await audit({
     action: "restaurant.sold_out",
     actorId: session.user.id,
@@ -1180,7 +1215,7 @@ export async function getOpenPrep(restaurantId: string): Promise<OpenPrep> {
     ORDER BY sort, name`) as { id: string; name: string; category: string }[];
   const unav = (await sql.query(
     `SELECT product_id FROM daily_unavailable
-     WHERE restaurant_id = $1 AND service_date = ${SERVICE_DATE}`,
+     WHERE restaurant_id = $1 AND service_date = ${RESET_DATE}`,
     [restaurantId]
   )) as { product_id: string }[];
   const unavSet = new Set(unav.map((u) => u.product_id));
@@ -1235,13 +1270,13 @@ export async function openRestaurant(
   // Replace today's unavailable set.
   await sql.query(
     `DELETE FROM daily_unavailable
-     WHERE restaurant_id = $1 AND service_date = ${SERVICE_DATE}`,
+     WHERE restaurant_id = $1 AND service_date = ${RESET_DATE}`,
     [restaurantId]
   );
   for (const pid of unavailableIds.slice(0, 500)) {
     await sql.query(
       `INSERT INTO daily_unavailable (restaurant_id, product_id, service_date)
-       VALUES ($1, $2, ${SERVICE_DATE}) ON CONFLICT DO NOTHING`,
+       VALUES ($1, $2, ${RESET_DATE}) ON CONFLICT DO NOTHING`,
       [restaurantId, pid]
     );
   }
