@@ -70,11 +70,13 @@ function MenuInner() {
         (activeCat === "all" || p.category === activeCat)
     );
     if (query) {
-      const q = query.toLowerCase();
+      const q = query.toLowerCase().trim();
       list = list.filter(
         (p) =>
           p.name.toLowerCase().includes(q) ||
-          p.ingredients.some((i) => i.toLowerCase().includes(q))
+          p.ingredients.some((i) => i.toLowerCase().includes(q)) ||
+          // Match the flyer number too (e.g. type "12" to find pizza #12).
+          (numberMap[p.id] != null && String(numberMap[p.id]).startsWith(q))
       );
     }
     if (filters.length) {
@@ -83,7 +85,7 @@ function MenuInner() {
     if (sort === "price-asc") list = [...list].sort((a, b) => a.basePrice - b.basePrice);
     if (sort === "price-desc") list = [...list].sort((a, b) => b.basePrice - a.basePrice);
     return list;
-  }, [source, restaurantId, activeCat, query, filters, sort]);
+  }, [source, restaurantId, activeCat, query, filters, sort, numberMap]);
 
   if (!restaurantId) return null;
 
@@ -114,7 +116,7 @@ function MenuInner() {
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Hľadať v menu…"
+                placeholder="Hľadať v menu alebo číslo…"
                 className="w-full bg-transparent py-2.5 text-sm outline-none"
               />
             </div>
@@ -123,11 +125,12 @@ function MenuInner() {
               <select
                 value={sort}
                 onChange={(e) => setSort(e.target.value as typeof sort)}
-                className="cursor-pointer appearance-none rounded-full border border-black/10 bg-white py-2.5 pl-9 pr-9 text-sm font-semibold text-neutral-700 shadow-sm outline-none transition-colors hover:border-brand-primary/40 focus:border-brand-primary dark:border-white/10 dark:bg-[#242424] dark:text-neutral-200"
+                aria-label="Zoradiť"
+                className="w-[104px] cursor-pointer appearance-none rounded-full border border-black/10 bg-white py-2.5 pl-9 pr-8 text-sm font-semibold text-neutral-700 shadow-sm outline-none transition-colors hover:border-brand-primary/40 focus:border-brand-primary dark:border-white/10 dark:bg-[#242424] dark:text-neutral-200"
               >
                 <option value="default">Zoradiť</option>
-                <option value="price-asc">Cena · najlacnejšie</option>
-                <option value="price-desc">Cena · najdrahšie</option>
+                <option value="price-asc">Cena ↑</option>
+                <option value="price-desc">Cena ↓</option>
               </select>
               <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
             </div>

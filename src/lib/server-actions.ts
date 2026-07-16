@@ -147,18 +147,10 @@ async function ensureContent(): Promise<void> {
       }
     }
 
-    const cc = (await sql`SELECT COUNT(*)::int AS n FROM coupons`) as {
-      n: number;
-    }[];
-    if ((cc[0]?.n ?? 0) === 0) {
-      for (const c of COUPONS) {
-        await sql`
-          INSERT INTO coupons (code, restaurant_id, type, value, min_subtotal, label)
-          VALUES (${c.code}, ${c.restaurantId}, ${c.type}, ${c.value},
-            ${c.minSubtotal}, ${c.label})
-          ON CONFLICT (code) DO NOTHING`;
-      }
-    }
+    // Coupons are NOT auto-seeded. They are fully admin-managed, so once an
+    // admin deletes them they stay deleted — previously the sample coupons were
+    // re-inserted on every load whenever the table was empty, so a deleted
+    // coupon (e.g. PYRO10) kept reappearing.
 
     const zc = (await sql`SELECT COUNT(*)::int AS n FROM delivery_zones`) as {
       n: number;
