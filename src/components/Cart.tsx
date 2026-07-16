@@ -145,6 +145,11 @@ export function Cart() {
                                 {l.removedIngredients.join(", ")}
                               </p>
                             )}
+                            {l.note && (
+                              <p className="mt-0.5 text-xs italic text-neutral-500">
+                                „{l.note}“
+                              </p>
+                            )}
                           </div>
                           <button
                             onClick={() => removeLine(l.lineId)}

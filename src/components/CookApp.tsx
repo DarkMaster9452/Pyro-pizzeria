@@ -319,10 +319,15 @@ function OrderCard({
         </div>
       </div>
 
-      <ul className="mt-2 space-y-0.5 text-sm text-white/70">
+      <ul className="mt-2 space-y-1 text-sm text-white/70">
         {o.lines.map((l, i) => (
           <li key={i}>
             {l.quantity}× {l.name}
+            {l.note && (
+              <span className="mt-0.5 block pl-4 text-xs font-semibold text-amber-300">
+                → {l.note}
+              </span>
+            )}
           </li>
         ))}
       </ul>

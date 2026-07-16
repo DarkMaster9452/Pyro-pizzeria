@@ -1382,6 +1382,11 @@ function OrderDetailModal({
                           `− ${l.removedIngredients.join(", ")}`}
                       </p>
                     )}
+                    {l.note && (
+                      <p className="mt-1 text-xs font-semibold text-amber-600 dark:text-amber-400">
+                        → {l.note}
+                      </p>
+                    )}
                   </li>
                 ))}
               </ul>

@@ -2431,7 +2431,7 @@ export interface KitchenOrder {
   taken: boolean; // claimed by a driver / already paid
   note: string | null;
   surcharge: number; // custom-request surcharge already included in `total`
-  lines: { name: string; quantity: number }[];
+  lines: { name: string; quantity: number; note?: string }[];
 }
 
 export interface KitchenContext {
@@ -2495,7 +2495,7 @@ export async function getKitchenBoard(): Promise<KitchenOrder[]> {
     total: number;
     note: string | null;
     surcharge: number;
-    lines: { name: string; quantity: number }[];
+    lines: { name: string; quantity: number; note?: string }[];
     driver_id: string | null;
     paid: boolean;
     created_at: string;
