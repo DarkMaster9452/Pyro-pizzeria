@@ -80,7 +80,7 @@ export function ProductCard({
           {/* Allergens — shown inline as plain numbers under the description
               (no toggle). */}
           {product.allergens.length > 0 && (
-            <p className="mt-1.5 text-[11px] text-neutral-400">
+            <p className="mt-1.5 text-xs text-neutral-500 dark:text-neutral-300">
               Alergény: {product.allergens.join(", ")}
             </p>
           )}
