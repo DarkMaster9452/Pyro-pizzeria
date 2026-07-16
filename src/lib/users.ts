@@ -33,10 +33,11 @@ export async function hashPassword(password: string): Promise<string> {
 }
 
 // ---------------------------------------------------------------------------
-// Demo staff accounts. Created lazily & idempotently so every role can log in
-// out of the box (admins, cooks and drivers for both pizzerias). Existing
-// accounts are never overwritten. Passwords are for demo only — change them
-// before going live.
+// Staff accounts. Created lazily & idempotently so every role can log in out of
+// the box (admins, cooks, drivers and the call/counter account for both
+// pizzerias). Existing accounts are never overwritten, so once the owner
+// changes an account's password here it stays changed. Every account starts
+// with the same bootstrap password — the owner rotates each one individually.
 // ---------------------------------------------------------------------------
 interface SeedStaff {
   email: string;
@@ -46,22 +47,25 @@ interface SeedStaff {
   restaurantId: string | null;
 }
 
+// Shared bootstrap password for every staff account. The owner changes each
+// account's password individually after the first login.
+const BOOTSTRAP_PASSWORD = "martin";
+
 export const STAFF_SEED: SeedStaff[] = [
   // Admin accounts are purely administrative — no personal identity/name is
   // stored on them. Login is by email only; the UI shows a generic "Admin".
-  { email: "admin@pyro.sk", name: "", password: "admin", role: "admin", restaurantId: "pyro" },
-  { email: "admin@polomarik.sk", name: "", password: "admin", role: "admin", restaurantId: "polomarik" },
-  { email: "kuchar@pyro.sk", name: "Pyro Kuchár", password: "kuchar", role: "kuchar", restaurantId: "pyro" },
-  { email: "kuchar@polomarik.sk", name: "Polomárik Kuchár", password: "kuchar", role: "kuchar", restaurantId: "polomarik" },
-  { email: "daniel@pyro.sk", name: "Daniel Pekný", password: "daniel", role: "driver", restaurantId: "pyro" },
-  { email: "tomas@pyro.sk", name: "Tomáš Kavecký", password: "tomas", role: "driver", restaurantId: "pyro" },
-  { email: "martin@pyro.sk", name: "Martin Straňanek", password: "martin", role: "driver", restaurantId: "pyro" },
-  { email: "rozvoz@polomarik.sk", name: "Polomárik Rozvoz", password: "rozvoz", role: "driver", restaurantId: "polomarik" },
-  { email: "zakaznik@pyro.sk", name: "Demo Zákazník", password: "zakaznik", role: "customer", restaurantId: null },
+  { email: "admin@pyro.sk", name: "", password: BOOTSTRAP_PASSWORD, role: "admin", restaurantId: "pyro" },
+  { email: "admin@polomarik.sk", name: "", password: BOOTSTRAP_PASSWORD, role: "admin", restaurantId: "polomarik" },
+  { email: "kuchar@pyro.sk", name: "Pyro Kuchár", password: BOOTSTRAP_PASSWORD, role: "kuchar", restaurantId: "pyro" },
+  { email: "kuchar@polomarik.sk", name: "Polomárik Kuchár", password: BOOTSTRAP_PASSWORD, role: "kuchar", restaurantId: "polomarik" },
+  { email: "daniel@pyro.sk", name: "Daniel Pekný", password: BOOTSTRAP_PASSWORD, role: "driver", restaurantId: "pyro" },
+  { email: "tomas@pyro.sk", name: "Tomáš Kavecký", password: BOOTSTRAP_PASSWORD, role: "driver", restaurantId: "pyro" },
+  { email: "martin@pyro.sk", name: "Martin Straňanek", password: BOOTSTRAP_PASSWORD, role: "driver", restaurantId: "pyro" },
+  { email: "rozvoz@polomarik.sk", name: "Polomárik Rozvoz", password: BOOTSTRAP_PASSWORD, role: "driver", restaurantId: "polomarik" },
   // Call/counter accounts — see only finished orders and call customers. No
   // other admin access.
-  { email: "call@pyro.sk", name: "Pyro Telefón", password: "call", role: "call", restaurantId: "pyro" },
-  { email: "call@polomarik.sk", name: "Polomárik Telefón", password: "call", role: "call", restaurantId: "polomarik" },
+  { email: "call@pyro.sk", name: "Pyro Telefón", password: BOOTSTRAP_PASSWORD, role: "call", restaurantId: "pyro" },
+  { email: "call@polomarik.sk", name: "Polomárik Telefón", password: BOOTSTRAP_PASSWORD, role: "call", restaurantId: "polomarik" },
 ];
 
 let staffSeedPromise: Promise<void> | null = null;
@@ -76,30 +80,22 @@ export async function ensureStaffAccounts(): Promise<void> {
     await sql`ALTER TABLE users ADD CONSTRAINT users_role_chk CHECK (role IN ('customer','employee','driver','kuchar','call','admin','super_admin'))`.catch(
       () => {}
     );
-    // SECURITY: the STAFF_SEED passwords are trivially guessable demo values
-    // ("admin", "kuchar", …). Auto-provisioning them on a live deployment would
-    // hand an attacker the admin panel via credential guessing. Seed them only
-    // outside production, or when an operator explicitly opts in for a one-off
-    // bootstrap with SEED_DEMO_STAFF="true" (then rotate the passwords and unset
-    // the flag). In production the operator provisions staff with strong,
-    // per-account passwords instead. See SECURITY.md.
-    const seedDemoStaff =
-      process.env.NODE_ENV !== "production" ||
-      process.env.SEED_DEMO_STAFF === "true";
-    if (seedDemoStaff) {
-      for (const s of STAFF_SEED) {
-        const e = s.email.toLowerCase();
-        const existing = (await sql`
-          SELECT 1 FROM users WHERE email = ${e} LIMIT 1
-        `) as unknown[];
-        if (existing.length) continue; // never overwrite an existing account
-        const pwHash = await hashPassword(s.password);
-        await sql`
-          INSERT INTO users (email, name, password_hash, role, restaurant_id, consent_at)
-          VALUES (${e}, ${s.name}, ${pwHash}, ${s.role}, ${s.restaurantId}, now())
-          ON CONFLICT (email) DO NOTHING
-        `;
-      }
+    // Provision the real staff accounts. Each is created once with the shared
+    // bootstrap password; an existing account is never touched, so a password
+    // the owner changed later stays changed. The owner is expected to rotate
+    // each account's password individually after go-live.
+    for (const s of STAFF_SEED) {
+      const e = s.email.toLowerCase();
+      const existing = (await sql`
+        SELECT 1 FROM users WHERE email = ${e} LIMIT 1
+      `) as unknown[];
+      if (existing.length) continue; // never overwrite an existing account
+      const pwHash = await hashPassword(s.password);
+      await sql`
+        INSERT INTO users (email, name, password_hash, role, restaurant_id, consent_at)
+        VALUES (${e}, ${s.name}, ${pwHash}, ${s.role}, ${s.restaurantId}, now())
+        ON CONFLICT (email) DO NOTHING
+      `;
     }
     // Strip any personal identity/profile previously stored on admin accounts.
     // Admins are purely administrative: no assigned name and no customer
