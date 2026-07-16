@@ -3,7 +3,6 @@
 import Image from "next/image";
 import { useState } from "react";
 import type { Product } from "@/lib/types";
-import { BadgeRow } from "./Badges";
 import { PizzaCustomizer } from "./PizzaCustomizer";
 import { useApp } from "@/lib/store";
 import { extrasForProduct } from "@/lib/data";
@@ -63,11 +62,8 @@ export function ProductCard({
               </span>
             </div>
           )}
-          {product.badges.length > 0 && (
-            <div className="absolute bottom-3 left-3">
-              <BadgeRow badges={product.badges.slice(0, 2)} />
-            </div>
-          )}
+          {/* Badges were overlaid here but sat unreadably over busy photos —
+              they now show inside the product detail (PizzaCustomizer). */}
         </div>
 
         <div className="flex flex-1 flex-col p-4">
