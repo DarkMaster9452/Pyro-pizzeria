@@ -1,7 +1,31 @@
 import type { Metadata, Viewport } from "next";
+import { Plus_Jakarta_Sans, Anton, Pacifico } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/Providers";
 import { SpeedInsights } from "@vercel/speed-insights/next";
+
+// Self-hosted fonts (via next/font) instead of a render-blocking Google Fonts
+// <link>: they are inlined/preloaded from our own origin, so the first paint no
+// longer waits on a round-trip to fonts.googleapis.com. latin-ext covers the
+// Slovak diacritics (á, č, š, ž, ô…).
+const jakarta = Plus_Jakarta_Sans({
+  subsets: ["latin", "latin-ext"],
+  weight: ["500", "600", "700", "800"],
+  variable: "--font-jakarta",
+  display: "swap",
+});
+const anton = Anton({
+  subsets: ["latin", "latin-ext"],
+  weight: "400",
+  variable: "--font-anton",
+  display: "swap",
+});
+const pacifico = Pacifico({
+  subsets: ["latin", "latin-ext"],
+  weight: "400",
+  variable: "--font-pacifico",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: {
@@ -40,21 +64,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="sk" className="dark" suppressHydrationWarning>
+    <html
+      lang="sk"
+      className={`dark ${jakarta.variable} ${anton.variable} ${pacifico.variable}`}
+      suppressHydrationWarning
+    >
       <head>
-        <link
-          rel="preconnect"
-          href="https://fonts.googleapis.com"
-        />
-        <link
-          rel="preconnect"
-          href="https://fonts.gstatic.com"
-          crossOrigin=""
-        />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Anton&family=Pacifico&display=swap"
-          rel="stylesheet"
-        />
         {/* JSON-LD structured data */}
         <script
           type="application/ld+json"

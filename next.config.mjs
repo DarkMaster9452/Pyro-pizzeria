@@ -46,6 +46,11 @@ const securityHeaders = [
 const nextConfig = {
   poweredByHeader: false,
   images: {
+    // Serve AVIF/WebP (much smaller than JPEG) and cache the optimised hero /
+    // menu images for a year — the source photos never change, so after the
+    // first hit every visitor gets them straight from the edge cache.
+    formats: ["image/avif", "image/webp"],
+    minimumCacheTTL: 31536000,
     remotePatterns: [
       { protocol: "https", hostname: "images.unsplash.com" },
       { protocol: "https", hostname: "plus.unsplash.com" },

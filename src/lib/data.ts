@@ -60,7 +60,7 @@ export const RESTAURANTS: Restaurant[] = [
     phone: "+421 904 117 770",
     email: "pyro.pizzeria@gmail.com",
     image:
-      "https://images.unsplash.com/photo-1628840042765-356cda07504e?w=2000&q=80",
+      "https://images.unsplash.com/photo-1628840042765-356cda07504e?w=1600&q=70",
     gallery: [
       "https://images.unsplash.com/photo-1595854341625-f33ee10dbf94?w=800&q=80",
       "https://images.unsplash.com/photo-1571997478779-2adcbbe9ab2f?w=800&q=80",
@@ -124,7 +124,7 @@ export const RESTAURANTS: Restaurant[] = [
     phone: "041/5007250",
     email: "objednavky@polomarik.sk",
     image:
-      "https://images.unsplash.com/photo-1604068549290-dea0e4a305ca?w=2000&q=80",
+      "https://images.unsplash.com/photo-1604068549290-dea0e4a305ca?w=1600&q=70",
     gallery: [
       "https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=800&q=80",
       "https://images.unsplash.com/photo-1600891964092-4316c288032e?w=800&q=80",
