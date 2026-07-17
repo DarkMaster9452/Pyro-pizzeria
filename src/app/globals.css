@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 :root {
-  --font-sans: "Plus Jakarta Sans", "Manrope", "Inter", system-ui, sans-serif;
+  --font-sans: var(--font-jakarta), "Manrope", "Inter", system-ui, sans-serif;
 
   /* Brand palette (RGB channels, consumed by Tailwind brand-* colors).
      Default = Pyro (fiery orange). */
