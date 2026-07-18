@@ -223,6 +223,24 @@ async function ensureOrderColumns(): Promise<void> {
         UNIQUE (restaurant_id, user_id, service_date)
       )`;
     await sql`CREATE INDEX IF NOT EXISTS shifts_date_idx ON shifts (restaurant_id, service_date)`;
+    // Saved end-of-day tip split, one row per service day. allocations holds
+    // who took how much: [{ id, name, role, amount }].
+    await sql`
+      CREATE TABLE IF NOT EXISTS shift_tips (
+        restaurant_id text NOT NULL,
+        service_date date NOT NULL,
+        expected_cash numeric(10,2) NOT NULL DEFAULT 0,
+        counted_cash numeric(10,2) NOT NULL DEFAULT 0,
+        expected_card numeric(10,2) NOT NULL DEFAULT 0,
+        counted_card numeric(10,2) NOT NULL DEFAULT 0,
+        starting_float numeric(10,2) NOT NULL DEFAULT 0,
+        tips_total numeric(10,2) NOT NULL DEFAULT 0,
+        allocations jsonb NOT NULL DEFAULT '[]'::jsonb,
+        saved_by text,
+        saved_by_email text,
+        updated_at timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (restaurant_id, service_date)
+      )`;
   })().catch((e) => {
     orderColumnsPromise = null;
     throw e;
@@ -1428,7 +1446,27 @@ export async function getShiftsReport(
 // staff who were on shift today (cooks + drivers). The actual money entry and
 // the equal split happen in the UI; here we just gather the basis.
 // ---------------------------------------------------------------------------
+export interface TipAllocation {
+  id: string;
+  name: string;
+  role: string;
+  amount: number;
+}
+
+export interface SavedTips {
+  expectedCash: number;
+  countedCash: number;
+  expectedCard: number;
+  countedCard: number;
+  startingFloat: number;
+  tipsTotal: number;
+  allocations: TipAllocation[];
+  savedByEmail: string | null;
+  updatedAt: string;
+}
+
 export interface TipData {
+  serviceDate: string;
   // Sum of today's non-cancelled, non-card order totals — what should be in the
   // cash drawer from orders (before any tips / starting float).
   expectedCash: number;
@@ -1438,6 +1476,34 @@ export interface TipData {
   cardOrders: number;
   // Everyone on shift today (cooks + drivers) who shares the tips.
   staff: { id: string; name: string; role: string }[];
+  // Previously saved split for today (if any), so re-opening shows it.
+  saved: SavedTips | null;
+}
+
+interface TipRow {
+  expected_cash: string | number;
+  counted_cash: string | number;
+  expected_card: string | number;
+  counted_card: string | number;
+  starting_float: string | number;
+  tips_total: string | number;
+  allocations: TipAllocation[];
+  saved_by_email: string | null;
+  updated_at: string;
+}
+
+function rowToSavedTips(r: TipRow): SavedTips {
+  return {
+    expectedCash: Number(r.expected_cash),
+    countedCash: Number(r.counted_cash),
+    expectedCard: Number(r.expected_card),
+    countedCard: Number(r.counted_card),
+    startingFloat: Number(r.starting_float),
+    tipsTotal: Number(r.tips_total),
+    allocations: Array.isArray(r.allocations) ? r.allocations : [],
+    savedByEmail: r.saved_by_email,
+    updatedAt: r.updated_at,
+  };
 }
 
 export async function getTipData(restaurantId: string): Promise<TipData> {
@@ -1474,12 +1540,149 @@ export async function getTipData(restaurantId: string): Promise<TipData> {
     [restaurantId]
   )) as { id: string; name: string; role: string }[];
 
+  const svc = (await sql.query(`SELECT (${SERVICE_DATE})::text AS d`, [])) as {
+    d: string;
+  }[];
+  const savedRows = (await sql.query(
+    `SELECT expected_cash, counted_cash, expected_card, counted_card,
+            starting_float, tips_total, allocations, saved_by_email, updated_at
+     FROM shift_tips
+     WHERE restaurant_id = $1 AND service_date = ${SERVICE_DATE} LIMIT 1`,
+    [restaurantId]
+  )) as TipRow[];
+
   return {
+    serviceDate: svc[0]?.d ?? "",
     expectedCash: Math.round((money[0]?.cash_sum ?? 0) * 100) / 100,
     cashOrders: money[0]?.cash_cnt ?? 0,
     expectedCard: Math.round((money[0]?.card_sum ?? 0) * 100) / 100,
     cardOrders: money[0]?.card_cnt ?? 0,
     staff,
+    saved: savedRows[0] ? rowToSavedTips(savedRows[0]) : null,
+  };
+}
+
+// Save (upsert) today's tip split for the current service day.
+export interface SaveTipsInput {
+  expectedCash: number;
+  countedCash: number;
+  expectedCard: number;
+  countedCard: number;
+  startingFloat: number;
+  tipsTotal: number;
+  allocations: TipAllocation[];
+}
+
+export async function saveTips(
+  restaurantId: string,
+  input: SaveTipsInput
+): Promise<{ ok: boolean; error?: string }> {
+  const session = await requireAdmin(restaurantId);
+  await ensureOrderColumns();
+  const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
+  const alloc = (input.allocations ?? []).slice(0, 50).map((a) => ({
+    id: String(a.id),
+    name: String(a.name),
+    role: String(a.role),
+    amount: r2(a.amount),
+  }));
+  try {
+    await sql.query(
+      `INSERT INTO shift_tips (restaurant_id, service_date, expected_cash,
+         counted_cash, expected_card, counted_card, starting_float, tips_total,
+         allocations, saved_by, saved_by_email, updated_at)
+       VALUES ($1, ${SERVICE_DATE}, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, now())
+       ON CONFLICT (restaurant_id, service_date) DO UPDATE SET
+         expected_cash = EXCLUDED.expected_cash,
+         counted_cash = EXCLUDED.counted_cash,
+         expected_card = EXCLUDED.expected_card,
+         counted_card = EXCLUDED.counted_card,
+         starting_float = EXCLUDED.starting_float,
+         tips_total = EXCLUDED.tips_total,
+         allocations = EXCLUDED.allocations,
+         saved_by = EXCLUDED.saved_by,
+         saved_by_email = EXCLUDED.saved_by_email,
+         updated_at = now()`,
+      [
+        restaurantId,
+        r2(input.expectedCash),
+        r2(input.countedCash),
+        r2(input.expectedCard),
+        r2(input.countedCard),
+        r2(input.startingFloat),
+        r2(input.tipsTotal),
+        JSON.stringify(alloc),
+        session.user.id,
+        session.user.email,
+      ]
+    );
+    await audit({
+      action: "tips.saved",
+      actorId: session.user.id,
+      actorEmail: session.user.email,
+      restaurantId,
+      meta: { tips: r2(input.tipsTotal), people: alloc.length },
+    });
+    return { ok: true };
+  } catch (e) {
+    console.error("saveTips failed", e);
+    return { ok: false, error: "Tringelty sa nepodarilo uložiť." };
+  }
+}
+
+// Full detail for one past service day — staff, money split and saved tips.
+export interface ShiftDayDetail {
+  serviceDate: string;
+  staff: { name: string; role: string }[];
+  orders: number;
+  revenue: number;
+  cash: number;
+  card: number;
+  tips: SavedTips | null;
+}
+
+export async function getShiftDayDetail(
+  restaurantId: string,
+  serviceDate: string
+): Promise<ShiftDayDetail> {
+  await requireAdmin(restaurantId);
+  await ensureOrderColumns();
+
+  const staff = (await sql.query(
+    `SELECT name, role FROM shifts
+     WHERE restaurant_id = $1 AND service_date = $2::date
+     ORDER BY role, name`,
+    [restaurantId, serviceDate]
+  )) as { name: string; role: string }[];
+
+  // Orders booked on that service day (same noon-pivot day key as the report).
+  const money = (await sql.query(
+    `SELECT COUNT(*)::int AS cnt,
+            COALESCE(SUM(total),0)::float AS revenue,
+            COALESCE(SUM(total) FILTER (WHERE COALESCE(payment,'') NOT ILIKE '%karta%'),0)::float AS cash,
+            COALESCE(SUM(total) FILTER (WHERE payment ILIKE '%karta%'),0)::float AS card
+     FROM orders
+     WHERE restaurant_id = $1 AND status <> 'cancelled'
+       AND (((created_at AT TIME ZONE 'Europe/Bratislava') - interval '12 hours')::date) = $2::date`,
+    [restaurantId, serviceDate]
+  )) as { cnt: number; revenue: number; cash: number; card: number }[];
+
+  const tipRows = (await sql.query(
+    `SELECT expected_cash, counted_cash, expected_card, counted_card,
+            starting_float, tips_total, allocations, saved_by_email, updated_at
+     FROM shift_tips WHERE restaurant_id = $1 AND service_date = $2::date LIMIT 1`,
+    [restaurantId, serviceDate]
+  )) as TipRow[];
+
+  const r2 = (n: number) => Math.round((n ?? 0) * 100) / 100;
+  return {
+    serviceDate,
+    staff,
+    orders: money[0]?.cnt ?? 0,
+    revenue: r2(money[0]?.revenue ?? 0),
+    cash: r2(money[0]?.cash ?? 0),
+    card: r2(money[0]?.card ?? 0),
+    tips: tipRows[0] ? rowToSavedTips(tipRows[0]) : null,
   };
 }
 
