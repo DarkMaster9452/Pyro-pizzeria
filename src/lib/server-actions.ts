@@ -828,6 +828,8 @@ export interface AdminSummary {
   soldToday: number;
   ordersToday: number;
   revenueToday: number;
+  cashToday: number;
+  cardToday: number;
   week: { label: string; value: number }[];
   topProducts: { name: string; value: number }[];
   orders: AdminOrderRow[];
@@ -861,12 +863,14 @@ export async function getAdminSummary(
   const today = (await sql.query(
     `SELECT COALESCE(SUM(pizza_count),0)::int AS pizzas,
             COUNT(*)::int AS cnt,
-            COALESCE(SUM(total),0)::float AS revenue
+            COALESCE(SUM(total),0)::float AS revenue,
+            COALESCE(SUM(total) FILTER (WHERE COALESCE(payment,'') NOT ILIKE '%karta%'),0)::float AS cash,
+            COALESCE(SUM(total) FILTER (WHERE payment ILIKE '%karta%'),0)::float AS card
      FROM orders
      WHERE restaurant_id = $1 AND status <> 'cancelled'
        AND created_at >= ${boundarySql}`,
     [restaurantId]
-  )) as { pizzas: number; cnt: number; revenue: number }[];
+  )) as { pizzas: number; cnt: number; revenue: number; cash: number; card: number }[];
 
   // real 7-day revenue (for the dashboard bar chart). Bucket by the
   // Europe/Bratislava calendar day and return the key as text; the JS side
@@ -952,6 +956,8 @@ export async function getAdminSummary(
     soldToday: today[0]?.pizzas ?? 0,
     ordersToday: today[0]?.cnt ?? 0,
     revenueToday: Math.round((today[0]?.revenue ?? 0) * 100) / 100,
+    cashToday: Math.round((today[0]?.cash ?? 0) * 100) / 100,
+    cardToday: Math.round((today[0]?.card ?? 0) * 100) / 100,
     week,
     topProducts: topRows.map((t) => ({ name: t.name, value: t.qty })),
     orders: orderRows.map((o) => ({
@@ -1427,6 +1433,9 @@ export interface TipData {
   // cash drawer from orders (before any tips / starting float).
   expectedCash: number;
   cashOrders: number;
+  // Sum of today's card order totals — what the terminal should have taken.
+  expectedCard: number;
+  cardOrders: number;
   // Everyone on shift today (cooks + drivers) who shares the tips.
   staff: { id: string; name: string; role: string }[];
 }
@@ -1444,16 +1453,19 @@ export async function getTipData(restaurantId: string): Promise<TipData> {
     ) AT TIME ZONE 'Europe/Bratislava'
   )`;
 
-  // Cash = everything that isn't an explicit card payment (payment is stored as
-  // a human label like "Hotovosť pri doručení" / "Karta pri odbere").
-  const cash = (await sql.query(
-    `SELECT COALESCE(SUM(total),0)::float AS sum, COUNT(*)::int AS cnt
+  // Split today's takings by cash vs card (payment is stored as a human label
+  // like "Hotovosť pri doručení" / "Karta pri odbere").
+  const money = (await sql.query(
+    `SELECT
+       COALESCE(SUM(total) FILTER (WHERE COALESCE(payment,'') NOT ILIKE '%karta%'),0)::float AS cash_sum,
+       COUNT(*) FILTER (WHERE COALESCE(payment,'') NOT ILIKE '%karta%')::int AS cash_cnt,
+       COALESCE(SUM(total) FILTER (WHERE payment ILIKE '%karta%'),0)::float AS card_sum,
+       COUNT(*) FILTER (WHERE payment ILIKE '%karta%')::int AS card_cnt
      FROM orders
      WHERE restaurant_id = $1 AND status <> 'cancelled'
-       AND COALESCE(payment,'') NOT ILIKE '%karta%'
        AND created_at >= ${boundarySql}`,
     [restaurantId]
-  )) as { sum: number; cnt: number }[];
+  )) as { cash_sum: number; cash_cnt: number; card_sum: number; card_cnt: number }[];
 
   const staff = (await sql.query(
     `SELECT user_id AS id, name, role FROM shifts
@@ -1463,8 +1475,10 @@ export async function getTipData(restaurantId: string): Promise<TipData> {
   )) as { id: string; name: string; role: string }[];
 
   return {
-    expectedCash: Math.round((cash[0]?.sum ?? 0) * 100) / 100,
-    cashOrders: cash[0]?.cnt ?? 0,
+    expectedCash: Math.round((money[0]?.cash_sum ?? 0) * 100) / 100,
+    cashOrders: money[0]?.cash_cnt ?? 0,
+    expectedCard: Math.round((money[0]?.card_sum ?? 0) * 100) / 100,
+    cardOrders: money[0]?.card_cnt ?? 0,
     staff,
   };
 }

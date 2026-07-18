@@ -581,6 +581,34 @@ function Dashboard({
         </div>
       </div>
 
+      {/* Money breakdown for today — cash vs card, plus the total. */}
+      <div className={CARD}>
+        <p className="mb-3 flex items-center gap-2 font-display font-bold text-neutral-900 dark:text-white">
+          <Coins className="h-4 w-4 text-brand-accent" /> Tržby dnes — hotovosť /
+          karta
+        </p>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="rounded-xl bg-black/[0.03] px-4 py-3 dark:bg-white/[0.04]">
+            <p className="text-xs text-neutral-500">Hotovosť</p>
+            <p className="font-display text-xl font-extrabold text-neutral-900 dark:text-white">
+              {summary ? eur(summary.cashToday) : "—"}
+            </p>
+          </div>
+          <div className="rounded-xl bg-black/[0.03] px-4 py-3 dark:bg-white/[0.04]">
+            <p className="text-xs text-neutral-500">Karta</p>
+            <p className="font-display text-xl font-extrabold text-neutral-900 dark:text-white">
+              {summary ? eur(summary.cardToday) : "—"}
+            </p>
+          </div>
+          <div className="rounded-xl bg-brand-primary/10 px-4 py-3">
+            <p className="text-xs text-neutral-500">Spolu</p>
+            <p className="font-display text-xl font-extrabold text-brand-primary">
+              {summary ? eur(summary.revenueToday) : "—"}
+            </p>
+          </div>
+        </div>
+      </div>
+
       <ShiftsReport restaurantId={restaurantId} />
     </div>
   );
@@ -1676,9 +1704,11 @@ function TipField({
 function TipCalculator({ restaurantId }: { restaurantId: string }) {
   const [data, setData] = useState<TipData | null>(null);
   const [loading, setLoading] = useState(false);
-  const [expected, setExpected] = useState("");
+  const [expCash, setExpCash] = useState("");
+  const [countedCash, setCountedCash] = useState("");
+  const [expCard, setExpCard] = useState("");
+  const [countedCard, setCountedCard] = useState("");
   const [floatAmt, setFloatAmt] = useState("");
-  const [counted, setCounted] = useState("");
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
 
   const load = useCallback(() => {
@@ -1686,7 +1716,8 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
     getTipData(restaurantId)
       .then((d) => {
         setData(d);
-        setExpected(d.expectedCash ? String(d.expectedCash) : "");
+        setExpCash(d.expectedCash ? String(d.expectedCash) : "");
+        setExpCard(d.expectedCard ? String(d.expectedCard) : "");
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -1698,7 +1729,9 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
     return Number.isFinite(n) ? n : 0;
   };
   const r2 = (n: number) => Math.round(n * 100) / 100;
-  const tips = Math.max(0, r2(num(counted) - num(floatAmt) - num(expected)));
+  const cashTips = num(countedCash) - num(floatAmt) - num(expCash);
+  const cardTips = num(countedCard) - num(expCard);
+  const tips = Math.max(0, r2(cashTips + cardTips));
   const included = (data?.staff ?? []).filter((s) => !excluded.has(s.id));
   const per = included.length
     ? Math.floor((tips / included.length) * 100) / 100
@@ -1743,34 +1776,61 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
         </button>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        <TipField
-          label="Očakávaná hotovosť (€)"
-          hint={`${data?.cashOrders ?? 0} hotovostných obj. dnes`}
-        >
-          <input
-            inputMode="decimal"
-            value={expected}
-            onChange={(e) => setExpected(e.target.value)}
-            className={TIP_INPUT}
-            placeholder="0"
-          />
-        </TipField>
-        <TipField label="Počiatočný vklad (€)" hint="nepovinné">
+      <div className="space-y-3">
+        {/* Cash */}
+        <div className="grid gap-3 sm:grid-cols-2">
+          <TipField
+            label="Očakávaná hotovosť (€)"
+            hint={`${data?.cashOrders ?? 0} hotovostných obj. dnes`}
+          >
+            <input
+              inputMode="decimal"
+              value={expCash}
+              onChange={(e) => setExpCash(e.target.value)}
+              className={TIP_INPUT}
+              placeholder="0"
+            />
+          </TipField>
+          <TipField label="Spočítaná hotovosť (€)" hint="čo je v pokladni">
+            <input
+              inputMode="decimal"
+              value={countedCash}
+              onChange={(e) => setCountedCash(e.target.value)}
+              className={TIP_INPUT}
+              placeholder="0"
+            />
+          </TipField>
+        </div>
+        {/* Card */}
+        <div className="grid gap-3 sm:grid-cols-2">
+          <TipField
+            label="Očakávaná karta (€)"
+            hint={`${data?.cardOrders ?? 0} kartových obj. dnes`}
+          >
+            <input
+              inputMode="decimal"
+              value={expCard}
+              onChange={(e) => setExpCard(e.target.value)}
+              className={TIP_INPUT}
+              placeholder="0"
+            />
+          </TipField>
+          <TipField label="Spočítaná karta (€)" hint="z terminálu">
+            <input
+              inputMode="decimal"
+              value={countedCard}
+              onChange={(e) => setCountedCard(e.target.value)}
+              className={TIP_INPUT}
+              placeholder="0"
+            />
+          </TipField>
+        </div>
+        <TipField label="Počiatočný vklad (€)" hint="nepovinné — odráta sa z hotovosti">
           <input
             inputMode="decimal"
             value={floatAmt}
             onChange={(e) => setFloatAmt(e.target.value)}
-            className={TIP_INPUT}
-            placeholder="0"
-          />
-        </TipField>
-        <TipField label="Spočítaná hotovosť (€)" hint="čo je v pokladni">
-          <input
-            inputMode="decimal"
-            value={counted}
-            onChange={(e) => setCounted(e.target.value)}
-            className={TIP_INPUT}
+            className={cn(TIP_INPUT, "sm:max-w-[240px]")}
             placeholder="0"
           />
         </TipField>
