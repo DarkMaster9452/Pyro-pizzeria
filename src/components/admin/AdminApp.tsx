@@ -39,9 +39,11 @@ import {
   closeRestaurant,
   resetOldOrders,
   getShiftsReport,
+  getTipData,
   getOrderDays,
   getAdminOrdersByDay,
   setOrderSurcharge,
+  type TipData,
   type AdminSummary,
   type AdminOrderRow,
   type OrderDetail,
@@ -87,6 +89,7 @@ import {
   Users,
   CalendarDays,
   StickyNote,
+  Coins,
 } from "lucide-react";
 
 type Tab =
@@ -1584,6 +1587,8 @@ function Operations({
         </p>
       </div>
 
+      <TipCalculator restaurantId={restaurantId} />
+
       <PruneOrders restaurantId={restaurantId} onDone={refresh} />
 
       {/* Password change + operator contact — staff-only, kept at the bottom of
@@ -1638,6 +1643,203 @@ function Operations({
           </motion.div>
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+// ---------------- TIP SPLIT (end-of-day cash → tringelty) ----------------
+const TIP_INPUT =
+  "w-full rounded-lg border border-black/10 bg-white px-3 py-2 text-sm outline-none focus:border-brand-primary dark:border-white/10 dark:bg-[#242424] dark:text-white";
+
+function TipField({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <label className="mb-1 block text-xs font-medium text-neutral-500">
+        {label}
+      </label>
+      {children}
+      {hint && <p className="mt-1 text-[11px] text-neutral-400">{hint}</p>}
+    </div>
+  );
+}
+
+// Count the cash drawer at close, work out the tips (counted − starting float −
+// expected cash from orders) and split them equally between everyone on shift.
+function TipCalculator({ restaurantId }: { restaurantId: string }) {
+  const [data, setData] = useState<TipData | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [expected, setExpected] = useState("");
+  const [floatAmt, setFloatAmt] = useState("");
+  const [counted, setCounted] = useState("");
+  const [excluded, setExcluded] = useState<Set<string>>(new Set());
+
+  const load = useCallback(() => {
+    setLoading(true);
+    getTipData(restaurantId)
+      .then((d) => {
+        setData(d);
+        setExpected(d.expectedCash ? String(d.expectedCash) : "");
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [restaurantId]);
+  useEffect(() => load(), [load]);
+
+  const num = (s: string) => {
+    const n = parseFloat(s.replace(",", "."));
+    return Number.isFinite(n) ? n : 0;
+  };
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const tips = Math.max(0, r2(num(counted) - num(floatAmt) - num(expected)));
+  const included = (data?.staff ?? []).filter((s) => !excluded.has(s.id));
+  const per = included.length
+    ? Math.floor((tips / included.length) * 100) / 100
+    : 0;
+  const leftover = r2(tips - per * included.length);
+
+  const roleLabel = (role: string) =>
+    role === "driver" ? "Rozvozca" : role === "kuchar" ? "Kuchár" : role;
+
+  function toggle(id: string) {
+    setExcluded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  return (
+    <div className={CARD}>
+      <div className="mb-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-accent/15 text-brand-accent">
+            <Coins className="h-5 w-5" />
+          </span>
+          <div>
+            <p className="font-display font-bold text-neutral-900 dark:text-white">
+              Tringelty — koniec dňa
+            </p>
+            <p className="text-sm text-neutral-500">
+              Spočítajte hotovosť a rozdeľte prepitné medzi zmenu.
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={load}
+          disabled={loading}
+          className="rounded-full p-2 text-neutral-500 hover:bg-black/5 disabled:opacity-50 dark:hover:bg-white/10"
+          aria-label="Načítať znova"
+        >
+          <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+        </button>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <TipField
+          label="Očakávaná hotovosť (€)"
+          hint={`${data?.cashOrders ?? 0} hotovostných obj. dnes`}
+        >
+          <input
+            inputMode="decimal"
+            value={expected}
+            onChange={(e) => setExpected(e.target.value)}
+            className={TIP_INPUT}
+            placeholder="0"
+          />
+        </TipField>
+        <TipField label="Počiatočný vklad (€)" hint="nepovinné">
+          <input
+            inputMode="decimal"
+            value={floatAmt}
+            onChange={(e) => setFloatAmt(e.target.value)}
+            className={TIP_INPUT}
+            placeholder="0"
+          />
+        </TipField>
+        <TipField label="Spočítaná hotovosť (€)" hint="čo je v pokladni">
+          <input
+            inputMode="decimal"
+            value={counted}
+            onChange={(e) => setCounted(e.target.value)}
+            className={TIP_INPUT}
+            placeholder="0"
+          />
+        </TipField>
+      </div>
+
+      <div className="mt-4 flex items-center justify-between rounded-xl bg-brand-primary/10 px-4 py-3">
+        <span className="text-sm font-semibold text-neutral-700 dark:text-neutral-200">
+          Tringelty spolu
+        </span>
+        <span className="font-display text-2xl font-extrabold text-brand-primary">
+          {eur(tips)}
+        </span>
+      </div>
+
+      <div className="mt-4">
+        <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-neutral-700 dark:text-neutral-200">
+          <Users className="h-4 w-4 text-brand-secondary" /> Rozdelenie na zmenu
+          {included.length > 0 && (
+            <span className="text-xs font-normal text-neutral-500">
+              · {eur(per)} / os.
+            </span>
+          )}
+        </p>
+        {(data?.staff.length ?? 0) === 0 ? (
+          <p className="text-sm text-neutral-500">
+            Dnes nemá nikto zmenu. Zmeny sa zadávajú pri otvorení prevádzky.
+          </p>
+        ) : (
+          <ul className="space-y-1.5">
+            {data!.staff.map((s) => {
+              const on = !excluded.has(s.id);
+              return (
+                <li
+                  key={s.id}
+                  className={cn(
+                    "flex items-center justify-between rounded-xl border px-3 py-2",
+                    on
+                      ? "border-brand-primary/30 bg-brand-primary/[0.04]"
+                      : "border-black/10 opacity-60 dark:border-white/10"
+                  )}
+                >
+                  <label className="flex cursor-pointer items-center gap-2.5">
+                    <input
+                      type="checkbox"
+                      checked={on}
+                      onChange={() => toggle(s.id)}
+                      className="h-4 w-4 accent-brand-primary"
+                    />
+                    <span className="text-sm font-medium text-neutral-900 dark:text-white">
+                      {s.name}
+                    </span>
+                    <span className="text-xs text-neutral-500">
+                      {roleLabel(s.role)}
+                    </span>
+                  </label>
+                  <span className="font-semibold tabular-nums text-neutral-900 dark:text-white">
+                    {on ? eur(per) : "—"}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {leftover > 0 && included.length > 0 && (
+          <p className="mt-2 text-xs text-neutral-500">
+            Zvyšok po zaokrúhlení: {eur(leftover)} — rozdeľte ručne.
+          </p>
+        )}
+      </div>
     </div>
   );
 }
