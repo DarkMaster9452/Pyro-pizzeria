@@ -20,7 +20,6 @@ export function Seal({
   return (
     <div className={className}>
       <div className="relative flex h-[132px] w-[132px] items-center justify-center rounded-full border border-white/25 bg-black/25 backdrop-blur-md">
-        <div className="absolute inset-[7px] rounded-full border border-white/15" />
         <svg
           viewBox="0 0 100 100"
           className="absolute inset-0 h-full w-full animate-spinslow"
