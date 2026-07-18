@@ -389,7 +389,10 @@ export async function getStorefront(): Promise<Storefront> {
       []
     )) as { id: string; is_open: boolean }[];
     const open: Record<string, boolean> = {};
-    for (const o of openRows) open[o.id] = !!o.is_open;
+    // A restaurant counts as "open for orders" only while it is manually opened
+    // AND still inside the ordering window (orders stop 30 min before close).
+    for (const o of openRows)
+      open[o.id] = !!o.is_open && withinOrderingWindow(o.id);
     return {
       products: products.length ? products : PRODUCTS,
       coupons: couponRows.map(rowToCoupon),
@@ -547,6 +550,14 @@ export async function createOrder(
       return {
         ok: false,
         error: "Prevádzka ešte nie je dnes otvorená. Skúste neskôr.",
+      };
+    // New orders stop ORDER_CUTOFF_BEFORE_CLOSE minutes before closing time so
+    // the kitchen can finish what's in the queue before they close.
+    if (!withinOrderingWindow(data.restaurantId))
+      return {
+        ok: false,
+        error:
+          "Objednávky sú na dnes už uzavreté (posledné prijímame 30 min pred zatvorením).",
       };
 
     // items the admin marked unavailable for today
@@ -1134,6 +1145,20 @@ function toMinutes(hhmm: string): number {
   return (h || 0) * 60 + (m || 0);
 }
 
+// New orders are refused this many minutes before the day's closing time.
+const ORDER_CUTOFF_BEFORE_CLOSE = 30;
+
+// Whether the ordering window is still open right now (Europe/Bratislava): today
+// must be an opening day and it must be earlier than 30 min before closing time.
+// This is independent of the manual "open" flag — it just closes ordering early.
+function withinOrderingWindow(restaurantId: string): boolean {
+  const { weekdayIdx, minutes } = bratislavaNow();
+  const r = RESTAURANTS.find((x) => x.id === restaurantId);
+  const today = r?.openingHours.find((h) => h.day === weekdayIdx);
+  if (!today || today.closed === true) return false;
+  return minutes < toMinutes(today.close) - ORDER_CUTOFF_BEFORE_CLOSE;
+}
+
 // Current weekday (0 = Monday … 6 = Sunday) and minutes-since-midnight in the
 // Europe/Bratislava timezone, matching the seed opening-hours format.
 function bratislavaNow(): { weekdayIdx: number; minutes: number } {
@@ -1389,6 +1414,59 @@ export async function getShiftsReport(
     orders: byDate.get(s.d)?.n ?? 0,
     revenue: Math.round((byDate.get(s.d)?.rev ?? 0) * 100) / 100,
   }));
+}
+
+// ---------------------------------------------------------------------------
+// End-of-day tip (tringelt) split. The admin counts the cash drawer, we work
+// out how much is tips (counted − expected cash), and split it between the
+// staff who were on shift today (cooks + drivers). The actual money entry and
+// the equal split happen in the UI; here we just gather the basis.
+// ---------------------------------------------------------------------------
+export interface TipData {
+  // Sum of today's non-cancelled, non-card order totals — what should be in the
+  // cash drawer from orders (before any tips / starting float).
+  expectedCash: number;
+  cashOrders: number;
+  // Everyone on shift today (cooks + drivers) who shares the tips.
+  staff: { id: string; name: string; role: string }[];
+}
+
+export async function getTipData(restaurantId: string): Promise<TipData> {
+  await requireAdmin(restaurantId);
+  await ensureOrderColumns();
+
+  // Same "today" boundary as the dashboard: the service day pivots at noon.
+  const boundarySql = `(
+    (date_trunc('day', (now() AT TIME ZONE 'Europe/Bratislava'))
+      + CASE WHEN (now() AT TIME ZONE 'Europe/Bratislava')
+                  >= date_trunc('day', (now() AT TIME ZONE 'Europe/Bratislava')) + interval '12 hours'
+             THEN interval '12 hours' ELSE interval '-12 hours' END
+    ) AT TIME ZONE 'Europe/Bratislava'
+  )`;
+
+  // Cash = everything that isn't an explicit card payment (payment is stored as
+  // a human label like "Hotovosť pri doručení" / "Karta pri odbere").
+  const cash = (await sql.query(
+    `SELECT COALESCE(SUM(total),0)::float AS sum, COUNT(*)::int AS cnt
+     FROM orders
+     WHERE restaurant_id = $1 AND status <> 'cancelled'
+       AND COALESCE(payment,'') NOT ILIKE '%karta%'
+       AND created_at >= ${boundarySql}`,
+    [restaurantId]
+  )) as { sum: number; cnt: number }[];
+
+  const staff = (await sql.query(
+    `SELECT user_id AS id, name, role FROM shifts
+     WHERE restaurant_id = $1 AND service_date = ${SERVICE_DATE}
+     ORDER BY role, name`,
+    [restaurantId]
+  )) as { id: string; name: string; role: string }[];
+
+  return {
+    expectedCash: Math.round((cash[0]?.sum ?? 0) * 100) / 100,
+    cashOrders: cash[0]?.cnt ?? 0,
+    staff,
+  };
 }
 
 // ===========================================================================
