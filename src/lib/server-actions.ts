@@ -223,12 +223,16 @@ async function ensureOrderColumns(): Promise<void> {
         UNIQUE (restaurant_id, user_id, service_date)
       )`;
     await sql`CREATE INDEX IF NOT EXISTS shifts_date_idx ON shifts (restaurant_id, service_date)`;
-    // Saved end-of-day tip split, one row per service day. allocations holds
-    // who took how much: [{ id, name, role, amount }].
+    // Saved end-of-day tip split, one row per service day. driver_cash holds the
+    // cash each driver handed in: [{ id, name, amount }]; allocations holds who
+    // took how much of the tips: [{ id, name, role, amount }]. tips_total is the
+    // signed difference (collected − expected): positive = tips, negative = manko.
     await sql`
       CREATE TABLE IF NOT EXISTS shift_tips (
         restaurant_id text NOT NULL,
         service_date date NOT NULL,
+        expected_total numeric(10,2) NOT NULL DEFAULT 0,
+        driver_cash jsonb NOT NULL DEFAULT '[]'::jsonb,
         expected_cash numeric(10,2) NOT NULL DEFAULT 0,
         counted_cash numeric(10,2) NOT NULL DEFAULT 0,
         expected_card numeric(10,2) NOT NULL DEFAULT 0,
@@ -241,6 +245,9 @@ async function ensureOrderColumns(): Promise<void> {
         updated_at timestamptz NOT NULL DEFAULT now(),
         PRIMARY KEY (restaurant_id, service_date)
       )`;
+    // Columns added after the first release of shift_tips.
+    await sql`ALTER TABLE shift_tips ADD COLUMN IF NOT EXISTS expected_total numeric(10,2) NOT NULL DEFAULT 0`;
+    await sql`ALTER TABLE shift_tips ADD COLUMN IF NOT EXISTS driver_cash jsonb NOT NULL DEFAULT '[]'::jsonb`;
   })().catch((e) => {
     orderColumnsPromise = null;
     throw e;
@@ -1453,13 +1460,18 @@ export interface TipAllocation {
   amount: number;
 }
 
+export interface TipDriverCash {
+  id: string;
+  name: string;
+  amount: number;
+}
+
 export interface SavedTips {
-  expectedCash: number;
-  countedCash: number;
-  expectedCard: number;
-  countedCard: number;
-  startingFloat: number;
-  tipsTotal: number;
+  expectedTotal: number; // all orders that day
+  driverCash: TipDriverCash[]; // cash each driver handed in
+  countedCash: number; // = sum of driverCash
+  card: number; // single card (terminal) total
+  diff: number; // collected − expected: positive = tips, negative = manko
   allocations: TipAllocation[];
   savedByEmail: string | null;
   updatedAt: string;
@@ -1467,25 +1479,24 @@ export interface SavedTips {
 
 export interface TipData {
   serviceDate: string;
-  // Sum of today's non-cancelled, non-card order totals — what should be in the
-  // cash drawer from orders (before any tips / starting float).
-  expectedCash: number;
-  cashOrders: number;
-  // Sum of today's card order totals — what the terminal should have taken.
+  // Sum of ALL of today's non-cancelled orders — the amount that should have
+  // been collected (cash + card together).
+  expectedTotal: number;
+  orderCount: number;
+  // Card-orders total, used to prefill the single card field.
   expectedCard: number;
-  cardOrders: number;
-  // Everyone on shift today (cooks + drivers) who shares the tips.
+  // Everyone on shift today (cooks + drivers): drivers hand in cash, all of them
+  // share the tips.
   staff: { id: string; name: string; role: string }[];
   // Previously saved split for today (if any), so re-opening shows it.
   saved: SavedTips | null;
 }
 
 interface TipRow {
-  expected_cash: string | number;
+  expected_total: string | number;
+  driver_cash: TipDriverCash[];
   counted_cash: string | number;
-  expected_card: string | number;
   counted_card: string | number;
-  starting_float: string | number;
   tips_total: string | number;
   allocations: TipAllocation[];
   saved_by_email: string | null;
@@ -1494,17 +1505,19 @@ interface TipRow {
 
 function rowToSavedTips(r: TipRow): SavedTips {
   return {
-    expectedCash: Number(r.expected_cash),
+    expectedTotal: Number(r.expected_total),
+    driverCash: Array.isArray(r.driver_cash) ? r.driver_cash : [],
     countedCash: Number(r.counted_cash),
-    expectedCard: Number(r.expected_card),
-    countedCard: Number(r.counted_card),
-    startingFloat: Number(r.starting_float),
-    tipsTotal: Number(r.tips_total),
+    card: Number(r.counted_card),
+    diff: Number(r.tips_total),
     allocations: Array.isArray(r.allocations) ? r.allocations : [],
     savedByEmail: r.saved_by_email,
     updatedAt: r.updated_at,
   };
 }
+
+const TIP_ROW_COLS =
+  "expected_total, driver_cash, counted_cash, counted_card, tips_total, allocations, saved_by_email, updated_at";
 
 export async function getTipData(restaurantId: string): Promise<TipData> {
   await requireAdmin(restaurantId);
@@ -1544,19 +1557,18 @@ export async function getTipData(restaurantId: string): Promise<TipData> {
     d: string;
   }[];
   const savedRows = (await sql.query(
-    `SELECT expected_cash, counted_cash, expected_card, counted_card,
-            starting_float, tips_total, allocations, saved_by_email, updated_at
-     FROM shift_tips
+    `SELECT ${TIP_ROW_COLS} FROM shift_tips
      WHERE restaurant_id = $1 AND service_date = ${SERVICE_DATE} LIMIT 1`,
     [restaurantId]
   )) as TipRow[];
 
+  const cashSum = money[0]?.cash_sum ?? 0;
+  const cardSum = money[0]?.card_sum ?? 0;
   return {
     serviceDate: svc[0]?.d ?? "",
-    expectedCash: Math.round((money[0]?.cash_sum ?? 0) * 100) / 100,
-    cashOrders: money[0]?.cash_cnt ?? 0,
-    expectedCard: Math.round((money[0]?.card_sum ?? 0) * 100) / 100,
-    cardOrders: money[0]?.card_cnt ?? 0,
+    expectedTotal: Math.round((cashSum + cardSum) * 100) / 100,
+    orderCount: (money[0]?.cash_cnt ?? 0) + (money[0]?.card_cnt ?? 0),
+    expectedCard: Math.round(cardSum * 100) / 100,
     staff,
     saved: savedRows[0] ? rowToSavedTips(savedRows[0]) : null,
   };
@@ -1564,12 +1576,10 @@ export async function getTipData(restaurantId: string): Promise<TipData> {
 
 // Save (upsert) today's tip split for the current service day.
 export interface SaveTipsInput {
-  expectedCash: number;
-  countedCash: number;
-  expectedCard: number;
-  countedCard: number;
-  startingFloat: number;
-  tipsTotal: number;
+  expectedTotal: number;
+  driverCash: TipDriverCash[];
+  card: number;
+  diff: number; // collected − expected (signed)
   allocations: TipAllocation[];
 }
 
@@ -1580,6 +1590,12 @@ export async function saveTips(
   const session = await requireAdmin(restaurantId);
   await ensureOrderColumns();
   const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
+  const driverCash = (input.driverCash ?? []).slice(0, 50).map((d) => ({
+    id: String(d.id),
+    name: String(d.name),
+    amount: r2(d.amount),
+  }));
+  const countedCash = r2(driverCash.reduce((s, d) => s + d.amount, 0));
   const alloc = (input.allocations ?? []).slice(0, 50).map((a) => ({
     id: String(a.id),
     name: String(a.name),
@@ -1588,16 +1604,15 @@ export async function saveTips(
   }));
   try {
     await sql.query(
-      `INSERT INTO shift_tips (restaurant_id, service_date, expected_cash,
-         counted_cash, expected_card, counted_card, starting_float, tips_total,
-         allocations, saved_by, saved_by_email, updated_at)
-       VALUES ($1, ${SERVICE_DATE}, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, now())
+      `INSERT INTO shift_tips (restaurant_id, service_date, expected_total,
+         driver_cash, counted_cash, counted_card, tips_total, allocations,
+         saved_by, saved_by_email, updated_at)
+       VALUES ($1, ${SERVICE_DATE}, $2, $3::jsonb, $4, $5, $6, $7::jsonb, $8, $9, now())
        ON CONFLICT (restaurant_id, service_date) DO UPDATE SET
-         expected_cash = EXCLUDED.expected_cash,
+         expected_total = EXCLUDED.expected_total,
+         driver_cash = EXCLUDED.driver_cash,
          counted_cash = EXCLUDED.counted_cash,
-         expected_card = EXCLUDED.expected_card,
          counted_card = EXCLUDED.counted_card,
-         starting_float = EXCLUDED.starting_float,
          tips_total = EXCLUDED.tips_total,
          allocations = EXCLUDED.allocations,
          saved_by = EXCLUDED.saved_by,
@@ -1605,12 +1620,11 @@ export async function saveTips(
          updated_at = now()`,
       [
         restaurantId,
-        r2(input.expectedCash),
-        r2(input.countedCash),
-        r2(input.expectedCard),
-        r2(input.countedCard),
-        r2(input.startingFloat),
-        r2(input.tipsTotal),
+        r2(input.expectedTotal),
+        JSON.stringify(driverCash),
+        countedCash,
+        r2(input.card),
+        r2(input.diff),
         JSON.stringify(alloc),
         session.user.id,
         session.user.email,
@@ -1621,7 +1635,7 @@ export async function saveTips(
       actorId: session.user.id,
       actorEmail: session.user.email,
       restaurantId,
-      meta: { tips: r2(input.tipsTotal), people: alloc.length },
+      meta: { diff: r2(input.diff), people: alloc.length },
     });
     return { ok: true };
   } catch (e) {
@@ -1668,9 +1682,8 @@ export async function getShiftDayDetail(
   )) as { cnt: number; revenue: number; cash: number; card: number }[];
 
   const tipRows = (await sql.query(
-    `SELECT expected_cash, counted_cash, expected_card, counted_card,
-            starting_float, tips_total, allocations, saved_by_email, updated_at
-     FROM shift_tips WHERE restaurant_id = $1 AND service_date = $2::date LIMIT 1`,
+    `SELECT ${TIP_ROW_COLS} FROM shift_tips
+     WHERE restaurant_id = $1 AND service_date = $2::date LIMIT 1`,
     [restaurantId, serviceDate]
   )) as TipRow[];
 

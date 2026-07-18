@@ -1709,11 +1709,9 @@ function TipField({
 function TipCalculator({ restaurantId }: { restaurantId: string }) {
   const [data, setData] = useState<TipData | null>(null);
   const [loading, setLoading] = useState(false);
-  const [expCash, setExpCash] = useState("");
-  const [countedCash, setCountedCash] = useState("");
-  const [expCard, setExpCard] = useState("");
-  const [countedCard, setCountedCard] = useState("");
-  const [floatAmt, setFloatAmt] = useState("");
+  const [expTotal, setExpTotal] = useState("");
+  const [card, setCard] = useState("");
+  const [driverCash, setDriverCash] = useState<Record<string, string>>({});
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -1724,19 +1722,20 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
       .then((d) => {
         setData(d);
         const s = d.saved;
-        // Prefill expected from today's orders; if a split was already saved for
-        // today, restore exactly what was entered.
-        setExpCash(String((s ? s.expectedCash : d.expectedCash) || ""));
-        setExpCard(String((s ? s.expectedCard : d.expectedCard) || ""));
+        // Prefill expected from today's orders; restore a saved split if any.
+        setExpTotal(String((s ? s.expectedTotal : d.expectedTotal) || ""));
+        setCard(String((s ? s.card : d.expectedCard) || ""));
         if (s) {
-          setCountedCash(s.countedCash ? String(s.countedCash) : "");
-          setCountedCard(s.countedCard ? String(s.countedCard) : "");
-          setFloatAmt(s.startingFloat ? String(s.startingFloat) : "");
-          // Anyone on shift not in the saved allocations was excluded.
+          const dc: Record<string, string> = {};
+          for (const x of s.driverCash) dc[x.id] = String(x.amount || "");
+          setDriverCash(dc);
           const paid = new Set(s.allocations.map((a) => a.id));
           setExcluded(
             new Set(d.staff.filter((m) => !paid.has(m.id)).map((m) => m.id))
           );
+        } else {
+          setDriverCash({});
+          setExcluded(new Set());
         }
       })
       .catch(() => {})
@@ -1745,13 +1744,25 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
   useEffect(() => load(), [load]);
 
   const num = (s: string) => {
-    const n = parseFloat(s.replace(",", "."));
+    const n = parseFloat((s ?? "").replace(",", "."));
     return Number.isFinite(n) ? n : 0;
   };
   const r2 = (n: number) => Math.round(n * 100) / 100;
-  const cashTips = num(countedCash) - num(floatAmt) - num(expCash);
-  const cardTips = num(countedCard) - num(expCard);
-  const tips = Math.max(0, r2(cashTips + cardTips));
+
+  const drivers = (data?.staff ?? []).filter((s) => s.role === "driver");
+  // Drivers hand in cash; if none are on shift, fall back to one cash box.
+  const cashInputs: { id: string; name: string }[] = drivers.length
+    ? drivers.map((d) => ({ id: d.id, name: d.name }))
+    : [{ id: "_cash", name: "Hotovosť" }];
+  const cashSum = r2(
+    cashInputs.reduce((sum, c) => sum + num(driverCash[c.id]), 0)
+  );
+  const cardNum = num(card);
+  const collected = r2(cashSum + cardNum);
+  const diff = r2(collected - num(expTotal));
+  const tips = Math.max(0, diff);
+  const manko = Math.max(0, -diff);
+
   const included = (data?.staff ?? []).filter((s) => !excluded.has(s.id));
   const per = included.length
     ? Math.floor((tips / included.length) * 100) / 100
@@ -1771,17 +1782,25 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
     });
   }
 
-  // Wrap a setter so editing any field clears the "saved" confirmation.
-  const edit =
+  const editStr =
     (setter: (v: string) => void) =>
     (e: React.ChangeEvent<HTMLInputElement>) => {
       setSaved(false);
       setter(e.target.value);
     };
+  function setDC(id: string, v: string) {
+    setSaved(false);
+    setDriverCash((prev) => ({ ...prev, [id]: v }));
+  }
 
   async function save() {
     if (saving) return;
     setSaving(true);
+    const driverCashArr = cashInputs.map((c) => ({
+      id: c.id,
+      name: c.name,
+      amount: num(driverCash[c.id]),
+    }));
     const allocations: TipAllocation[] = included.map((s) => ({
       id: s.id,
       name: s.name,
@@ -1789,12 +1808,10 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
       amount: per,
     }));
     const res = await saveTips(restaurantId, {
-      expectedCash: num(expCash),
-      countedCash: num(countedCash),
-      expectedCard: num(expCard),
-      countedCard: num(countedCard),
-      startingFloat: num(floatAmt),
-      tipsTotal: tips,
+      expectedTotal: num(expTotal),
+      driverCash: driverCashArr,
+      card: cardNum,
+      diff,
       allocations,
     });
     setSaving(false);
@@ -1816,7 +1833,8 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
               Tringelty — koniec dňa
             </p>
             <p className="text-sm text-neutral-500">
-              Spočítajte hotovosť a rozdeľte prepitné medzi zmenu.
+              Hotovosť od rozvozcov + karta − očakávaná suma = tringelty (alebo
+              manko).
             </p>
           </div>
         </div>
@@ -1831,78 +1849,89 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
       </div>
 
       <div className="space-y-3">
-        {/* Cash */}
-        <div className="grid gap-3 sm:grid-cols-2">
-          <TipField
-            label="Očakávaná hotovosť (€)"
-            hint={`${data?.cashOrders ?? 0} hotovostných obj. dnes`}
-          >
-            <input
-              inputMode="decimal"
-              value={expCash}
-              onChange={edit(setExpCash)}
-              className={TIP_INPUT}
-              placeholder="0"
-            />
-          </TipField>
-          <TipField label="Spočítaná hotovosť (€)" hint="čo je v pokladni">
-            <input
-              inputMode="decimal"
-              value={countedCash}
-              onChange={edit(setCountedCash)}
-              className={TIP_INPUT}
-              placeholder="0"
-            />
-          </TipField>
-        </div>
-        {/* Card */}
-        <div className="grid gap-3 sm:grid-cols-2">
-          <TipField
-            label="Očakávaná karta (€)"
-            hint={`${data?.cardOrders ?? 0} kartových obj. dnes`}
-          >
-            <input
-              inputMode="decimal"
-              value={expCard}
-              onChange={edit(setExpCard)}
-              className={TIP_INPUT}
-              placeholder="0"
-            />
-          </TipField>
-          <TipField label="Spočítaná karta (€)" hint="z terminálu">
-            <input
-              inputMode="decimal"
-              value={countedCard}
-              onChange={edit(setCountedCard)}
-              className={TIP_INPUT}
-              placeholder="0"
-            />
-          </TipField>
-        </div>
-        <TipField label="Počiatočný vklad (€)" hint="nepovinné — odráta sa z hotovosti">
+        <TipField
+          label="Očakávaná suma — všetky objednávky (€)"
+          hint={`${data?.orderCount ?? 0} objednávok dnes`}
+        >
           <input
             inputMode="decimal"
-            value={floatAmt}
-            onChange={edit(setFloatAmt)}
-            className={cn(TIP_INPUT, "sm:max-w-[240px]")}
+            value={expTotal}
+            onChange={editStr(setExpTotal)}
+            className={cn(TIP_INPUT, "sm:max-w-[280px]")}
+            placeholder="0"
+          />
+        </TipField>
+
+        <div>
+          <p className="mb-1.5 text-xs font-medium text-neutral-500">
+            Hotovosť od rozvozcov (€)
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {cashInputs.map((c) => (
+              <div key={c.id} className="flex items-center gap-2">
+                <span className="w-28 shrink-0 truncate text-sm text-neutral-600 dark:text-neutral-300">
+                  {c.name}
+                </span>
+                <input
+                  inputMode="decimal"
+                  value={driverCash[c.id] ?? ""}
+                  onChange={(e) => setDC(c.id, e.target.value)}
+                  className={TIP_INPUT}
+                  placeholder="0"
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <TipField label="Karta — spolu z terminálu (€)" hint="jedna suma">
+          <input
+            inputMode="decimal"
+            value={card}
+            onChange={editStr(setCard)}
+            className={cn(TIP_INPUT, "sm:max-w-[280px]")}
             placeholder="0"
           />
         </TipField>
       </div>
 
-      <div className="mt-4 flex items-center justify-between rounded-xl bg-brand-primary/10 px-4 py-3">
-        <span className="text-sm font-semibold text-neutral-700 dark:text-neutral-200">
-          Tringelty spolu
+      {/* collected vs expected */}
+      <div className="mt-4 flex flex-wrap gap-x-6 gap-y-1 text-sm text-neutral-500">
+        <span>
+          Hotovosť: <b className="text-neutral-800 dark:text-neutral-200">{eur(cashSum)}</b>
         </span>
-        <span className="font-display text-2xl font-extrabold text-brand-primary">
-          {eur(tips)}
+        <span>
+          Karta: <b className="text-neutral-800 dark:text-neutral-200">{eur(cardNum)}</b>
+        </span>
+        <span>
+          Vybrané spolu:{" "}
+          <b className="text-neutral-800 dark:text-neutral-200">{eur(collected)}</b>
+        </span>
+      </div>
+
+      <div
+        className={cn(
+          "mt-2 flex items-center justify-between rounded-xl px-4 py-3",
+          diff < 0 ? "bg-brand-error/10" : "bg-brand-primary/10"
+        )}
+      >
+        <span className="text-sm font-semibold text-neutral-700 dark:text-neutral-200">
+          {diff < 0 ? "Manko (chýba)" : "Tringelty spolu"}
+        </span>
+        <span
+          className={cn(
+            "font-display text-2xl font-extrabold",
+            diff < 0 ? "text-brand-error" : "text-brand-primary"
+          )}
+        >
+          {diff < 0 ? `−${eur(manko)}` : eur(tips)}
         </span>
       </div>
 
       <div className="mt-4">
         <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-neutral-700 dark:text-neutral-200">
           <Users className="h-4 w-4 text-brand-secondary" /> Rozdelenie na zmenu
-          {included.length > 0 && (
+          {tips > 0 && included.length > 0 && (
             <span className="text-xs font-normal text-neutral-500">
               · {eur(per)} / os.
             </span>
@@ -1911,6 +1940,12 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
         {(data?.staff.length ?? 0) === 0 ? (
           <p className="text-sm text-neutral-500">
             Dnes nemá nikto zmenu. Zmeny sa zadávajú pri otvorení prevádzky.
+          </p>
+        ) : tips <= 0 ? (
+          <p className="text-sm text-neutral-500">
+            {diff < 0
+              ? "Manko — niet čo rozdeľovať."
+              : "Žiadne tringelty na rozdelenie."}
           </p>
         ) : (
           <ul className="space-y-1.5">
@@ -1948,7 +1983,7 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
             })}
           </ul>
         )}
-        {leftover > 0 && included.length > 0 && (
+        {leftover > 0 && included.length > 0 && tips > 0 && (
           <p className="mt-2 text-xs text-neutral-500">
             Zvyšok po zaokrúhlení: {eur(leftover)} — rozdeľte ručne.
           </p>
@@ -2545,30 +2580,52 @@ function ShiftsReport({ restaurantId }: { restaurantId: string }) {
                           ) : (
                             <div className="space-y-1.5">
                               <div className="flex items-center justify-between">
-                                <span className="text-neutral-500">Spolu</span>
-                                <span className="font-display text-lg font-extrabold text-brand-primary">
-                                  {eur(detail.tips.tipsTotal)}
+                                <span className="text-neutral-500">
+                                  {detail.tips.diff < 0 ? "Manko" : "Spolu"}
+                                </span>
+                                <span
+                                  className={cn(
+                                    "font-display text-lg font-extrabold",
+                                    detail.tips.diff < 0
+                                      ? "text-brand-error"
+                                      : "text-brand-primary"
+                                  )}
+                                >
+                                  {detail.tips.diff < 0
+                                    ? `−${eur(-detail.tips.diff)}`
+                                    : eur(detail.tips.diff)}
                                 </span>
                               </div>
-                              <ul className="space-y-1">
-                                {detail.tips.allocations.map((a, i) => (
-                                  <li
-                                    key={i}
-                                    className="flex items-center justify-between rounded-lg bg-white px-3 py-1.5 dark:bg-white/[0.04]"
-                                  >
-                                    <span>
-                                      {a.name}
-                                      <span className="text-xs text-neutral-400">
-                                        {" "}
-                                        · {roleLabel(a.role)}
+                              {detail.tips.driverCash.length > 0 && (
+                                <p className="text-xs text-neutral-500">
+                                  Hotovosť:{" "}
+                                  {detail.tips.driverCash
+                                    .map((d) => `${d.name} ${eur(d.amount)}`)
+                                    .join(" · ")}{" "}
+                                  · Karta {eur(detail.tips.card)}
+                                </p>
+                              )}
+                              {detail.tips.allocations.length > 0 && (
+                                <ul className="space-y-1">
+                                  {detail.tips.allocations.map((a, i) => (
+                                    <li
+                                      key={i}
+                                      className="flex items-center justify-between rounded-lg bg-white px-3 py-1.5 dark:bg-white/[0.04]"
+                                    >
+                                      <span>
+                                        {a.name}
+                                        <span className="text-xs text-neutral-400">
+                                          {" "}
+                                          · {roleLabel(a.role)}
+                                        </span>
                                       </span>
-                                    </span>
-                                    <span className="font-semibold tabular-nums">
-                                      {eur(a.amount)}
-                                    </span>
-                                  </li>
-                                ))}
-                              </ul>
+                                      <span className="font-semibold tabular-nums">
+                                        {eur(a.amount)}
+                                      </span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
                               {detail.tips.savedByEmail && (
                                 <p className="text-[11px] text-neutral-400">
                                   Uložil: {detail.tips.savedByEmail}
