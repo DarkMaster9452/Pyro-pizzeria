@@ -40,10 +40,14 @@ import {
   resetOldOrders,
   getShiftsReport,
   getTipData,
+  saveTips,
+  getShiftDayDetail,
   getOrderDays,
   getAdminOrdersByDay,
   setOrderSurcharge,
   type TipData,
+  type TipAllocation,
+  type ShiftDayDetail,
   type AdminSummary,
   type AdminOrderRow,
   type OrderDetail,
@@ -90,6 +94,7 @@ import {
   CalendarDays,
   StickyNote,
   Coins,
+  ChevronDown,
 } from "lucide-react";
 
 type Tab =
@@ -1710,14 +1715,29 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
   const [countedCard, setCountedCard] = useState("");
   const [floatAmt, setFloatAmt] = useState("");
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
     getTipData(restaurantId)
       .then((d) => {
         setData(d);
-        setExpCash(d.expectedCash ? String(d.expectedCash) : "");
-        setExpCard(d.expectedCard ? String(d.expectedCard) : "");
+        const s = d.saved;
+        // Prefill expected from today's orders; if a split was already saved for
+        // today, restore exactly what was entered.
+        setExpCash(String((s ? s.expectedCash : d.expectedCash) || ""));
+        setExpCard(String((s ? s.expectedCard : d.expectedCard) || ""));
+        if (s) {
+          setCountedCash(s.countedCash ? String(s.countedCash) : "");
+          setCountedCard(s.countedCard ? String(s.countedCard) : "");
+          setFloatAmt(s.startingFloat ? String(s.startingFloat) : "");
+          // Anyone on shift not in the saved allocations was excluded.
+          const paid = new Set(s.allocations.map((a) => a.id));
+          setExcluded(
+            new Set(d.staff.filter((m) => !paid.has(m.id)).map((m) => m.id))
+          );
+        }
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -1742,12 +1762,46 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
     role === "driver" ? "Rozvozca" : role === "kuchar" ? "Kuchár" : role;
 
   function toggle(id: string) {
+    setSaved(false);
     setExcluded((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
+  }
+
+  // Wrap a setter so editing any field clears the "saved" confirmation.
+  const edit =
+    (setter: (v: string) => void) =>
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      setSaved(false);
+      setter(e.target.value);
+    };
+
+  async function save() {
+    if (saving) return;
+    setSaving(true);
+    const allocations: TipAllocation[] = included.map((s) => ({
+      id: s.id,
+      name: s.name,
+      role: s.role,
+      amount: per,
+    }));
+    const res = await saveTips(restaurantId, {
+      expectedCash: num(expCash),
+      countedCash: num(countedCash),
+      expectedCard: num(expCard),
+      countedCard: num(countedCard),
+      startingFloat: num(floatAmt),
+      tipsTotal: tips,
+      allocations,
+    });
+    setSaving(false);
+    if (res.ok) {
+      setSaved(true);
+      load();
+    }
   }
 
   return (
@@ -1786,7 +1840,7 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
             <input
               inputMode="decimal"
               value={expCash}
-              onChange={(e) => setExpCash(e.target.value)}
+              onChange={edit(setExpCash)}
               className={TIP_INPUT}
               placeholder="0"
             />
@@ -1795,7 +1849,7 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
             <input
               inputMode="decimal"
               value={countedCash}
-              onChange={(e) => setCountedCash(e.target.value)}
+              onChange={edit(setCountedCash)}
               className={TIP_INPUT}
               placeholder="0"
             />
@@ -1810,7 +1864,7 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
             <input
               inputMode="decimal"
               value={expCard}
-              onChange={(e) => setExpCard(e.target.value)}
+              onChange={edit(setExpCard)}
               className={TIP_INPUT}
               placeholder="0"
             />
@@ -1819,7 +1873,7 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
             <input
               inputMode="decimal"
               value={countedCard}
-              onChange={(e) => setCountedCard(e.target.value)}
+              onChange={edit(setCountedCard)}
               className={TIP_INPUT}
               placeholder="0"
             />
@@ -1829,7 +1883,7 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
           <input
             inputMode="decimal"
             value={floatAmt}
-            onChange={(e) => setFloatAmt(e.target.value)}
+            onChange={edit(setFloatAmt)}
             className={cn(TIP_INPUT, "sm:max-w-[240px]")}
             placeholder="0"
           />
@@ -1899,6 +1953,39 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
             Zvyšok po zaokrúhlení: {eur(leftover)} — rozdeľte ručne.
           </p>
         )}
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-black/[0.06] pt-4 dark:border-white/5">
+        <div className="text-xs text-neutral-500">
+          {data?.saved ? (
+            <>
+              Naposledy uložené{" "}
+              {new Date(data.saved.updatedAt).toLocaleString("sk-SK", {
+                day: "2-digit",
+                month: "2-digit",
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+              {data.saved.savedByEmail ? ` · ${data.saved.savedByEmail}` : ""}
+            </>
+          ) : (
+            "Zatiaľ neuložené pre dnešnú zmenu."
+          )}
+        </div>
+        <button
+          onClick={save}
+          disabled={saving}
+          className="inline-flex items-center gap-2 rounded-full bg-brand-primary px-5 py-2.5 text-sm font-bold text-white hover:brightness-110 disabled:opacity-50"
+        >
+          {saving ? (
+            <RefreshCw className="h-4 w-4 animate-spin" />
+          ) : saved ? (
+            <Check className="h-4 w-4" />
+          ) : (
+            <Coins className="h-4 w-4" />
+          )}
+          {saving ? "Ukladám…" : saved ? "Uložené ✓" : "Uložiť na zmenu"}
+        </button>
       </div>
     </div>
   );
@@ -2324,14 +2411,37 @@ function PruneOrders({
   );
 }
 
-// Who worked which days + the orders/revenue booked on each day.
+// Who worked which days + the orders/revenue booked on each day. Each day opens
+// to show the full detail: staff, cash/card split and the saved tip allocation.
 function ShiftsReport({ restaurantId }: { restaurantId: string }) {
   const [days, setDays] = useState<ShiftDay[] | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
+  const [details, setDetails] = useState<Record<string, ShiftDayDetail>>({});
+  const [loadingDay, setLoadingDay] = useState<string | null>(null);
+
   useEffect(() => {
     getShiftsReport(restaurantId)
       .then(setDays)
       .catch(() => setDays([]));
   }, [restaurantId]);
+
+  const roleLabel = (role: string) =>
+    role === "driver" ? "Rozvozca" : role === "kuchar" ? "Kuchár" : role;
+
+  function toggle(date: string) {
+    if (open === date) {
+      setOpen(null);
+      return;
+    }
+    setOpen(date);
+    if (!details[date]) {
+      setLoadingDay(date);
+      getShiftDayDetail(restaurantId, date)
+        .then((d) => setDetails((prev) => ({ ...prev, [date]: d })))
+        .catch(() => {})
+        .finally(() => setLoadingDay(null));
+    }
+  }
 
   return (
     <div className={CARD}>
@@ -2346,42 +2456,162 @@ function ShiftsReport({ restaurantId }: { restaurantId: string }) {
           Zatiaľ žiadne zaznamenané služby. Zapíšu sa pri otvorení prevádzky.
         </p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-black/[0.08] text-neutral-500 dark:border-white/5">
-              <tr>
-                {["Deň", "Služba", "Objednávky", "Tržba"].map((h) => (
-                  <th key={h} className="py-2 pr-4 font-semibold">
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {days.map((d) => (
-                <tr
-                  key={d.serviceDate}
-                  className="border-b border-black/[0.06] last:border-0 dark:border-white/5"
+        <div className="space-y-2">
+          {days.map((d) => {
+            const isOpen = open === d.serviceDate;
+            const detail = details[d.serviceDate];
+            return (
+              <div
+                key={d.serviceDate}
+                className="overflow-hidden rounded-xl border border-black/[0.06] dark:border-white/5"
+              >
+                <button
+                  onClick={() => toggle(d.serviceDate)}
+                  className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm hover:bg-black/[0.02] dark:hover:bg-white/[0.03]"
                 >
-                  <td className="py-2 pr-4 font-medium text-neutral-900 dark:text-white">
+                  <ChevronDown
+                    className={cn(
+                      "h-4 w-4 shrink-0 text-neutral-400 transition-transform",
+                      isOpen && "rotate-180"
+                    )}
+                  />
+                  <span className="w-24 shrink-0 font-medium text-neutral-900 dark:text-white">
                     {d.serviceDate}
-                  </td>
-                  <td className="py-2 pr-4 text-neutral-500">
-                    <span className="flex flex-wrap items-center gap-1">
-                      <Users className="h-3.5 w-3.5 text-brand-secondary" />
-                      {d.staff.length ? d.staff.join(", ") : "—"}
-                    </span>
-                  </td>
-                  <td className="py-2 pr-4">{d.orders}</td>
-                  <td className="py-2 pr-4 font-semibold text-brand-primary">
+                  </span>
+                  <span className="hidden flex-1 items-center gap-1 truncate text-neutral-500 sm:flex">
+                    <Users className="h-3.5 w-3.5 text-brand-secondary" />
+                    {d.staff.length ? d.staff.join(", ") : "—"}
+                  </span>
+                  <span className="ml-auto shrink-0 text-neutral-500">
+                    {d.orders} obj.
+                  </span>
+                  <span className="w-20 shrink-0 text-right font-semibold text-brand-primary">
                     {eur(d.revenue)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  </span>
+                </button>
+
+                {isOpen && (
+                  <div className="border-t border-black/[0.06] bg-black/[0.015] px-4 py-3 dark:border-white/5 dark:bg-white/[0.02]">
+                    {!detail ? (
+                      <p className="text-sm text-neutral-500">
+                        {loadingDay === d.serviceDate
+                          ? "Načítavam…"
+                          : "—"}
+                      </p>
+                    ) : (
+                      <div className="space-y-3 text-sm">
+                        {/* money split */}
+                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                          <DayStat label="Objednávky" value={String(detail.orders)} />
+                          <DayStat label="Hotovosť" value={eur(detail.cash)} />
+                          <DayStat label="Karta" value={eur(detail.card)} />
+                          <DayStat label="Tržba spolu" value={eur(detail.revenue)} accent />
+                        </div>
+
+                        {/* staff */}
+                        <div>
+                          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-neutral-400">
+                            Na zmene
+                          </p>
+                          {detail.staff.length === 0 ? (
+                            <p className="text-neutral-500">—</p>
+                          ) : (
+                            <div className="flex flex-wrap gap-1.5">
+                              {detail.staff.map((s, i) => (
+                                <span
+                                  key={i}
+                                  className="rounded-full bg-black/[0.05] px-2.5 py-1 text-xs dark:bg-white/[0.06]"
+                                >
+                                  {s.name}
+                                  <span className="text-neutral-400">
+                                    {" "}
+                                    · {roleLabel(s.role)}
+                                  </span>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* tips */}
+                        <div>
+                          <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-neutral-400">
+                            <Coins className="h-3.5 w-3.5" /> Tringelty
+                          </p>
+                          {!detail.tips ? (
+                            <p className="text-neutral-500">
+                              Neuložené pre tento deň.
+                            </p>
+                          ) : (
+                            <div className="space-y-1.5">
+                              <div className="flex items-center justify-between">
+                                <span className="text-neutral-500">Spolu</span>
+                                <span className="font-display text-lg font-extrabold text-brand-primary">
+                                  {eur(detail.tips.tipsTotal)}
+                                </span>
+                              </div>
+                              <ul className="space-y-1">
+                                {detail.tips.allocations.map((a, i) => (
+                                  <li
+                                    key={i}
+                                    className="flex items-center justify-between rounded-lg bg-white px-3 py-1.5 dark:bg-white/[0.04]"
+                                  >
+                                    <span>
+                                      {a.name}
+                                      <span className="text-xs text-neutral-400">
+                                        {" "}
+                                        · {roleLabel(a.role)}
+                                      </span>
+                                    </span>
+                                    <span className="font-semibold tabular-nums">
+                                      {eur(a.amount)}
+                                    </span>
+                                  </li>
+                                ))}
+                              </ul>
+                              {detail.tips.savedByEmail && (
+                                <p className="text-[11px] text-neutral-400">
+                                  Uložil: {detail.tips.savedByEmail}
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
+    </div>
+  );
+}
+
+function DayStat({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: string;
+  accent?: boolean;
+}) {
+  return (
+    <div className="rounded-lg bg-white px-3 py-2 dark:bg-white/[0.04]">
+      <p className="text-[11px] text-neutral-500">{label}</p>
+      <p
+        className={cn(
+          "font-semibold",
+          accent
+            ? "text-brand-primary"
+            : "text-neutral-900 dark:text-white"
+        )}
+      >
+        {value}
+      </p>
     </div>
   );
 }
