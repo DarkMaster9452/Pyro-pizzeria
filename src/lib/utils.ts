@@ -151,3 +151,6 @@ export function estimatedWait(baseMinutes: number, queuePizzas: number): number 
 // both server actions and client components can import it.
 export const POL_POL_SURCHARGE = 1.5;
 export const POL_POL_LABEL = "Pol/pol pizza";
+
+// Part-timer (brigádnik) hourly wage, paid out daily in the settlement.
+export const WAGE_PER_HOUR = 6;
