@@ -6,36 +6,42 @@ import { AnimatePresence, motion } from "framer-motion";
 import type { Product } from "@/lib/types";
 import { extrasForProduct } from "@/lib/data";
 import { useApp } from "@/lib/store";
-import { eur, shortId, cn } from "@/lib/utils";
+import { eur, shortId, cn, isRealPizza, POL_POL_SURCHARGE } from "@/lib/utils";
 import { BadgeRow } from "./Badges";
-import { Check, Minus, Plus, X } from "lucide-react";
+import { Check, Minus, Plus, X, Pizza } from "lucide-react";
 
 export function PizzaCustomizer({
   product,
+  number,
   onClose,
 }: {
   product: Product;
+  number?: number; // flyer number — used to tell real pizzas from dough sides
   onClose: () => void;
 }) {
   const addLine = useApp((s) => s.addLine);
   const [sizeId, setSizeId] = useState(product.sizes[0].id);
   const [added, setAdded] = useState<string[]>([]);
   const [qty, setQty] = useState(1);
+  const [polpol, setPolpol] = useState(false);
   const [note, setNote] = useState("");
 
   const size = product.sizes.find((s) => s.id === sizeId)!;
   const extras = extrasForProduct(product) ?? [];
   const isLangos = product.name.toLowerCase().includes("langoš");
   const hasSizes = product.sizes.length > 1;
+  // pol/pol is only offered on real pizzas (not the dough sides 21–23).
+  const canPolpol = isRealPizza(product, number);
 
   const unitPrice = useMemo(() => {
     let p = product.basePrice + size.priceDelta;
+    if (polpol) p += POL_POL_SURCHARGE;
     for (const name of added) {
       const ing = extras.find((i) => i.name === name);
       if (ing) p += ing.price;
     }
     return Math.round(p * 100) / 100;
-  }, [product.basePrice, size.priceDelta, added, extras]);
+  }, [product.basePrice, size.priceDelta, added, extras, polpol]);
 
   function toggleAdd(name: string) {
     setAdded((a) =>
@@ -56,6 +62,7 @@ export function PizzaCustomizer({
       quantity: qty,
       extraCheese: false,
       stuffedCrust: false,
+      polpol: canPolpol && polpol,
       addedIngredients: added,
       removedIngredients: [],
       note: note || undefined,
@@ -163,13 +170,54 @@ export function PizzaCustomizer({
               </Section>
             )}
 
+            {/* pol/pol — half-and-half, only for real pizzas */}
+            {canPolpol && (
+              <Section title="Pol/pol pizza">
+                <button
+                  type="button"
+                  onClick={() => setPolpol((v) => !v)}
+                  className={cn(
+                    "flex w-full items-center gap-3 rounded-2xl border-2 p-3 text-left transition-colors",
+                    polpol
+                      ? "border-brand-primary bg-brand-primary/5"
+                      : "border-transparent bg-white dark:bg-[#262626]"
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl",
+                      polpol
+                        ? "bg-brand-primary text-white"
+                        : "bg-brand-primary/10 text-brand-primary"
+                    )}
+                  >
+                    <Pizza className="h-5 w-5" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-semibold text-neutral-900 dark:text-white">
+                      Chcem dve polovice (½ + ½)
+                    </span>
+                    <span className="block text-xs text-neutral-500">
+                      Príplatok +{eur(POL_POL_SURCHARGE)} · napíšte kombináciu
+                      nižšie do poznámky
+                    </span>
+                  </span>
+                  {polpol && <Check className="h-5 w-5 text-brand-primary" />}
+                </button>
+              </Section>
+            )}
+
             {/* note */}
             <Section title="Poznámka pre kuchyňu">
               <textarea
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 rows={2}
-                placeholder="Napr. dobre prepečené, bez cesnaku…"
+                placeholder={
+                  polpol
+                    ? "Napíšte, ako to chcete: napr. ½ Margherita + ½ Diavola"
+                    : "Napr. dobre prepečené, bez cesnaku…"
+                }
                 className="w-full resize-none rounded-xl border border-black/10 bg-white p-3 text-sm outline-none focus:border-brand-primary dark:border-white/10 dark:bg-[#262626]"
               />
             </Section>

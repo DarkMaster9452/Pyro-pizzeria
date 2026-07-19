@@ -586,34 +586,6 @@ function Dashboard({
         </div>
       </div>
 
-      {/* Money breakdown for today — cash vs card, plus the total. */}
-      <div className={CARD}>
-        <p className="mb-3 flex items-center gap-2 font-display font-bold text-neutral-900 dark:text-white">
-          <Coins className="h-4 w-4 text-brand-accent" /> Tržby dnes — hotovosť /
-          karta
-        </p>
-        <div className="grid gap-3 sm:grid-cols-3">
-          <div className="rounded-xl bg-black/[0.03] px-4 py-3 dark:bg-white/[0.04]">
-            <p className="text-xs text-neutral-500">Hotovosť</p>
-            <p className="font-display text-xl font-extrabold text-neutral-900 dark:text-white">
-              {summary ? eur(summary.cashToday) : "—"}
-            </p>
-          </div>
-          <div className="rounded-xl bg-black/[0.03] px-4 py-3 dark:bg-white/[0.04]">
-            <p className="text-xs text-neutral-500">Karta</p>
-            <p className="font-display text-xl font-extrabold text-neutral-900 dark:text-white">
-              {summary ? eur(summary.cardToday) : "—"}
-            </p>
-          </div>
-          <div className="rounded-xl bg-brand-primary/10 px-4 py-3">
-            <p className="text-xs text-neutral-500">Spolu</p>
-            <p className="font-display text-xl font-extrabold text-brand-primary">
-              {summary ? eur(summary.revenueToday) : "—"}
-            </p>
-          </div>
-        </div>
-      </div>
-
       <ShiftsReport restaurantId={restaurantId} />
     </div>
   );
@@ -1360,33 +1332,43 @@ function OrderDetailModal({
               </div>
             )}
 
-            {/* Custom-request surcharge (e.g. half-and-half pizza). Toggleable
-                until the order is paid. */}
-            <button
-              disabled={surBusy || detail.status === "delivered"}
-              onClick={() => toggleSurcharge(detail.surcharge <= 0)}
-              className={cn(
-                "flex w-full items-center justify-between gap-2 rounded-2xl border px-4 py-3 text-sm font-semibold transition-colors disabled:opacity-50",
-                detail.surcharge > 0
-                  ? "border-brand-primary/50 bg-brand-primary/10 text-brand-primary"
-                  : "border-black/10 text-neutral-600 hover:bg-black/[0.03] dark:border-white/15 dark:text-neutral-300 dark:hover:bg-white/5"
-              )}
-            >
-              <span className="flex items-center gap-2">
-                <Pizza className="h-4 w-4" /> Pol/pol pizza · príplatok{" "}
-                {eur(POL_POL_SURCHARGE)}
-              </span>
-              <span
+            {/* Custom-request surcharge (half-and-half pizza). Only for unpaid
+                orders that contain a real pizza. If it's already applied it
+                stays visible (read-only) even once paid. */}
+            {(detail.pizzaCount > 0 || detail.surcharge > 0) && (
+              <button
+                disabled={
+                  surBusy || detail.paid || detail.status === "delivered"
+                }
+                onClick={() => toggleSurcharge(detail.surcharge <= 0)}
                 className={cn(
-                  "flex h-5 w-5 items-center justify-center rounded-full border",
+                  "flex w-full items-center justify-between gap-2 rounded-2xl border px-4 py-3 text-sm font-semibold transition-colors disabled:opacity-50",
                   detail.surcharge > 0
-                    ? "border-brand-primary bg-brand-primary text-white"
-                    : "border-black/25 dark:border-white/25"
+                    ? "border-brand-primary/50 bg-brand-primary/10 text-brand-primary"
+                    : "border-black/10 text-neutral-600 hover:bg-black/[0.03] dark:border-white/15 dark:text-neutral-300 dark:hover:bg-white/5"
                 )}
               >
-                {detail.surcharge > 0 && <Check className="h-3.5 w-3.5" />}
-              </span>
-            </button>
+                <span className="flex items-center gap-2">
+                  <Pizza className="h-4 w-4" /> Pol/pol pizza · príplatok{" "}
+                  {eur(POL_POL_SURCHARGE)}
+                  {detail.paid && (
+                    <span className="text-xs font-normal text-neutral-400">
+                      (zaplatené — nedá sa meniť)
+                    </span>
+                  )}
+                </span>
+                <span
+                  className={cn(
+                    "flex h-5 w-5 items-center justify-center rounded-full border",
+                    detail.surcharge > 0
+                      ? "border-brand-primary bg-brand-primary text-white"
+                      : "border-black/25 dark:border-white/25"
+                  )}
+                >
+                  {detail.surcharge > 0 && <Check className="h-3.5 w-3.5" />}
+                </span>
+              </button>
+            )}
 
             <div>
               <p className="mb-2 font-semibold text-neutral-900 dark:text-white">
@@ -1405,6 +1387,11 @@ function OrderDetailModal({
                       </span>
                       <span>{eur(l.unitPrice * l.quantity)}</span>
                     </div>
+                    {l.polpol && (
+                      <p className="mt-1 text-xs font-semibold text-brand-primary">
+                        🍕 Pol/pol (½ + ½)
+                      </p>
+                    )}
                     {(l.extraCheese ||
                       l.stuffedCrust ||
                       l.addedIngredients.length > 0 ||

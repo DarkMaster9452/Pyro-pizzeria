@@ -135,6 +135,11 @@ export function Cart() {
                               {l.extraCheese && " · extra syr"}
                               {l.stuffedCrust && " · plnený okraj"}
                             </p>
+                            {l.polpol && (
+                              <p className="text-xs font-semibold text-brand-primary">
+                                🍕 Pol/pol (½ + ½)
+                              </p>
+                            )}
                             {l.addedIngredients.length > 0 && (
                               <p className="text-xs text-brand-secondary">
                                 + {l.addedIngredients.join(", ")}

@@ -322,6 +322,11 @@ function OrderCard({
         {o.lines.map((l, i) => (
           <li key={i}>
             {l.quantity}× {l.name}
+            {l.polpol && (
+              <span className="ml-1 font-semibold text-brand-primary">
+                · 🍕 pol/pol
+              </span>
+            )}
             {l.note && (
               <span className="mt-0.5 block pl-4 text-xs font-semibold text-amber-300">
                 → {l.note}
@@ -338,10 +343,11 @@ function OrderCard({
         </div>
       )}
 
-      {/* Custom-request surcharge (e.g. a half-and-half pizza written in the
-          note). Cook/admin toggles it; the +1,50 € is added to the order. */}
+      {/* Custom-request surcharge (half-and-half pizza). Only for unpaid orders
+          that contain a real pizza; stays visible if already applied. */}
+      {(o.pizzaCount > 0 || hasSurcharge) && (
       <button
-        disabled={busy}
+        disabled={busy || o.paid}
         onClick={() => onToggleSurcharge(!hasSurcharge)}
         className={`mt-2 inline-flex w-full items-center justify-between gap-2 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors disabled:opacity-50 ${
           hasSurcharge
@@ -363,6 +369,7 @@ function OrderCard({
           {hasSurcharge && <Check className="h-3.5 w-3.5" />}
         </span>
       </button>
+      )}
 
       <div className="mt-3 flex flex-wrap gap-2">
         {o.status !== "ready" ? (

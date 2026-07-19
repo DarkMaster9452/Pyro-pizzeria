@@ -121,7 +121,11 @@ export function ProductCard({
       </div>
 
       {open && (
-        <PizzaCustomizer product={product} onClose={() => setOpen(false)} />
+        <PizzaCustomizer
+          product={product}
+          number={number}
+          onClose={() => setOpen(false)}
+        />
       )}
     </>
   );
