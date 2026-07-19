@@ -1696,9 +1696,8 @@ function TipField({
 function TipCalculator({ restaurantId }: { restaurantId: string }) {
   const [data, setData] = useState<TipData | null>(null);
   const [loading, setLoading] = useState(false);
-  const [expTotal, setExpTotal] = useState("");
   const [card, setCard] = useState("");
-  const [driverCash, setDriverCash] = useState<Record<string, string>>({});
+  const [actual, setActual] = useState<Record<string, string>>({});
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -1709,19 +1708,18 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
       .then((d) => {
         setData(d);
         const s = d.saved;
-        // Prefill expected from today's orders; restore a saved split if any.
-        setExpTotal(String((s ? s.expectedTotal : d.expectedTotal) || ""));
         setCard(String((s ? s.card : d.expectedCard) || ""));
+        // Per-driver actual is prefilled from the saved split (d.drivers already
+        // carries the saved amount); card too.
+        const a: Record<string, string> = {};
+        for (const dr of d.drivers) a[dr.id] = dr.amount ? String(dr.amount) : "";
+        setActual(a);
         if (s) {
-          const dc: Record<string, string> = {};
-          for (const x of s.driverCash) dc[x.id] = String(x.amount || "");
-          setDriverCash(dc);
-          const paid = new Set(s.allocations.map((a) => a.id));
+          const paid = new Set(s.allocations.map((x) => x.id));
           setExcluded(
             new Set(d.staff.filter((m) => !paid.has(m.id)).map((m) => m.id))
           );
         } else {
-          setDriverCash({});
           setExcluded(new Set());
         }
       })
@@ -1735,20 +1733,24 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
     return Number.isFinite(n) ? n : 0;
   };
   const r2 = (n: number) => Math.round(n * 100) / 100;
+  const signed = (n: number) =>
+    n > 0 ? `+${eur(n)}` : n < 0 ? `−${eur(-n)}` : eur(0);
+  const signCls = (n: number) =>
+    Math.abs(n) < 0.005
+      ? "text-neutral-400"
+      : n > 0
+      ? "text-brand-success"
+      : "text-brand-error";
 
-  const drivers = (data?.staff ?? []).filter((s) => s.role === "driver");
-  // Drivers hand in cash; if none are on shift, fall back to one cash box.
-  const cashInputs: { id: string; name: string }[] = drivers.length
-    ? drivers.map((d) => ({ id: d.id, name: d.name }))
-    : [{ id: "_cash", name: "Hotovosť" }];
-  const cashSum = r2(
-    cashInputs.reduce((sum, c) => sum + num(driverCash[c.id]), 0)
-  );
+  const drivers = data?.drivers ?? [];
+  const cashSum = r2(drivers.reduce((s, d) => s + num(actual[d.id]), 0));
   const cardNum = num(card);
   const collected = r2(cashSum + cardNum);
-  const diff = r2(collected - num(expTotal));
+  const expectedTotal = data?.expectedTotal ?? 0;
+  const diff = r2(collected - expectedTotal);
   const tips = Math.max(0, diff);
   const manko = Math.max(0, -diff);
+  const cardDiff = r2(cardNum - (data?.expectedCard ?? 0));
 
   const included = (data?.staff ?? []).filter((s) => !excluded.has(s.id));
   const per = included.length
@@ -1775,18 +1777,19 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
       setSaved(false);
       setter(e.target.value);
     };
-  function setDC(id: string, v: string) {
+  function setAct(id: string, v: string) {
     setSaved(false);
-    setDriverCash((prev) => ({ ...prev, [id]: v }));
+    setActual((prev) => ({ ...prev, [id]: v }));
   }
 
   async function save() {
     if (saving) return;
     setSaving(true);
-    const driverCashArr = cashInputs.map((c) => ({
-      id: c.id,
-      name: c.name,
-      amount: num(driverCash[c.id]),
+    const driverCashArr = drivers.map((d) => ({
+      id: d.id,
+      name: d.name,
+      expected: d.expected,
+      amount: num(actual[d.id]),
     }));
     const allocations: TipAllocation[] = included.map((s) => ({
       id: s.id,
@@ -1795,7 +1798,9 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
       amount: per,
     }));
     const res = await saveTips(restaurantId, {
-      expectedTotal: num(expTotal),
+      expectedTotal,
+      expectedCash: data?.expectedCash ?? 0,
+      expectedCard: data?.expectedCard ?? 0,
       driverCash: driverCashArr,
       card: cardNum,
       diff,
@@ -1820,8 +1825,7 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
               Tringelty — koniec dňa
             </p>
             <p className="text-sm text-neutral-500">
-              Hotovosť od rozvozcov + karta − očakávaná suma = tringelty (alebo
-              manko).
+              Očakávané sumy sú z objednávok. Zadajte reálne odovzdané peniaze.
             </p>
           </div>
         </div>
@@ -1835,64 +1839,87 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
         </button>
       </div>
 
-      <div className="space-y-3">
-        <TipField
-          label="Očakávaná suma — všetky objednávky (€)"
-          hint={`${data?.orderCount ?? 0} objednávok dnes`}
-        >
-          <input
-            inputMode="decimal"
-            value={expTotal}
-            onChange={editStr(setExpTotal)}
-            className={cn(TIP_INPUT, "sm:max-w-[280px]")}
-            placeholder="0"
-          />
-        </TipField>
-
-        <div>
-          <p className="mb-1.5 text-xs font-medium text-neutral-500">
-            Hotovosť od rozvozcov (€)
-          </p>
-          <div className="grid gap-2 sm:grid-cols-2">
-            {cashInputs.map((c) => (
-              <div key={c.id} className="flex items-center gap-2">
-                <span className="w-28 shrink-0 truncate text-sm text-neutral-600 dark:text-neutral-300">
-                  {c.name}
-                </span>
-                <input
-                  inputMode="decimal"
-                  value={driverCash[c.id] ?? ""}
-                  onChange={(e) => setDC(c.id, e.target.value)}
-                  className={TIP_INPUT}
-                  placeholder="0"
-                />
-              </div>
-            ))}
-          </div>
+      {/* per-driver + card table */}
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-2 px-1 text-[11px] font-semibold uppercase tracking-wide text-neutral-400">
+          <span className="flex-1">Rozvozca</span>
+          <span className="w-16 text-right">Očakáva</span>
+          <span className="w-24 text-right">Reálne (€)</span>
+          <span className="w-16 text-right">+/−</span>
         </div>
+        {drivers.length === 0 && (
+          <p className="px-1 py-2 text-sm text-neutral-500">
+            Dnes nie sú žiadne hotovostné objednávky rozvozcov.
+          </p>
+        )}
+        {drivers.map((d) => {
+          const dDiff = r2(num(actual[d.id]) - d.expected);
+          return (
+            <div key={d.id} className="flex items-center gap-2">
+              <span className="flex-1 truncate text-sm text-neutral-800 dark:text-neutral-200">
+                {d.name}
+              </span>
+              <span className="w-16 text-right text-sm text-neutral-500 tabular-nums">
+                {eur(d.expected)}
+              </span>
+              <input
+                inputMode="decimal"
+                value={actual[d.id] ?? ""}
+                onChange={(e) => setAct(d.id, e.target.value)}
+                className={cn(TIP_INPUT, "w-24 text-right")}
+                placeholder="0"
+              />
+              <span
+                className={cn(
+                  "w-16 text-right text-sm font-semibold tabular-nums",
+                  signCls(dDiff)
+                )}
+              >
+                {signed(dDiff)}
+              </span>
+            </div>
+          );
+        })}
 
-        <TipField label="Karta — spolu z terminálu (€)" hint="jedna suma">
+        {/* card row */}
+        <div className="flex items-center gap-2 border-t border-black/[0.06] pt-1.5 dark:border-white/5">
+          <span className="flex-1 truncate text-sm text-neutral-800 dark:text-neutral-200">
+            Karta (terminál)
+          </span>
+          <span className="w-16 text-right text-sm text-neutral-500 tabular-nums">
+            {eur(data?.expectedCard ?? 0)}
+          </span>
           <input
             inputMode="decimal"
             value={card}
             onChange={editStr(setCard)}
-            className={cn(TIP_INPUT, "sm:max-w-[280px]")}
+            className={cn(TIP_INPUT, "w-24 text-right")}
             placeholder="0"
           />
-        </TipField>
+          <span
+            className={cn(
+              "w-16 text-right text-sm font-semibold tabular-nums",
+              signCls(cardDiff)
+            )}
+          >
+            {signed(cardDiff)}
+          </span>
+        </div>
       </div>
 
-      {/* collected vs expected */}
-      <div className="mt-4 flex flex-wrap gap-x-6 gap-y-1 text-sm text-neutral-500">
+      {/* totals */}
+      <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-sm text-neutral-500">
         <span>
-          Hotovosť: <b className="text-neutral-800 dark:text-neutral-200">{eur(cashSum)}</b>
-        </span>
-        <span>
-          Karta: <b className="text-neutral-800 dark:text-neutral-200">{eur(cardNum)}</b>
+          Očakávané:{" "}
+          <b className="text-neutral-800 dark:text-neutral-200">
+            {eur(expectedTotal)}
+          </b>
         </span>
         <span>
           Vybrané spolu:{" "}
-          <b className="text-neutral-800 dark:text-neutral-200">{eur(collected)}</b>
+          <b className="text-neutral-800 dark:text-neutral-200">
+            {eur(collected)}
+          </b>
         </span>
       </div>
 
@@ -2548,21 +2575,47 @@ function ShiftsReport({ restaurantId }: { restaurantId: string }) {
                             {detail.tips.driverCash.length > 0 && (
                               <div>
                                 <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-neutral-400">
-                                  Hotovosť od rozvozcov
+                                  Hotovosť — očakávané / reálne / +−
                                 </p>
-                                <div className="flex flex-wrap gap-1.5">
-                                  {detail.tips.driverCash.map((dc, i) => (
-                                    <span
-                                      key={i}
-                                      className="rounded-full bg-black/[0.05] px-2.5 py-1 text-xs dark:bg-white/[0.06]"
-                                    >
-                                      {dc.name}{" "}
-                                      <b className="text-neutral-900 dark:text-white">
-                                        {eur(dc.amount)}
-                                      </b>
-                                    </span>
-                                  ))}
-                                </div>
+                                <ul className="space-y-1">
+                                  {detail.tips.driverCash.map((dc, i) => {
+                                    const dd =
+                                      Math.round((dc.amount - dc.expected) * 100) /
+                                      100;
+                                    return (
+                                      <li
+                                        key={i}
+                                        className="flex items-center gap-2 rounded-lg bg-white px-3 py-1.5 text-xs dark:bg-white/[0.04]"
+                                      >
+                                        <span className="flex-1 truncate">
+                                          {dc.name}
+                                        </span>
+                                        <span className="w-14 text-right text-neutral-500 tabular-nums">
+                                          {eur(dc.expected)}
+                                        </span>
+                                        <span className="w-14 text-right font-semibold tabular-nums">
+                                          {eur(dc.amount)}
+                                        </span>
+                                        <span
+                                          className={cn(
+                                            "w-14 text-right font-semibold tabular-nums",
+                                            Math.abs(dd) < 0.005
+                                              ? "text-neutral-400"
+                                              : dd > 0
+                                              ? "text-brand-success"
+                                              : "text-brand-error"
+                                          )}
+                                        >
+                                          {dd > 0
+                                            ? `+${eur(dd)}`
+                                            : dd < 0
+                                            ? `−${eur(-dd)}`
+                                            : eur(0)}
+                                        </span>
+                                      </li>
+                                    );
+                                  })}
+                                </ul>
                               </div>
                             )}
                             <p className="text-xs text-neutral-500">
