@@ -19,6 +19,7 @@ import {
   getAdminSummary,
   getOrderDetail,
   setSoldOut as setSoldOutServer,
+  setOrderCard,
   adminGetProducts,
   saveProduct,
   setProductAvailable,
@@ -95,6 +96,7 @@ import {
   StickyNote,
   Coins,
   ChevronDown,
+  CreditCard,
 } from "lucide-react";
 
 type Tab =
@@ -895,6 +897,19 @@ function Handover({ restaurantId }: { restaurantId: string }) {
     }
   }
 
+  // Card handover — no wallet needed, the money is pooled to the card total.
+  async function settleCard(id: string) {
+    setBusyId(id);
+    setError("");
+    try {
+      const res = await markDispatchPaid(id, undefined, true);
+      if (!res.ok) setError(res.error ?? "Akcia zlyhala.");
+      refresh();
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   const waiting = orders.filter((o) => !o.paid);
   const done = orders.filter((o) => o.paid);
 
@@ -1019,7 +1034,14 @@ function Handover({ restaurantId }: { restaurantId: string }) {
                     onClick={() => settle(o.id)}
                     className="inline-flex items-center gap-1.5 rounded-full bg-brand-success px-3 py-2 text-xs font-bold text-white transition-colors hover:brightness-110 disabled:opacity-40"
                   >
-                    <Check className="h-4 w-4" /> Vydané a zaplatené
+                    <Check className="h-4 w-4" /> Vydané · hotovosť
+                  </button>
+                  <button
+                    disabled={busyId === o.id}
+                    onClick={() => settleCard(o.id)}
+                    className="inline-flex items-center gap-1.5 rounded-full bg-brand-primary px-3 py-2 text-xs font-bold text-white transition-colors hover:brightness-110 disabled:opacity-40"
+                  >
+                    <CreditCard className="h-4 w-4" /> Vydané · karta
                   </button>
                 </div>
               </motion.div>
@@ -1251,6 +1273,16 @@ function OrderDetailModal({
     }
   }
 
+  async function toggleCard(on: boolean) {
+    setSurBusy(true);
+    try {
+      await setOrderCard(restaurantId, id, on);
+      await reload();
+    } finally {
+      setSurBusy(false);
+    }
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -1331,6 +1363,33 @@ function OrderDetailModal({
                 <span>{detail.note}</span>
               </div>
             )}
+
+            {/* Paid by card — pooled to the card total instead of a driver's
+                cash wallet. Toggleable so the admin can classify any order. */}
+            <button
+              disabled={surBusy}
+              onClick={() => toggleCard(!detail.byCard)}
+              className={cn(
+                "flex w-full items-center justify-between gap-2 rounded-2xl border px-4 py-3 text-sm font-semibold transition-colors disabled:opacity-50",
+                detail.byCard
+                  ? "border-brand-primary/50 bg-brand-primary/10 text-brand-primary"
+                  : "border-black/10 text-neutral-600 hover:bg-black/[0.03] dark:border-white/15 dark:text-neutral-300 dark:hover:bg-white/5"
+              )}
+            >
+              <span className="flex items-center gap-2">
+                <CreditCard className="h-4 w-4" /> Platené kartou
+              </span>
+              <span
+                className={cn(
+                  "flex h-5 w-5 items-center justify-center rounded-full border",
+                  detail.byCard
+                    ? "border-brand-primary bg-brand-primary text-white"
+                    : "border-black/25 dark:border-white/25"
+                )}
+              >
+                {detail.byCard && <Check className="h-3.5 w-3.5" />}
+              </span>
+            </button>
 
             {/* Custom-request surcharge (half-and-half pizza). Only for unpaid
                 orders that contain a real pizza. If it's already applied it
