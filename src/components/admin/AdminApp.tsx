@@ -2534,13 +2534,71 @@ function ShiftsReport({ restaurantId }: { restaurantId: string }) {
                       </p>
                     ) : (
                       <div className="space-y-3 text-sm">
-                        {/* money split */}
-                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                          <DayStat label="Objednávky" value={String(detail.orders)} />
-                          <DayStat label="Hotovosť" value={eur(detail.cash)} />
-                          <DayStat label="Karta" value={eur(detail.card)} />
-                          <DayStat label="Tržba spolu" value={eur(detail.revenue)} accent />
-                        </div>
+                        {/* money split — when a split is saved, show the actual
+                            counted money (per-driver cash + saved card); else
+                            fall back to the order-derived numbers. */}
+                        {detail.tips ? (
+                          <>
+                            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                              <DayStat
+                                label="Objednávky"
+                                value={String(detail.orders)}
+                              />
+                              <DayStat
+                                label="Hotovosť (spočítaná)"
+                                value={eur(detail.tips.countedCash)}
+                              />
+                              <DayStat
+                                label="Karta (spočítaná)"
+                                value={eur(detail.tips.card)}
+                              />
+                              <DayStat
+                                label="Vybrané spolu"
+                                value={eur(detail.tips.countedCash + detail.tips.card)}
+                                accent
+                              />
+                            </div>
+                            {detail.tips.driverCash.length > 0 && (
+                              <div>
+                                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-neutral-400">
+                                  Hotovosť od rozvozcov
+                                </p>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {detail.tips.driverCash.map((dc, i) => (
+                                    <span
+                                      key={i}
+                                      className="rounded-full bg-black/[0.05] px-2.5 py-1 text-xs dark:bg-white/[0.06]"
+                                    >
+                                      {dc.name}{" "}
+                                      <b className="text-neutral-900 dark:text-white">
+                                        {eur(dc.amount)}
+                                      </b>
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            <p className="text-xs text-neutral-500">
+                              Tržba z objednávok: {eur(detail.revenue)} (
+                              {detail.orders} obj.) · očakávaná suma{" "}
+                              {eur(detail.tips.expectedTotal)}
+                            </p>
+                          </>
+                        ) : (
+                          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                            <DayStat
+                              label="Objednávky"
+                              value={String(detail.orders)}
+                            />
+                            <DayStat label="Hotovosť" value={eur(detail.cash)} />
+                            <DayStat label="Karta" value={eur(detail.card)} />
+                            <DayStat
+                              label="Tržba spolu"
+                              value={eur(detail.revenue)}
+                              accent
+                            />
+                          </div>
+                        )}
 
                         {/* staff */}
                         <div>
@@ -2595,15 +2653,6 @@ function ShiftsReport({ restaurantId }: { restaurantId: string }) {
                                     : eur(detail.tips.diff)}
                                 </span>
                               </div>
-                              {detail.tips.driverCash.length > 0 && (
-                                <p className="text-xs text-neutral-500">
-                                  Hotovosť:{" "}
-                                  {detail.tips.driverCash
-                                    .map((d) => `${d.name} ${eur(d.amount)}`)
-                                    .join(" · ")}{" "}
-                                  · Karta {eur(detail.tips.card)}
-                                </p>
-                              )}
                               {detail.tips.allocations.length > 0 && (
                                 <ul className="space-y-1">
                                   {detail.tips.allocations.map((a, i) => (
