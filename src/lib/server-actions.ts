@@ -255,11 +255,11 @@ async function ensureOrderColumns(): Promise<void> {
   return orderColumnsPromise;
 }
 
-// The service day rolls over at 12:00 Europe/Bratislava — used for the manual
-// open flag and staff shifts (an evening service never crosses midnight, so the
-// noon pivot keeps late orders on the right day). Inlined as a literal.
-const SERVICE_DATE =
-  "((now() AT TIME ZONE 'Europe/Bratislava') - interval '12 hours')::date";
+// The service day is the plain Bratislava calendar date — it rolls over at
+// midnight, not noon. (Service ends by 22:00 so nothing ever crosses midnight;
+// a calendar-day boundary keeps the manual open flag, staff shifts, saved tips
+// and the "today" stats all aligned to the date shown in the reports.)
+const SERVICE_DATE = "(now() AT TIME ZONE 'Europe/Bratislava')::date";
 
 // The plain Bratislava calendar date. Daily state that must clear at midnight —
 // the "vypredané" flag and today's unavailable items — is keyed to this, so it
@@ -870,13 +870,8 @@ export async function getAdminSummary(
   const base =
     RESTAURANTS.find((r) => r.id === restaurantId)?.prepTimeMinutes ?? 45;
 
-  const boundarySql = `(
-    (date_trunc('day', (now() AT TIME ZONE 'Europe/Bratislava'))
-      + CASE WHEN (now() AT TIME ZONE 'Europe/Bratislava')
-                  >= date_trunc('day', (now() AT TIME ZONE 'Europe/Bratislava')) + interval '12 hours'
-             THEN interval '12 hours' ELSE interval '-12 hours' END
-    ) AT TIME ZONE 'Europe/Bratislava'
-  )`;
+  // "Today" = the Bratislava calendar day.
+  const todaySql = `(created_at AT TIME ZONE 'Europe/Bratislava')::date = ${SERVICE_DATE}`;
 
   const pending = (await sql`
     SELECT COALESCE(SUM(pizza_count),0)::int AS pizzas, COUNT(*)::int AS cnt
@@ -893,7 +888,7 @@ export async function getAdminSummary(
             COALESCE(SUM(total) FILTER (WHERE payment ILIKE '%karta%'),0)::float AS card
      FROM orders
      WHERE restaurant_id = $1 AND status <> 'cancelled'
-       AND created_at >= ${boundarySql}`,
+       AND ${todaySql}`,
     [restaurantId]
   )) as { pizzas: number; cnt: number; revenue: number; cash: number; card: number }[];
 
@@ -1424,15 +1419,27 @@ export async function getShiftsReport(
 ): Promise<ShiftDay[]> {
   await requireAdmin(restaurantId);
   await ensureOrderColumns();
-  const shiftRows = (await sql`
-    SELECT service_date::text AS d, array_agg(name ORDER BY name) AS staff
-    FROM shifts WHERE restaurant_id = ${restaurantId}
-    GROUP BY service_date ORDER BY service_date DESC LIMIT 21`) as {
+  // Days that had a shift OR a saved tip record (so a saved split is never
+  // hidden just because nobody was marked on shift that day). Staff list is
+  // empty for tip-only days.
+  const shiftRows = (await sql.query(
+    `WITH days AS (
+       SELECT service_date AS d FROM shifts WHERE restaurant_id = $1
+       UNION
+       SELECT service_date AS d FROM shift_tips WHERE restaurant_id = $1
+     )
+     SELECT days.d::text AS d,
+            COALESCE(array_agg(s.name ORDER BY s.name) FILTER (WHERE s.name IS NOT NULL), '{}') AS staff
+     FROM days
+     LEFT JOIN shifts s ON s.restaurant_id = $1 AND s.service_date = days.d
+     GROUP BY days.d ORDER BY days.d DESC LIMIT 31`,
+    [restaurantId]
+  )) as {
     d: string;
     staff: string[];
   }[];
   const orderRows = (await sql.query(
-    `SELECT (((created_at AT TIME ZONE 'Europe/Bratislava') - interval '12 hours')::date)::text AS d,
+    `SELECT ((created_at AT TIME ZONE 'Europe/Bratislava')::date)::text AS d,
             COUNT(*)::int AS n, COALESCE(SUM(total), 0)::float AS rev
      FROM orders WHERE restaurant_id = $1 AND status <> 'cancelled'
      GROUP BY 1`,
@@ -1523,17 +1530,8 @@ export async function getTipData(restaurantId: string): Promise<TipData> {
   await requireAdmin(restaurantId);
   await ensureOrderColumns();
 
-  // Same "today" boundary as the dashboard: the service day pivots at noon.
-  const boundarySql = `(
-    (date_trunc('day', (now() AT TIME ZONE 'Europe/Bratislava'))
-      + CASE WHEN (now() AT TIME ZONE 'Europe/Bratislava')
-                  >= date_trunc('day', (now() AT TIME ZONE 'Europe/Bratislava')) + interval '12 hours'
-             THEN interval '12 hours' ELSE interval '-12 hours' END
-    ) AT TIME ZONE 'Europe/Bratislava'
-  )`;
-
   // Split today's takings by cash vs card (payment is stored as a human label
-  // like "Hotovosť pri doručení" / "Karta pri odbere").
+  // like "Hotovosť pri doručení" / "Karta pri odbere"). "Today" = calendar day.
   const money = (await sql.query(
     `SELECT
        COALESCE(SUM(total) FILTER (WHERE COALESCE(payment,'') NOT ILIKE '%karta%'),0)::float AS cash_sum,
@@ -1542,7 +1540,7 @@ export async function getTipData(restaurantId: string): Promise<TipData> {
        COUNT(*) FILTER (WHERE payment ILIKE '%karta%')::int AS card_cnt
      FROM orders
      WHERE restaurant_id = $1 AND status <> 'cancelled'
-       AND created_at >= ${boundarySql}`,
+       AND (created_at AT TIME ZONE 'Europe/Bratislava')::date = ${SERVICE_DATE}`,
     [restaurantId]
   )) as { cash_sum: number; cash_cnt: number; card_sum: number; card_cnt: number }[];
 
@@ -1677,7 +1675,7 @@ export async function getShiftDayDetail(
             COALESCE(SUM(total) FILTER (WHERE payment ILIKE '%karta%'),0)::float AS card
      FROM orders
      WHERE restaurant_id = $1 AND status <> 'cancelled'
-       AND (((created_at AT TIME ZONE 'Europe/Bratislava') - interval '12 hours')::date) = $2::date`,
+       AND ((created_at AT TIME ZONE 'Europe/Bratislava')::date) = $2::date`,
     [restaurantId, serviceDate]
   )) as { cnt: number; revenue: number; cash: number; card: number }[];
 

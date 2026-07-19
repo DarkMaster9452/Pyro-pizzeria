@@ -2469,13 +2469,12 @@ function ShiftsReport({ restaurantId }: { restaurantId: string }) {
       return;
     }
     setOpen(date);
-    if (!details[date]) {
-      setLoadingDay(date);
-      getShiftDayDetail(restaurantId, date)
-        .then((d) => setDetails((prev) => ({ ...prev, [date]: d })))
-        .catch(() => {})
-        .finally(() => setLoadingDay(null));
-    }
+    // Always refetch on open so a split saved since the page loaded shows up.
+    setLoadingDay(date);
+    getShiftDayDetail(restaurantId, date)
+      .then((d) => setDetails((prev) => ({ ...prev, [date]: d })))
+      .catch(() => {})
+      .finally(() => setLoadingDay(null));
   }
 
   return (
