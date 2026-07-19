@@ -109,6 +109,7 @@ export interface CartLine {
   quantity: number;
   extraCheese: boolean;
   stuffedCrust: boolean;
+  polpol?: boolean; // half-and-half pizza (surcharge); details go in `note`
   addedIngredients: string[];
   removedIngredients: string[];
   note?: string;

@@ -28,6 +28,23 @@ export function pizzaNumbers(
   return map;
 }
 
+// Flyer numbers of items that sit in the "pizza" category but are NOT real
+// pizzas — dough sides (pizza sticks / stuffed sticks / knots), numbers 21–23.
+// They keep their number on the menu but don't count toward the pizza queue and
+// can't be made pol/pol.
+export const NON_PIZZA_FLYER_NUMBERS = new Set([21, 22, 23]);
+
+// Whether a product counts as a real pizza (for the pizza queue count and the
+// pol/pol option). Non-pizza categories are never pizzas; a pizza-category item
+// is a real pizza unless its flyer number is one of the dough-side numbers.
+export function isRealPizza(
+  product: { category: string },
+  flyerNumber: number | undefined
+): boolean {
+  if (product.category !== "pizza") return false;
+  return flyerNumber == null || !NON_PIZZA_FLYER_NUMBERS.has(flyerNumber);
+}
+
 // Join address parts, skipping the empty ones (staff may type a single line).
 export function formatAddress(
   a?: {

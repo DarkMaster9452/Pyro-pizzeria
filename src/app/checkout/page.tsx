@@ -394,13 +394,13 @@ export default function CheckoutPage() {
                   value={draft.note}
                   onChange={(e) => setDraft({ note: e.target.value })}
                   rows={2}
-                  placeholder="Napr. bez cibule, pol/pol pizza (½ + ½)…"
+                  placeholder="Napr. zazvoniť pri bráne, doručiť po 18:00…"
                   className="w-full resize-none rounded-xl border border-black/10 bg-white p-3 text-sm outline-none focus:border-brand-primary dark:border-white/10 dark:bg-[#242424]"
                 />
                 <p className="mt-1.5 text-xs text-neutral-400">
-                  🍕 Chcete <strong>pol/pol pizzu</strong> (dve polovice)? Napíšte
-                  to sem — účtujeme príplatok <strong>1,50 €</strong> za prípravu
-                  na mieru.
+                  🍕 <strong>Pol/pol pizzu</strong> (dve polovice) pridáte priamo
+                  pri pizzi cez „Prispôsobiť" — kombináciu napíšete do poznámky k
+                  danej pizzi.
                 </p>
               </div>
             </div>

@@ -29,6 +29,7 @@ import {
   formatAddress,
   POL_POL_SURCHARGE,
   POL_POL_LABEL,
+  NON_PIZZA_FLYER_NUMBERS,
 } from "./utils";
 import { orderInputSchema, firstError } from "./validation";
 import { rateLimit, audit, clientIp } from "./security";
@@ -44,10 +45,19 @@ import type {
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
+// Ids of products that count as real pizzas. Products arrive in menu (sort)
+// order grouped per restaurant, so we number the pizza-category items 1..N and
+// drop the dough sides (flyer numbers 21–23) — they don't count toward the
+// pizza queue and can't be pol/pol.
 function pizzaIds(products: Product[]): Set<string> {
-  return new Set(
-    products.filter((p) => p.category === "pizza").map((p) => p.id)
-  );
+  const out = new Set<string>();
+  const counters: Record<string, number> = {};
+  for (const p of products) {
+    if (p.category !== "pizza") continue;
+    const n = (counters[p.restaurantId] = (counters[p.restaurantId] ?? 0) + 1);
+    if (!NON_PIZZA_FLYER_NUMBERS.has(n)) out.add(p.id);
+  }
+  return out;
 }
 
 function pizzaCount(lines: CartLine[], pizza: Set<string>): number {
@@ -513,7 +523,8 @@ export interface CreateOrderResult {
 function repriceLine(
   line: CartLine,
   products: Product[],
-  restaurantId: string
+  restaurantId: string,
+  pizzaSet?: Set<string>
 ): CartLine | null {
   const product = products.find(
     (p) => p.id === line.productId && p.restaurantId === restaurantId
@@ -524,12 +535,17 @@ function repriceLine(
   let unit = product.basePrice + (size?.priceDelta ?? 0);
   if (line.extraCheese) unit += EXTRA_CHEESE_PRICE;
   if (line.stuffedCrust) unit += STUFFED_CRUST_PRICE;
+  // pol/pol only applies to real pizzas; ignore the flag on anything else.
+  const polpol =
+    !!line.polpol && (!pizzaSet || pizzaSet.has(product.id));
+  if (polpol) unit += POL_POL_SURCHARGE;
   for (const name of line.addedIngredients) {
     const ing = EXTRA_INGREDIENTS.find((i) => i.name === name);
     if (ing) unit += ing.price;
   }
   return {
     ...line,
+    polpol,
     name: product.name,
     image: product.image,
     sizeLabel: size?.label ?? line.sizeLabel,
@@ -606,7 +622,8 @@ export async function createOrder(
       const priced = repriceLine(
         l as CartLine,
         products.length ? products : PRODUCTS,
-        data.restaurantId
+        data.restaurantId,
+        pizza
       );
       if (!priced)
         return { ok: false, error: "Niektorý produkt už nie je dostupný." };
@@ -1023,6 +1040,8 @@ export interface OrderDetail {
   eta: number;
   createdAt: string;
   driverName: string | null;
+  paid: boolean;
+  pizzaCount: number; // real pizzas (excludes dough sides) — gates pol/pol
 }
 
 export async function getOrderDetail(
@@ -1037,7 +1056,8 @@ export async function getOrderDetail(
            delivery_fee::float AS delivery_fee, discount::float AS discount,
            total::float AS total, payment, note,
            COALESCE(surcharge, 0)::float AS surcharge, surcharge_note,
-           eta, created_at, driver_name
+           eta, created_at, driver_name,
+           COALESCE(paid, false) AS paid, COALESCE(pizza_count, 0)::int AS pizza_count
     FROM orders WHERE id = ${id} AND restaurant_id = ${restaurantId} LIMIT 1
   `) as Array<{
     id: string;
@@ -1060,6 +1080,8 @@ export async function getOrderDetail(
     eta: number;
     created_at: string;
     driver_name: string | null;
+    paid: boolean;
+    pizza_count: number;
   }>;
   const o = rows[0];
   if (!o) return null;
@@ -1084,6 +1106,8 @@ export async function getOrderDetail(
     eta: o.eta,
     createdAt: o.created_at,
     driverName: o.driver_name,
+    paid: o.paid,
+    pizzaCount: o.pizza_count,
   };
 }
 
@@ -2762,9 +2786,11 @@ export interface KitchenOrder {
   minsAgo: number;
   createdAt: string; // ISO — kitchen is ordered by this (FIFO) + shows the time
   taken: boolean; // claimed by a driver / already paid
+  paid: boolean;
+  pizzaCount: number; // real pizzas (excludes dough sides) — gates pol/pol
   note: string | null;
   surcharge: number; // custom-request surcharge already included in `total`
-  lines: { name: string; quantity: number; note?: string }[];
+  lines: { name: string; quantity: number; note?: string; polpol?: boolean }[];
 }
 
 export interface KitchenContext {
@@ -2811,7 +2837,8 @@ export async function getKitchenBoard(): Promise<KitchenOrder[]> {
   const rows = (await sql`
     SELECT id, status, fulfillment, customer_name, total::float AS total, note,
            COALESCE(surcharge, 0)::float AS surcharge,
-           lines, driver_id, COALESCE(paid, false) AS paid, created_at,
+           lines, driver_id, COALESCE(paid, false) AS paid,
+           COALESCE(pizza_count, 0)::int AS pizza_count, created_at,
            EXTRACT(EPOCH FROM (now() - created_at))/60 AS mins_ago
     FROM orders
     WHERE restaurant_id = ${ctx.restaurantId}
@@ -2828,9 +2855,10 @@ export async function getKitchenBoard(): Promise<KitchenOrder[]> {
     total: number;
     note: string | null;
     surcharge: number;
-    lines: { name: string; quantity: number; note?: string }[];
+    lines: { name: string; quantity: number; note?: string; polpol?: boolean }[];
     driver_id: string | null;
     paid: boolean;
+    pizza_count: number;
     created_at: string;
     mins_ago: number;
   }>;
@@ -2843,6 +2871,8 @@ export async function getKitchenBoard(): Promise<KitchenOrder[]> {
     minsAgo: Math.max(0, Math.round(o.mins_ago)),
     createdAt: o.created_at,
     taken: o.driver_id != null || o.paid,
+    paid: o.paid,
+    pizzaCount: o.pizza_count,
     note: o.note,
     surcharge: o.surcharge,
     lines: Array.isArray(o.lines) ? o.lines : [],
@@ -2860,6 +2890,20 @@ export async function setOrderSurcharge(
   await ensureOrderColumns();
   const amount = on ? POL_POL_SURCHARGE : 0;
   const note = on ? POL_POL_LABEL : null;
+  // Guards: pol/pol can't be added to a paid order, nor to one without a real
+  // pizza (dough sides don't count). Removing it is always allowed.
+  const chk = (await sql`
+    SELECT COALESCE(paid, false) AS paid, COALESCE(pizza_count, 0)::int AS pc
+    FROM orders WHERE id = ${id} AND restaurant_id = ${ctx.restaurantId} LIMIT 1
+  `) as { paid: boolean; pc: number }[];
+  if (!chk.length) return { ok: false, error: "Objednávka neexistuje." };
+  if (chk[0].paid)
+    return { ok: false, error: "Nedá sa upraviť — objednávka je už zaplatená." };
+  if (on && chk[0].pc <= 0)
+    return {
+      ok: false,
+      error: "Pol/pol sa dá pridať len k objednávke, ktorá obsahuje pizzu.",
+    };
   const rows = (await sql`
     UPDATE orders
     SET total = total - COALESCE(surcharge, 0) + ${amount},
