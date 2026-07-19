@@ -197,6 +197,9 @@ async function ensureOrderColumns(): Promise<void> {
     await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS driver_name text`;
     await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS paid boolean NOT NULL DEFAULT false`;
     await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS paid_at timestamptz`;
+    // Whether the order was paid by card. NULL = unknown → fall back to the
+    // payment label. Card money is pooled (not tied to a driver's cash wallet).
+    await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS by_card boolean`;
     // Per-order secret returned to the customer at checkout so they can cancel
     // their own order (IDs are sequential and therefore guessable).
     await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS cancel_token text`;
@@ -270,6 +273,11 @@ async function ensureOrderColumns(): Promise<void> {
 // a calendar-day boundary keeps the manual open flag, staff shifts, saved tips
 // and the "today" stats all aligned to the date shown in the reports.)
 const SERVICE_DATE = "(now() AT TIME ZONE 'Europe/Bratislava')::date";
+
+// Whether an order counts as card-paid: the explicit by_card flag if set, else
+// fall back to the payment label ("Karta …"). Card money is pooled to the card
+// total instead of a driver's cash wallet.
+const IS_CARD = "COALESCE(by_card, COALESCE(payment,'') ILIKE '%karta%')";
 
 // The plain Bratislava calendar date. Daily state that must clear at midnight —
 // the "vypredané" flag and today's unavailable items — is keyed to this, so it
@@ -901,8 +909,8 @@ export async function getAdminSummary(
     `SELECT COALESCE(SUM(pizza_count),0)::int AS pizzas,
             COUNT(*)::int AS cnt,
             COALESCE(SUM(total),0)::float AS revenue,
-            COALESCE(SUM(total) FILTER (WHERE COALESCE(payment,'') NOT ILIKE '%karta%'),0)::float AS cash,
-            COALESCE(SUM(total) FILTER (WHERE payment ILIKE '%karta%'),0)::float AS card
+            COALESCE(SUM(total) FILTER (WHERE NOT ${IS_CARD}),0)::float AS cash,
+            COALESCE(SUM(total) FILTER (WHERE ${IS_CARD}),0)::float AS card
      FROM orders
      WHERE restaurant_id = $1 AND status <> 'cancelled'
        AND ${todaySql}`,
@@ -1042,6 +1050,7 @@ export interface OrderDetail {
   driverName: string | null;
   paid: boolean;
   pizzaCount: number; // real pizzas (excludes dough sides) — gates pol/pol
+  byCard: boolean; // paid by card (pooled, not a driver's cash wallet)
 }
 
 export async function getOrderDetail(
@@ -1057,7 +1066,8 @@ export async function getOrderDetail(
            total::float AS total, payment, note,
            COALESCE(surcharge, 0)::float AS surcharge, surcharge_note,
            eta, created_at, driver_name,
-           COALESCE(paid, false) AS paid, COALESCE(pizza_count, 0)::int AS pizza_count
+           COALESCE(paid, false) AS paid, COALESCE(pizza_count, 0)::int AS pizza_count,
+           COALESCE(by_card, COALESCE(payment,'') ILIKE '%karta%') AS by_card
     FROM orders WHERE id = ${id} AND restaurant_id = ${restaurantId} LIMIT 1
   `) as Array<{
     id: string;
@@ -1082,6 +1092,7 @@ export async function getOrderDetail(
     driver_name: string | null;
     paid: boolean;
     pizza_count: number;
+    by_card: boolean;
   }>;
   const o = rows[0];
   if (!o) return null;
@@ -1108,7 +1119,31 @@ export async function getOrderDetail(
     driverName: o.driver_name,
     paid: o.paid,
     pizzaCount: o.pizza_count,
+    byCard: o.by_card,
   };
+}
+
+// Toggle whether an order was paid by card (admin correction / pickup card).
+export async function setOrderCard(
+  restaurantId: string,
+  id: string,
+  card: boolean
+): Promise<{ ok: boolean }> {
+  const session = await requireAdmin(restaurantId);
+  await ensureOrderColumns();
+  await sql`
+    UPDATE orders SET by_card = ${card}
+    WHERE id = ${id} AND restaurant_id = ${restaurantId}
+  `;
+  await audit({
+    action: "order.card_set",
+    actorId: session.user.id,
+    actorEmail: session.user.email,
+    restaurantId,
+    target: id,
+    meta: { card },
+  });
+  return { ok: true };
 }
 
 export async function setSoldOut(restaurantId: string, value: boolean) {
@@ -1567,10 +1602,10 @@ export async function getTipData(restaurantId: string): Promise<TipData> {
   // doručení" / "Karta pri odbere"). "Today" = calendar day.
   const money = (await sql.query(
     `SELECT
-       COALESCE(SUM(total) FILTER (WHERE COALESCE(payment,'') NOT ILIKE '%karta%'),0)::float AS cash_sum,
-       COUNT(*) FILTER (WHERE COALESCE(payment,'') NOT ILIKE '%karta%')::int AS cash_cnt,
-       COALESCE(SUM(total) FILTER (WHERE payment ILIKE '%karta%'),0)::float AS card_sum,
-       COUNT(*) FILTER (WHERE payment ILIKE '%karta%')::int AS card_cnt
+       COALESCE(SUM(total) FILTER (WHERE NOT ${IS_CARD}),0)::float AS cash_sum,
+       COUNT(*) FILTER (WHERE NOT ${IS_CARD})::int AS cash_cnt,
+       COALESCE(SUM(total) FILTER (WHERE ${IS_CARD}),0)::float AS card_sum,
+       COUNT(*) FILTER (WHERE ${IS_CARD})::int AS card_cnt
      FROM orders WHERE ${todayFilter}`,
     [restaurantId]
   )) as { cash_sum: number; cash_cnt: number; card_sum: number; card_cnt: number }[];
@@ -1578,7 +1613,7 @@ export async function getTipData(restaurantId: string): Promise<TipData> {
   // Cash grouped by the driver who collected it (driver_id NULL = counter/pickup).
   const perDriver = (await sql.query(
     `SELECT driver_id, COALESCE(SUM(total),0)::float AS cash
-     FROM orders WHERE ${todayFilter} AND COALESCE(payment,'') NOT ILIKE '%karta%'
+     FROM orders WHERE ${todayFilter} AND NOT ${IS_CARD}
      GROUP BY driver_id`,
     [restaurantId]
   )) as { driver_id: string | null; cash: number }[];
@@ -1617,24 +1652,19 @@ export async function getTipData(restaurantId: string): Promise<TipData> {
     expected: r2(cashByDriver.get(d.id) ?? 0),
     amount: savedAmount.get(d.id) ?? 0,
   }));
-  // Cash not attributed to a driver on shift (pickup / unassigned) → counter row.
-  const attributed = drivers.reduce((s, d) => s + d.expected, 0);
-  const counter = r2(cashSum - attributed);
-  if (counter > 0.001) {
-    drivers.push({
-      id: "_counter",
-      name: "Pult / odber",
-      expected: counter,
-      amount: savedAmount.get("_counter") ?? 0,
-    });
-  }
+
+  // Money is two buckets: driver wallets (cash) + card. Expected card is
+  // everything that isn't a driver's expected cash (card orders + any pickup /
+  // unassigned cash), i.e. total − sum(driver expected).
+  const attributed = r2(drivers.reduce((s, d) => s + d.expected, 0));
+  const expectedTotal = r2(cashSum + cardSum);
 
   return {
     serviceDate: svc[0]?.d ?? "",
     drivers,
     expectedCash: r2(cashSum),
-    expectedCard: r2(cardSum),
-    expectedTotal: r2(cashSum + cardSum),
+    expectedCard: r2(expectedTotal - attributed),
+    expectedTotal,
     orderCount: (money[0]?.cash_cnt ?? 0) + (money[0]?.card_cnt ?? 0),
     staff,
     saved,
@@ -1747,8 +1777,8 @@ export async function getShiftDayDetail(
   const money = (await sql.query(
     `SELECT COUNT(*)::int AS cnt,
             COALESCE(SUM(total),0)::float AS revenue,
-            COALESCE(SUM(total) FILTER (WHERE COALESCE(payment,'') NOT ILIKE '%karta%'),0)::float AS cash,
-            COALESCE(SUM(total) FILTER (WHERE payment ILIKE '%karta%'),0)::float AS card
+            COALESCE(SUM(total) FILTER (WHERE NOT ${IS_CARD}),0)::float AS cash,
+            COALESCE(SUM(total) FILTER (WHERE ${IS_CARD}),0)::float AS card
      FROM orders
      WHERE restaurant_id = $1 AND status <> 'cancelled'
        AND ((created_at AT TIME ZONE 'Europe/Bratislava')::date) = $2::date`,
@@ -2757,13 +2787,34 @@ export async function getShiftDrivers(
 // picks who took it.
 export async function markDispatchPaid(
   id: string,
-  walletDriverId?: string
+  walletDriverId?: string,
+  card?: boolean
 ): Promise<{ ok: boolean; error?: string }> {
   const ctx = await requireDispatcher();
   await ensureOrderColumns();
   const isAdmin = isAdminRole(ctx.role);
 
   if (isAdmin) {
+    // Card money isn't tied to a driver's cash wallet — no wallet needed.
+    if (card) {
+      const cardRows = (await sql`
+        UPDATE orders
+        SET paid = true, paid_at = now(), status = 'delivered', by_card = true
+        WHERE id = ${id} AND restaurant_id = ${ctx.restaurantId}
+          AND fulfillment = 'pickup' AND COALESCE(paid, false) = false
+        RETURNING id`) as { id: string }[];
+      if (!cardRows.length)
+        return { ok: false, error: "Objednávku sa nepodarilo vydať." };
+      await audit({
+        action: "dispatch.paid",
+        actorId: ctx.userId,
+        actorEmail: ctx.email,
+        restaurantId: ctx.restaurantId,
+        target: id,
+        meta: { role: ctx.role, card: true },
+      });
+      return { ok: true };
+    }
     const drivers = await getShiftDriversInternal(ctx.restaurantId);
     const target = walletDriverId
       ? drivers.find((d) => d.id === walletDriverId)
@@ -2780,7 +2831,7 @@ export async function markDispatchPaid(
       };
     const paidRows = (await sql`
       UPDATE orders
-      SET paid = true, paid_at = now(), status = 'delivered',
+      SET paid = true, paid_at = now(), status = 'delivered', by_card = false,
           driver_id = ${target.id}, driver_name = ${target.name}
       WHERE id = ${id} AND restaurant_id = ${ctx.restaurantId}
         AND fulfillment = 'pickup'
@@ -2801,7 +2852,8 @@ export async function markDispatchPaid(
 
   const rows = (await sql`
         UPDATE orders
-        SET paid = true, paid_at = now(), status = 'delivered'
+        SET paid = true, paid_at = now(), status = 'delivered',
+            by_card = ${!!card}
         WHERE id = ${id} AND restaurant_id = ${ctx.restaurantId}
           AND driver_id = ${ctx.userId} AND COALESCE(paid, false) = false
         RETURNING id`) as { id: string }[];
@@ -2816,7 +2868,7 @@ export async function markDispatchPaid(
     actorEmail: ctx.email,
     restaurantId: ctx.restaurantId,
     target: id,
-    meta: { role: ctx.role },
+    meta: { role: ctx.role, card: !!card },
   });
   return { ok: true };
 }

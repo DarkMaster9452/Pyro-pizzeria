@@ -24,6 +24,7 @@ import {
   PhoneCall,
   Check,
   CheckCheck,
+  CreditCard,
   Package,
   Truck,
   Store,
@@ -269,7 +270,7 @@ export function DriverApp({
                   onClaim={(id) => run(id, claimDispatchOrder)}
                   onRelease={(id) => run(id, releaseDispatchOrder)}
                   onDelivering={(id) => run(id, markDispatchDelivering)}
-                  onPaid={(id) => run(id, markDispatchPaid)}
+                  onPaid={(id, card) => run(id, (i) => markDispatchPaid(i, undefined, card))}
                   onEdit={openEdit}
                   editBusy={editLoading}
                 />
@@ -291,7 +292,7 @@ export function DriverApp({
                   onClaim={(id) => run(id, claimDispatchOrder)}
                   onRelease={(id) => run(id, releaseDispatchOrder)}
                   onDelivering={(id) => run(id, markDispatchDelivering)}
-                  onPaid={(id) => run(id, markDispatchPaid)}
+                  onPaid={(id, card) => run(id, (i) => markDispatchPaid(i, undefined, card))}
                   onEdit={openEdit}
                   editBusy={editLoading}
                 />
@@ -314,7 +315,7 @@ export function DriverApp({
                     onClaim={(id) => run(id, claimDispatchOrder)}
                     onRelease={(id) => run(id, releaseDispatchOrder)}
                     onDelivering={(id) => run(id, markDispatchDelivering)}
-                    onPaid={(id) => run(id, markDispatchPaid)}
+                    onPaid={(id, card) => run(id, (i) => markDispatchPaid(i, undefined, card))}
                     onEdit={openEdit}
                     editBusy={editLoading}
                   />
@@ -339,7 +340,7 @@ export function DriverApp({
                       onClaim={(id) => run(id, claimDispatchOrder)}
                       onRelease={(id) => run(id, releaseDispatchOrder)}
                       onDelivering={(id) => run(id, markDispatchDelivering)}
-                      onPaid={(id) => run(id, markDispatchPaid)}
+                      onPaid={(id, card) => run(id, (i) => markDispatchPaid(i, undefined, card))}
                       onEdit={openEdit}
                       editBusy={editLoading}
                     />
@@ -453,7 +454,7 @@ function OrderCard({
   onClaim: (id: string) => void;
   onRelease: (id: string) => void;
   onDelivering: (id: string) => void;
-  onPaid: (id: string) => void;
+  onPaid: (id: string, card: boolean) => void;
   onEdit: (id: string) => void;
   editBusy: boolean;
 }) {
@@ -593,13 +594,22 @@ function OrderCard({
           )}
 
           {canAct && (
-            <button
-              disabled={busy}
-              onClick={() => onPaid(o.id)}
-              className="inline-flex items-center gap-1.5 rounded-full bg-brand-success px-3 py-2 text-xs font-bold text-white transition-colors hover:brightness-110 disabled:opacity-50"
-            >
-              <Check className="h-4 w-4" /> Zaplatené
-            </button>
+            <>
+              <button
+                disabled={busy}
+                onClick={() => onPaid(o.id, false)}
+                className="inline-flex items-center gap-1.5 rounded-full bg-brand-success px-3 py-2 text-xs font-bold text-white transition-colors hover:brightness-110 disabled:opacity-50"
+              >
+                <Check className="h-4 w-4" /> Hotovosť
+              </button>
+              <button
+                disabled={busy}
+                onClick={() => onPaid(o.id, true)}
+                className="inline-flex items-center gap-1.5 rounded-full bg-brand-primary px-3 py-2 text-xs font-bold text-white transition-colors hover:brightness-110 disabled:opacity-50"
+              >
+                <CreditCard className="h-4 w-4" /> Karta
+              </button>
+            </>
           )}
 
           {canAct && o.driverId && (
