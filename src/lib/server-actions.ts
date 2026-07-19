@@ -261,6 +261,12 @@ async function ensureOrderColumns(): Promise<void> {
     // Columns added after the first release of shift_tips.
     await sql`ALTER TABLE shift_tips ADD COLUMN IF NOT EXISTS expected_total numeric(10,2) NOT NULL DEFAULT 0`;
     await sql`ALTER TABLE shift_tips ADD COLUMN IF NOT EXISTS driver_cash jsonb NOT NULL DEFAULT '[]'::jsonb`;
+    // Daily settlement extras: per-person wages, total wage, pizzas that day.
+    await sql`ALTER TABLE shift_tips ADD COLUMN IF NOT EXISTS wages jsonb NOT NULL DEFAULT '[]'::jsonb`;
+    await sql`ALTER TABLE shift_tips ADD COLUMN IF NOT EXISTS wage_total numeric(10,2) NOT NULL DEFAULT 0`;
+    await sql`ALTER TABLE shift_tips ADD COLUMN IF NOT EXISTS pizza_count int NOT NULL DEFAULT 0`;
+    // Owner accounts take neither tips nor wages (they own the place).
+    await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_owner boolean NOT NULL DEFAULT false`;
   })().catch((e) => {
     orderColumnsPromise = null;
     throw e;
@@ -1533,6 +1539,14 @@ export interface TipDriverCash {
   amount: number; // cash they actually handed in (entered)
 }
 
+export interface TipWage {
+  id: string;
+  name: string;
+  role: string;
+  hours: number; // whole hours + 0 or 0.5
+  wage: number; // hours * WAGE_PER_HOUR
+}
+
 export interface SavedTips {
   expectedTotal: number; // all orders that day (read-only basis)
   expectedCash: number; // cash orders total
@@ -1542,6 +1556,9 @@ export interface SavedTips {
   card: number; // single card (terminal) total actually taken
   diff: number; // collected − expected: positive = tips, negative = manko
   allocations: TipAllocation[];
+  wages: TipWage[]; // per part-timer hours + wage
+  wageTotal: number;
+  pizzaCount: number; // real pizzas made that day
   savedByEmail: string | null;
   updatedAt: string;
 }
@@ -1555,8 +1572,9 @@ export interface TipData {
   expectedCard: number; // all card orders (prefills the single card field)
   expectedTotal: number; // all orders (cash + card)
   orderCount: number;
-  // Everyone on shift today (cooks + drivers) who shares the tips.
-  staff: { id: string; name: string; role: string }[];
+  pizzaCount: number; // real pizzas made today (from orders)
+  // Everyone on shift today (cooks + drivers). Owners take no tips / wage.
+  staff: { id: string; name: string; role: string; isOwner: boolean }[];
   saved: SavedTips | null;
 }
 
@@ -1569,6 +1587,9 @@ interface TipRow {
   counted_card: string | number;
   tips_total: string | number;
   allocations: TipAllocation[];
+  wages: TipWage[];
+  wage_total: string | number;
+  pizza_count: string | number;
   saved_by_email: string | null;
   updated_at: string;
 }
@@ -1583,13 +1604,16 @@ function rowToSavedTips(r: TipRow): SavedTips {
     card: Number(r.counted_card),
     diff: Number(r.tips_total),
     allocations: Array.isArray(r.allocations) ? r.allocations : [],
+    wages: Array.isArray(r.wages) ? r.wages : [],
+    wageTotal: Number(r.wage_total),
+    pizzaCount: Number(r.pizza_count),
     savedByEmail: r.saved_by_email,
     updatedAt: r.updated_at,
   };
 }
 
 const TIP_ROW_COLS =
-  "expected_total, expected_cash, expected_card, driver_cash, counted_cash, counted_card, tips_total, allocations, saved_by_email, updated_at";
+  "expected_total, expected_cash, expected_card, driver_cash, counted_cash, counted_card, tips_total, allocations, wages, wage_total, pizza_count, saved_by_email, updated_at";
 
 export async function getTipData(restaurantId: string): Promise<TipData> {
   await requireAdmin(restaurantId);
@@ -1622,11 +1646,20 @@ export async function getTipData(restaurantId: string): Promise<TipData> {
   );
 
   const staff = (await sql.query(
-    `SELECT user_id AS id, name, role FROM shifts
-     WHERE restaurant_id = $1 AND service_date = ${SERVICE_DATE}
-     ORDER BY role, name`,
+    `SELECT sh.user_id AS id, sh.name, sh.role,
+            COALESCE(u.is_owner, false) AS is_owner
+     FROM shifts sh
+     LEFT JOIN users u ON u.id::text = sh.user_id
+     WHERE sh.restaurant_id = $1 AND sh.service_date = ${SERVICE_DATE}
+     ORDER BY sh.role, sh.name`,
     [restaurantId]
-  )) as { id: string; name: string; role: string }[];
+  )) as { id: string; name: string; role: string; is_owner: boolean }[];
+
+  const pizzas = (await sql.query(
+    `SELECT COALESCE(SUM(pizza_count),0)::int AS n
+     FROM orders WHERE ${todayFilter}`,
+    [restaurantId]
+  )) as { n: number }[];
 
   const svc = (await sql.query(`SELECT (${SERVICE_DATE})::text AS d`, [])) as {
     d: string;
@@ -1666,12 +1699,41 @@ export async function getTipData(restaurantId: string): Promise<TipData> {
     expectedCard: r2(expectedTotal - attributed),
     expectedTotal,
     orderCount: (money[0]?.cash_cnt ?? 0) + (money[0]?.card_cnt ?? 0),
-    staff,
+    pizzaCount: pizzas[0]?.n ?? 0,
+    staff: staff.map((s) => ({
+      id: s.id,
+      name: s.name,
+      role: s.role,
+      isOwner: s.is_owner,
+    })),
     saved,
   };
 }
 
-// Save (upsert) today's tip split for the current service day.
+// Mark a staff account as an owner (no tips / no wage) or a part-timer.
+export async function setUserOwner(
+  restaurantId: string,
+  userId: string,
+  isOwner: boolean
+): Promise<{ ok: boolean }> {
+  const session = await requireAdmin(restaurantId);
+  await ensureOrderColumns();
+  await sql`
+    UPDATE users SET is_owner = ${isOwner}
+    WHERE id::text = ${userId} AND restaurant_id = ${restaurantId}
+  `;
+  await audit({
+    action: "user.owner_set",
+    actorId: session.user.id,
+    actorEmail: session.user.email,
+    restaurantId,
+    target: userId,
+    meta: { isOwner },
+  });
+  return { ok: true };
+}
+
+// Save (upsert) today's settlement for the current service day.
 export interface SaveTipsInput {
   expectedTotal: number;
   expectedCash: number;
@@ -1680,6 +1742,9 @@ export interface SaveTipsInput {
   card: number;
   diff: number; // collected − expected (signed)
   allocations: TipAllocation[];
+  wages: TipWage[];
+  wageTotal: number;
+  pizzaCount: number;
 }
 
 export async function saveTips(
@@ -1702,12 +1767,22 @@ export async function saveTips(
     role: String(a.role),
     amount: r2(a.amount),
   }));
+  const wages = (input.wages ?? []).slice(0, 50).map((w) => ({
+    id: String(w.id),
+    name: String(w.name),
+    role: String(w.role),
+    hours: Math.max(0, Math.round((Number(w.hours) || 0) * 2) / 2),
+    wage: r2(w.wage),
+  }));
+  const wageTotal = r2(wages.reduce((s, w) => s + w.wage, 0));
   try {
     await sql.query(
       `INSERT INTO shift_tips (restaurant_id, service_date, expected_total,
          expected_cash, expected_card, driver_cash, counted_cash, counted_card,
-         tips_total, allocations, saved_by, saved_by_email, updated_at)
-       VALUES ($1, ${SERVICE_DATE}, $2, $3, $4, $5::jsonb, $6, $7, $8, $9::jsonb, $10, $11, now())
+         tips_total, allocations, wages, wage_total, pizza_count,
+         saved_by, saved_by_email, updated_at)
+       VALUES ($1, ${SERVICE_DATE}, $2, $3, $4, $5::jsonb, $6, $7, $8, $9::jsonb,
+         $10::jsonb, $11, $12, $13, $14, now())
        ON CONFLICT (restaurant_id, service_date) DO UPDATE SET
          expected_total = EXCLUDED.expected_total,
          expected_cash = EXCLUDED.expected_cash,
@@ -1717,6 +1792,9 @@ export async function saveTips(
          counted_card = EXCLUDED.counted_card,
          tips_total = EXCLUDED.tips_total,
          allocations = EXCLUDED.allocations,
+         wages = EXCLUDED.wages,
+         wage_total = EXCLUDED.wage_total,
+         pizza_count = EXCLUDED.pizza_count,
          saved_by = EXCLUDED.saved_by,
          saved_by_email = EXCLUDED.saved_by_email,
          updated_at = now()`,
@@ -1730,21 +1808,24 @@ export async function saveTips(
         r2(input.card),
         r2(input.diff),
         JSON.stringify(alloc),
+        JSON.stringify(wages),
+        wageTotal,
+        Math.max(0, Math.round(Number(input.pizzaCount) || 0)),
         session.user.id,
         session.user.email,
       ]
     );
     await audit({
-      action: "tips.saved",
+      action: "settlement.saved",
       actorId: session.user.id,
       actorEmail: session.user.email,
       restaurantId,
-      meta: { diff: r2(input.diff), people: alloc.length },
+      meta: { diff: r2(input.diff), people: alloc.length, wages: wageTotal },
     });
     return { ok: true };
   } catch (e) {
     console.error("saveTips failed", e);
-    return { ok: false, error: "Tringelty sa nepodarilo uložiť." };
+    return { ok: false, error: "Vyúčtovanie sa nepodarilo uložiť." };
   }
 }
 
@@ -1756,6 +1837,7 @@ export interface ShiftDayDetail {
   revenue: number;
   cash: number;
   card: number;
+  pizzas: number; // real pizzas made that day
   tips: SavedTips | null;
 }
 
@@ -1773,17 +1855,18 @@ export async function getShiftDayDetail(
     [restaurantId, serviceDate]
   )) as { name: string; role: string }[];
 
-  // Orders booked on that service day (same noon-pivot day key as the report).
+  // Orders booked on that service day (calendar day).
   const money = (await sql.query(
     `SELECT COUNT(*)::int AS cnt,
             COALESCE(SUM(total),0)::float AS revenue,
+            COALESCE(SUM(pizza_count),0)::int AS pizzas,
             COALESCE(SUM(total) FILTER (WHERE NOT ${IS_CARD}),0)::float AS cash,
             COALESCE(SUM(total) FILTER (WHERE ${IS_CARD}),0)::float AS card
      FROM orders
      WHERE restaurant_id = $1 AND status <> 'cancelled'
        AND ((created_at AT TIME ZONE 'Europe/Bratislava')::date) = $2::date`,
     [restaurantId, serviceDate]
-  )) as { cnt: number; revenue: number; cash: number; card: number }[];
+  )) as { cnt: number; revenue: number; pizzas: number; cash: number; card: number }[];
 
   const tipRows = (await sql.query(
     `SELECT ${TIP_ROW_COLS} FROM shift_tips
@@ -1799,6 +1882,7 @@ export async function getShiftDayDetail(
     revenue: r2(money[0]?.revenue ?? 0),
     cash: r2(money[0]?.cash ?? 0),
     card: r2(money[0]?.card ?? 0),
+    pizzas: money[0]?.pizzas ?? 0,
     tips: tipRows[0] ? rowToSavedTips(tipRows[0]) : null,
   };
 }

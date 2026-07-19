@@ -5,7 +5,7 @@ import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { RESTAURANTS, CATEGORIES, ALLERGENS } from "@/lib/data";
 import type { DeliveryZone, Product, CategoryId, Badge } from "@/lib/types";
-import { eur, cn, formatAddress, POL_POL_SURCHARGE } from "@/lib/utils";
+import { eur, cn, formatAddress, POL_POL_SURCHARGE, WAGE_PER_HOUR } from "@/lib/utils";
 import { useApp } from "@/lib/store";
 import { BarChart } from "@/components/admin/AdminCharts";
 import { logoutAction } from "@/lib/auth-actions";
@@ -42,12 +42,14 @@ import {
   getShiftsReport,
   getTipData,
   saveTips,
+  setUserOwner,
   getShiftDayDetail,
   getOrderDays,
   getAdminOrdersByDay,
   setOrderSurcharge,
   type TipData,
   type TipAllocation,
+  type TipWage,
   type ShiftDayDetail,
   type AdminSummary,
   type AdminOrderRow,
@@ -97,6 +99,7 @@ import {
   Coins,
   ChevronDown,
   CreditCard,
+  Minus,
 } from "lucide-react";
 
 type Tab =
@@ -1757,7 +1760,9 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
   const [loading, setLoading] = useState(false);
   const [card, setCard] = useState("");
   const [actual, setActual] = useState<Record<string, string>>({});
+  const [hours, setHours] = useState<Record<string, number>>({});
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
+  const [ownerBusy, setOwnerBusy] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
@@ -1768,15 +1773,20 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
         setData(d);
         const s = d.saved;
         setCard(String((s ? s.card : d.expectedCard) || ""));
-        // Per-driver actual is prefilled from the saved split (d.drivers already
-        // carries the saved amount); card too.
         const a: Record<string, string> = {};
         for (const dr of d.drivers) a[dr.id] = dr.amount ? String(dr.amount) : "";
         setActual(a);
+        const h: Record<string, number> = {};
+        for (const w of s?.wages ?? []) h[w.id] = w.hours;
+        setHours(h);
         if (s) {
           const paid = new Set(s.allocations.map((x) => x.id));
           setExcluded(
-            new Set(d.staff.filter((m) => !paid.has(m.id)).map((m) => m.id))
+            new Set(
+              d.staff
+                .filter((m) => !m.isOwner && !paid.has(m.id))
+                .map((m) => m.id)
+            )
           );
         } else {
           setExcluded(new Set());
@@ -1802,6 +1812,7 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
       : "text-brand-error";
 
   const drivers = data?.drivers ?? [];
+  const staff = data?.staff ?? [];
   const cashSum = r2(drivers.reduce((s, d) => s + num(actual[d.id]), 0));
   const cardNum = num(card);
   const collected = r2(cashSum + cardNum);
@@ -1811,11 +1822,16 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
   const manko = Math.max(0, -diff);
   const cardDiff = r2(cardNum - (data?.expectedCard ?? 0));
 
-  const included = (data?.staff ?? []).filter((s) => !excluded.has(s.id));
-  const per = included.length
-    ? Math.floor((tips / included.length) * 100) / 100
+  // Owners take neither tips nor wages. Tips split equally among the rest.
+  const workers = staff.filter((s) => !s.isOwner);
+  const tipStaff = workers.filter((s) => !excluded.has(s.id));
+  const per = tipStaff.length
+    ? Math.floor((tips / tipStaff.length) * 100) / 100
     : 0;
-  const leftover = r2(tips - per * included.length);
+  const leftover = r2(tips - per * tipStaff.length);
+  const wageOf = (id: string) => r2((hours[id] ?? 0) * WAGE_PER_HOUR);
+  const tipOf = (id: string) => (excluded.has(id) ? 0 : per);
+  const wageTotal = r2(workers.reduce((s, w) => s + wageOf(w.id), 0));
 
   const roleLabel = (role: string) =>
     role === "driver" ? "Rozvozca" : role === "kuchar" ? "Kuchár" : role;
@@ -1828,6 +1844,22 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
       else next.add(id);
       return next;
     });
+  }
+  function bumpHours(id: string, delta: number) {
+    setSaved(false);
+    setHours((prev) => ({
+      ...prev,
+      [id]: Math.max(0, r2((prev[id] ?? 0) + delta)),
+    }));
+  }
+  async function toggleOwner(id: string, next: boolean) {
+    setOwnerBusy(id);
+    try {
+      await setUserOwner(restaurantId, id, next);
+      await load();
+    } finally {
+      setOwnerBusy(null);
+    }
   }
 
   const editStr =
@@ -1850,11 +1882,18 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
       expected: d.expected,
       amount: num(actual[d.id]),
     }));
-    const allocations: TipAllocation[] = included.map((s) => ({
+    const allocations: TipAllocation[] = tipStaff.map((s) => ({
       id: s.id,
       name: s.name,
       role: s.role,
       amount: per,
+    }));
+    const wages: TipWage[] = workers.map((w) => ({
+      id: w.id,
+      name: w.name,
+      role: w.role,
+      hours: hours[w.id] ?? 0,
+      wage: wageOf(w.id),
     }));
     const res = await saveTips(restaurantId, {
       expectedTotal,
@@ -1864,6 +1903,9 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
       card: cardNum,
       diff,
       allocations,
+      wages,
+      wageTotal,
+      pizzaCount: data?.pizzaCount ?? 0,
     });
     setSaving(false);
     if (res.ok) {
@@ -1881,10 +1923,11 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
           </span>
           <div>
             <p className="font-display font-bold text-neutral-900 dark:text-white">
-              Tringelty — koniec dňa
+              Vyúčtovanie — koniec dňa
             </p>
             <p className="text-sm text-neutral-500">
-              Očakávané sumy sú z objednávok. Zadajte reálne odovzdané peniaze.
+              Peniaze, tringelty a mzdy brigádnikov · {data?.pizzaCount ?? 0}{" "}
+              pízz dnes
             </p>
           </div>
         </div>
@@ -2002,63 +2045,111 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
       </div>
 
       <div className="mt-4">
-        <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-neutral-700 dark:text-neutral-200">
-          <Users className="h-4 w-4 text-brand-secondary" /> Rozdelenie na zmenu
-          {tips > 0 && included.length > 0 && (
-            <span className="text-xs font-normal text-neutral-500">
-              · {eur(per)} / os.
-            </span>
-          )}
+        <p className="mb-2 flex flex-wrap items-center gap-x-2 text-sm font-semibold text-neutral-700 dark:text-neutral-200">
+          <Users className="h-4 w-4 text-brand-secondary" /> Vyúčtovanie zmeny
+          <span className="text-xs font-normal text-neutral-500">
+            tringelty {eur(tips)} · mzdy {eur(wageTotal)} · mzda{" "}
+            {eur(WAGE_PER_HOUR)}/h
+          </span>
         </p>
-        {(data?.staff.length ?? 0) === 0 ? (
+        {staff.length === 0 ? (
           <p className="text-sm text-neutral-500">
             Dnes nemá nikto zmenu. Zmeny sa zadávajú pri otvorení prevádzky.
           </p>
-        ) : tips <= 0 ? (
-          <p className="text-sm text-neutral-500">
-            {diff < 0
-              ? "Manko — niet čo rozdeľovať."
-              : "Žiadne tringelty na rozdelenie."}
-          </p>
         ) : (
           <ul className="space-y-1.5">
-            {data!.staff.map((s) => {
-              const on = !excluded.has(s.id);
+            {staff.map((s) => {
+              const owner = s.isOwner;
+              const inTips = !owner && !excluded.has(s.id);
+              const wage = owner ? 0 : wageOf(s.id);
+              const tip = owner ? 0 : tipOf(s.id);
               return (
                 <li
                   key={s.id}
                   className={cn(
-                    "flex items-center justify-between rounded-xl border px-3 py-2",
-                    on
-                      ? "border-brand-primary/30 bg-brand-primary/[0.04]"
-                      : "border-black/10 opacity-60 dark:border-white/10"
+                    "rounded-xl border px-3 py-2",
+                    owner
+                      ? "border-black/10 opacity-70 dark:border-white/10"
+                      : "border-brand-primary/25 bg-brand-primary/[0.03]"
                   )}
                 >
-                  <label className="flex cursor-pointer items-center gap-2.5">
-                    <input
-                      type="checkbox"
-                      checked={on}
-                      onChange={() => toggle(s.id)}
-                      className="h-4 w-4 accent-brand-primary"
-                    />
-                    <span className="text-sm font-medium text-neutral-900 dark:text-white">
-                      {s.name}
-                    </span>
-                    <span className="text-xs text-neutral-500">
-                      {roleLabel(s.role)}
-                    </span>
-                  </label>
-                  <span className="font-semibold tabular-nums text-neutral-900 dark:text-white">
-                    {on ? eur(per) : "—"}
-                  </span>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="truncate text-sm font-medium text-neutral-900 dark:text-white">
+                        {s.name}
+                      </span>
+                      <span className="text-xs text-neutral-500">
+                        {roleLabel(s.role)}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => toggleOwner(s.id, !owner)}
+                      disabled={ownerBusy === s.id}
+                      className={cn(
+                        "shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold disabled:opacity-50",
+                        owner
+                          ? "border-neutral-400 text-neutral-500"
+                          : "border-brand-secondary/40 text-brand-secondary"
+                      )}
+                    >
+                      {owner ? "Vlastník" : "Brigádnik"}
+                    </button>
+                  </div>
+
+                  {owner ? (
+                    <p className="mt-1 text-xs text-neutral-400">
+                      Vlastník — bez tringeltov a mzdy.
+                    </p>
+                  ) : (
+                    <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2">
+                      {/* tips include toggle */}
+                      <label className="flex cursor-pointer items-center gap-1.5 text-xs text-neutral-600 dark:text-neutral-300">
+                        <input
+                          type="checkbox"
+                          checked={inTips}
+                          onChange={() => toggle(s.id)}
+                          className="h-4 w-4 accent-brand-primary"
+                        />
+                        tringelt
+                      </label>
+                      {/* hours stepper */}
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs text-neutral-500">Hodiny</span>
+                        <button
+                          onClick={() => bumpHours(s.id, -0.5)}
+                          className="flex h-7 w-7 items-center justify-center rounded-full bg-black/10 text-neutral-700 dark:bg-white/15 dark:text-white"
+                        >
+                          <Minus className="h-3.5 w-3.5" />
+                        </button>
+                        <span className="w-12 text-center text-sm font-semibold tabular-nums">
+                          {(hours[s.id] ?? 0).toLocaleString("sk-SK")} h
+                        </span>
+                        <button
+                          onClick={() => bumpHours(s.id, 0.5)}
+                          className="flex h-7 w-7 items-center justify-center rounded-full bg-brand-primary text-white"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                      {/* payout */}
+                      <span className="ml-auto text-sm">
+                        <span className="text-neutral-500">
+                          {eur(tip)} + {eur(wage)} ={" "}
+                        </span>
+                        <b className="tabular-nums text-neutral-900 dark:text-white">
+                          {eur(r2(tip + wage))}
+                        </b>
+                      </span>
+                    </div>
+                  )}
                 </li>
               );
             })}
           </ul>
         )}
-        {leftover > 0 && included.length > 0 && tips > 0 && (
+        {leftover > 0 && tipStaff.length > 0 && tips > 0 && (
           <p className="mt-2 text-xs text-neutral-500">
-            Zvyšok po zaokrúhlení: {eur(leftover)} — rozdeľte ručne.
+            Zvyšok tringeltov po zaokrúhlení: {eur(leftover)} — rozdeľte ručne.
           </p>
         )}
       </div>
@@ -2092,7 +2183,7 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
           ) : (
             <Coins className="h-4 w-4" />
           )}
-          {saving ? "Ukladám…" : saved ? "Uložené ✓" : "Uložiť na zmenu"}
+          {saving ? "Ukladám…" : saved ? "Uložené ✓" : "Uložiť vyúčtovanie"}
         </button>
       </div>
     </div>
@@ -2696,6 +2787,44 @@ function ShiftsReport({ restaurantId }: { restaurantId: string }) {
                               value={eur(detail.revenue)}
                               accent
                             />
+                          </div>
+                        )}
+
+                        <p className="text-xs text-neutral-500">
+                          🍕 Pízz dnes:{" "}
+                          <b className="text-neutral-900 dark:text-white">
+                            {detail.pizzas}
+                          </b>
+                        </p>
+
+                        {/* wages */}
+                        {detail.tips && detail.tips.wages.length > 0 && (
+                          <div>
+                            <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-neutral-400">
+                              Mzdy brigádnikov · spolu {eur(detail.tips.wageTotal)}
+                            </p>
+                            <ul className="space-y-1">
+                              {detail.tips.wages.map((w, i) => (
+                                <li
+                                  key={i}
+                                  className="flex items-center gap-2 rounded-lg bg-white px-3 py-1.5 text-xs dark:bg-white/[0.04]"
+                                >
+                                  <span className="flex-1 truncate">
+                                    {w.name}
+                                    <span className="text-neutral-400">
+                                      {" "}
+                                      · {roleLabel(w.role)}
+                                    </span>
+                                  </span>
+                                  <span className="w-16 text-right text-neutral-500 tabular-nums">
+                                    {w.hours.toLocaleString("sk-SK")} h
+                                  </span>
+                                  <span className="w-16 text-right font-semibold tabular-nums">
+                                    {eur(w.wage)}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
                           </div>
                         )}
 
