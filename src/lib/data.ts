@@ -1194,7 +1194,7 @@ function resolveExtras(names: string[]): { name: string; price: number }[] {
 // Pizza extras exactly as on the flyer (PRÍLOHY).
 export const PIZZA_EXTRAS = resolveExtras([
   "Cibuľa", "Cesnak", "Feferóny", "Chilli omáčka", "Vajce", "Oregano",
-  "Bazalka", "Pol / pol",
+  "Bazalka",
   "Kukurica", "Olivy", "Šampiňóny", "Artičoky", "Kyslá kapusta", "Paradajka",
   "Jalapeño papričky",
   "Šunka", "Saláma", "Klobása", "Údené mäso", "Prosciutto", "Kuracie prsia",
