@@ -1783,6 +1783,7 @@ export async function adminGetProducts(
 ): Promise<Product[]> {
   await requireAdmin(restaurantId);
   await ensureContent();
+  await ensureOrderColumns();
   // Single shared menu (restaurant_id 'all') — the same for both pizzerias.
   const rows = (await sql`
     SELECT id, restaurant_id, category, name, description, image, base_price,
@@ -1790,7 +1791,18 @@ export async function adminGetProducts(
     FROM products WHERE restaurant_id = 'all' AND category <> 'drinks'
     ORDER BY sort, name
   `) as ProductRow[];
-  return rows.map(rowToProduct);
+  // Items this restaurant marked unavailable for today (at opening or via this
+  // toggle — it's the same list). They read as "off" here too.
+  const unav = (await sql.query(
+    `SELECT product_id FROM daily_unavailable
+     WHERE restaurant_id = $1 AND service_date = ${RESET_DATE}`,
+    [restaurantId]
+  )) as { product_id: string }[];
+  const unavSet = new Set(unav.map((u) => u.product_id));
+  return rows.map((r) => {
+    const p = rowToProduct(r);
+    return { ...p, available: p.available && !unavSet.has(r.id) };
+  });
 }
 
 export interface ProductInput {
@@ -1860,10 +1872,27 @@ export async function setProductAvailable(
   available: boolean
 ): Promise<{ ok: boolean }> {
   await requireAdmin(restaurantId);
-  await sql`
-    UPDATE products SET available = ${available}, updated_at = now()
-    WHERE id = ${id} AND restaurant_id = 'all'
-  `;
+  await ensureOrderColumns();
+  // This is the same "unavailable today" list the opening flow uses — per
+  // restaurant, resets at midnight. Turning a product off adds it; turning it
+  // on removes it (and clears any legacy permanent "unavailable" flag).
+  if (available) {
+    await sql.query(
+      `DELETE FROM daily_unavailable
+       WHERE restaurant_id = $1 AND product_id = $2 AND service_date = ${RESET_DATE}`,
+      [restaurantId, id]
+    );
+    await sql`
+      UPDATE products SET available = true, updated_at = now()
+      WHERE id = ${id} AND restaurant_id = 'all'
+    `;
+  } else {
+    await sql.query(
+      `INSERT INTO daily_unavailable (restaurant_id, product_id, service_date)
+       VALUES ($1, $2, ${RESET_DATE}) ON CONFLICT DO NOTHING`,
+      [restaurantId, id]
+    );
+  }
   return { ok: true };
 }
 
