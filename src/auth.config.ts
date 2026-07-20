@@ -56,10 +56,28 @@ export const authConfig: NextAuthConfig = {
         token.restaurantId = user.restaurantId;
         token.sessionVersion = user.sessionVersion;
         token.name = user.name;
+        // Absolute expiry for this login, from the role/open-state-aware
+        // lifetime chosen at sign-in. Falls back to 1h if none was provided.
+        const maxAge = user.sessionMaxAge ?? 60 * 60;
+        token.expiresAt = Math.floor(Date.now() / 1000) + maxAge;
+      } else {
+        const exp = token.expiresAt as number | undefined;
+        if (exp && Math.floor(Date.now() / 1000) > exp) {
+          // Past the per-role expiry — strip identity so all guards fail.
+          token.id = undefined;
+          token.role = undefined;
+          token.restaurantId = undefined;
+        }
       }
       return token;
     },
     session({ session, token }) {
+      // Enforce the per-role expiry: once passed, hand back a session with no
+      // user so every guard (middleware + pages) treats it as logged out.
+      const exp = token.expiresAt as number | undefined;
+      if (exp && Math.floor(Date.now() / 1000) > exp) {
+        return { ...session, user: undefined as unknown as typeof session.user };
+      }
       if (session.user) {
         session.user.id = (token.id as string) ?? (token.sub as string);
         session.user.role = token.role as

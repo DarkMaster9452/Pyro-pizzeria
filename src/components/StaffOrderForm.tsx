@@ -198,7 +198,14 @@ export function StaffOrderForm({
             Načítavam menu…
           </p>
         ) : (
-          <div className="max-h-[460px] space-y-4 overflow-y-auto pr-1">
+          <div
+            className={cn(
+              "space-y-6 overflow-y-auto pr-1",
+              compact
+                ? "max-h-[460px]"
+                : "max-h-[calc(100vh-260px)] min-h-[480px]"
+            )}
+          >
             {CATEGORIES.map((cat) => {
               const items = filtered.filter(
                 (p) => p.category === cat.id && p.available
@@ -206,16 +213,22 @@ export function StaffOrderForm({
               if (items.length === 0) return null;
               return (
                 <div key={cat.id}>
-                  <p className="sticky top-0 z-[1] mb-1.5 bg-white/90 py-1 text-xs font-semibold uppercase tracking-wide text-neutral-400 backdrop-blur dark:bg-[#1a1a1a]/90">
-                    {cat.icon} {cat.name}
-                  </p>
+                  <div className="sticky top-0 z-[1] mb-2.5 flex items-center gap-2 border-b-2 border-brand-primary/30 bg-white/95 py-2 backdrop-blur dark:bg-[#1a1a1a]/95">
+                    <span className="text-lg leading-none">{cat.icon}</span>
+                    <span className="text-sm font-bold uppercase tracking-wide text-neutral-800 dark:text-white">
+                      {cat.name}
+                    </span>
+                    <span className="ml-auto rounded-full bg-brand-primary/10 px-2 py-0.5 text-xs font-bold text-brand-primary">
+                      {items.length}
+                    </span>
+                  </div>
                   {/* Whole menu as tap-to-add buttons (tap adds one, badge shows
                       the count, the − removes one). No photos, so it stays
                       compact enough to fit the whole menu. */}
                   {/* 2 columns on tablet (names stay readable), 3 only on very
                       wide screens. Buttons are a comfortable tap size without
                       crowding out the product name or spilling into neighbours. */}
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 2xl:grid-cols-3">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
                     {items.map((p) => {
                       const n = qty[p.id] ?? 0;
                       return (

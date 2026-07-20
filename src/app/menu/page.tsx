@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useMemo, useState } from "react";
+import { Suspense, useMemo, useState, useRef, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { useApp } from "@/lib/store";
 import { PRODUCTS, CATEGORIES } from "@/lib/data";
@@ -18,8 +18,84 @@ import {
   UtensilsCrossed,
   ArrowDownUp,
   ChevronDown,
+  Check,
   type LucideIcon,
 } from "lucide-react";
+
+type SortValue = "default" | "price-asc" | "price-desc";
+const SORT_OPTIONS: { id: SortValue; label: string }[] = [
+  { id: "default", label: "Predvolené" },
+  { id: "price-asc", label: "Cena: od najnižšej" },
+  { id: "price-desc", label: "Cena: od najvyššej" },
+];
+
+// Custom, clearly-visible sort dropdown (native <select> options render dim /
+// unreadable on dark mobile menus).
+function SortControl({
+  value,
+  onChange,
+}: {
+  value: SortValue;
+  onChange: (v: SortValue) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  const current = SORT_OPTIONS.find((o) => o.id === value) ?? SORT_OPTIONS[0];
+
+  return (
+    <div ref={ref} className="relative shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-label="Zoradiť"
+        className="flex items-center gap-2 rounded-full border border-black/10 bg-white py-2.5 pl-3.5 pr-3 text-sm font-semibold text-neutral-700 shadow-sm transition-colors hover:border-brand-primary/40 dark:border-white/10 dark:bg-[#242424] dark:text-neutral-200"
+      >
+        <ArrowDownUp className="h-4 w-4 text-brand-primary" />
+        <span className="hidden sm:inline">
+          {value === "default" ? "Zoradiť" : current.label}
+        </span>
+        <ChevronDown
+          className={cn(
+            "h-4 w-4 text-neutral-400 transition-transform",
+            open && "rotate-180"
+          )}
+        />
+      </button>
+      {open && (
+        <div className="absolute right-0 z-40 mt-2 w-56 overflow-hidden rounded-2xl border border-black/10 bg-white p-1.5 shadow-lift dark:border-white/10 dark:bg-[#242424]">
+          {SORT_OPTIONS.map((o) => (
+            <button
+              key={o.id}
+              type="button"
+              onClick={() => {
+                onChange(o.id);
+                setOpen(false);
+              }}
+              className={cn(
+                "flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-left text-sm font-medium transition-colors",
+                o.id === value
+                  ? "bg-brand-primary/10 text-brand-primary"
+                  : "text-neutral-700 hover:bg-black/5 dark:text-neutral-200 dark:hover:bg-white/5"
+              )}
+            >
+              {o.label}
+              {o.id === value && <Check className="h-4 w-4" />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 const FILTERS: { id: Badge; label: string }[] = [
   { id: "vegetarian", label: "Vegetariánske" },
@@ -120,23 +196,7 @@ function MenuInner() {
                 className="w-full bg-transparent py-2.5 text-sm outline-none"
               />
             </div>
-            {/* On phones this collapses to just the sort icon (the value text is
-                transparent) so the search field gets the width; from sm up the
-                label + chevron show. */}
-            <div className="relative shrink-0">
-              <ArrowDownUp className="pointer-events-none absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 text-brand-primary sm:left-3.5 sm:translate-x-0" />
-              <select
-                value={sort}
-                onChange={(e) => setSort(e.target.value as typeof sort)}
-                aria-label="Zoradiť"
-                className="w-11 cursor-pointer appearance-none rounded-full border border-black/10 bg-white py-2.5 text-center text-sm font-semibold text-transparent shadow-sm outline-none transition-colors hover:border-brand-primary/40 focus:border-brand-primary dark:border-white/10 dark:bg-[#242424] sm:w-[132px] sm:pl-9 sm:pr-8 sm:text-left sm:text-neutral-700 sm:dark:text-neutral-200"
-              >
-                <option value="default" className="text-neutral-900">Zoradiť</option>
-                <option value="price-asc" className="text-neutral-900">Cena ↑</option>
-                <option value="price-desc" className="text-neutral-900">Cena ↓</option>
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 hidden h-4 w-4 -translate-y-1/2 text-neutral-400 sm:block" />
-            </div>
+            <SortControl value={sort} onChange={setSort} />
           </div>
 
           {/* categories — horizontal scroll; a right-edge fade hints there are

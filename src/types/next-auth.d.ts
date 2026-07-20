@@ -14,6 +14,7 @@ declare module "next-auth" {
     role?: Role;
     restaurantId?: string | null;
     sessionVersion?: number;
+    sessionMaxAge?: number; // seconds this login should stay valid
   }
   interface Session {
     user: {
@@ -31,5 +32,6 @@ declare module "next-auth/jwt" {
     role?: Role;
     restaurantId?: string | null;
     sessionVersion?: number;
+    expiresAt?: number; // unix seconds when this login stops being valid
   }
 }
