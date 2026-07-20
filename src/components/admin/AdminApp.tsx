@@ -100,6 +100,7 @@ import {
   ChevronDown,
   CreditCard,
   Minus,
+  Lock,
 } from "lucide-react";
 
 type Tab =
@@ -2375,11 +2376,49 @@ function ServiceOpen({ restaurantId }: { restaurantId: string }) {
   const [loadingPrep, setLoadingPrep] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
   const [closing, setClosing] = useState(false);
+  // Absolute JS timestamp of today's closing, derived from the server's
+  // Bratislava clock so the countdown is correct regardless of device time.
+  const [closeAtTs, setCloseAtTs] = useState<number | null>(null);
+  const [nowTs, setNowTs] = useState(() => Date.now());
 
   const load = useCallback(() => {
-    getServiceStatus(restaurantId).then(setStatus).catch(() => {});
+    const fetchedAt = Date.now();
+    getServiceStatus(restaurantId)
+      .then((s) => {
+        setStatus(s);
+        if (s.closeTime) {
+          const [hh, mm] = s.closeTime.split(":").map(Number);
+          let untilMin = hh * 60 + mm - s.nowMinutes;
+          if (untilMin < -60) untilMin += 24 * 60; // guard past-midnight close
+          setCloseAtTs(fetchedAt + untilMin * 60_000);
+        } else {
+          setCloseAtTs(null);
+        }
+      })
+      .catch(() => {});
   }, [restaurantId]);
   useEffect(() => load(), [load]);
+
+  // Tick once a second while a countdown is active.
+  useEffect(() => {
+    if (closeAtTs == null) return;
+    const t = setInterval(() => setNowTs(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [closeAtTs]);
+
+  const msLeft = closeAtTs != null ? closeAtTs - nowTs : null;
+  const countdown =
+    msLeft != null && msLeft > 0
+      ? (() => {
+          const s = Math.floor(msLeft / 1000);
+          const h = Math.floor(s / 3600);
+          const m = Math.floor((s % 3600) / 60);
+          const sec = s % 60;
+          return h > 0
+            ? `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`
+            : `${m}:${String(sec).padStart(2, "0")}`;
+        })()
+      : null;
 
   async function startOpen() {
     setLoadingPrep(true);
@@ -2405,6 +2444,7 @@ function ServiceOpen({ restaurantId }: { restaurantId: string }) {
   const showButton = open || status?.canOpenNow;
 
   return (
+    <div className="space-y-2.5">
     <div
       className={cn(
         "flex flex-col justify-between gap-4 rounded-2xl border p-5 sm:flex-row sm:items-center",
@@ -2430,7 +2470,9 @@ function ServiceOpen({ restaurantId }: { restaurantId: string }) {
           </p>
           <p className="text-sm text-neutral-500">
             {open
-              ? "Prijímame objednávky. Dostupnosť a služby môžete upraviť."
+              ? status?.closeTime
+                ? `Prijímame objednávky. Dnes zatvárame o ${status.closeTime}.`
+                : "Prijímame objednávky. Dostupnosť a služby môžete upraviť."
               : status?.closedToday
               ? "Dnes je podľa otváracích hodín zatvorené."
               : status?.canOpenNow
@@ -2439,6 +2481,18 @@ function ServiceOpen({ restaurantId }: { restaurantId: string }) {
               ? `Otvoriť sa dá hodinu pred otváraním (dnes o ${status.openTime}).`
               : "Načítavam…"}
           </p>
+          {open && countdown && (
+            <span className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-brand-success/15 px-3 py-1 text-sm font-bold tabular-nums text-brand-success">
+              <Timer className="h-4 w-4" />
+              Do zatvorenia: {countdown}
+            </span>
+          )}
+          {open && msLeft != null && msLeft <= 0 && (
+            <span className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-brand-error/15 px-3 py-1 text-sm font-bold text-brand-error">
+              <Timer className="h-4 w-4" />
+              Otváracie hodiny skončili
+            </span>
+          )}
         </div>
       </div>
       <div className="flex shrink-0 flex-col items-stretch gap-2 sm:items-end">
@@ -2506,6 +2560,16 @@ function ServiceOpen({ restaurantId }: { restaurantId: string }) {
           }}
         />
       )}
+    </div>
+
+      <p className="flex items-start gap-2 rounded-xl bg-black/[0.03] px-3.5 py-2.5 text-xs leading-relaxed text-neutral-500 dark:bg-white/[0.03]">
+        <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        <span>
+          Po zatvorení alebo vypredaní sa <strong>už prijaté objednávky
+          nezmažú</strong> — len sa uzamkne možnosť objednať nové. Objednávky,
+          ktoré zákazníci poslali predtým, môžete v pokoji dokončiť.
+        </span>
+      </p>
     </div>
   );
 }
