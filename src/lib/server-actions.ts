@@ -449,7 +449,7 @@ export async function getStorefront(): Promise<Storefront> {
     // A restaurant counts as "open for orders" only while it is manually opened
     // AND still inside the ordering window (orders stop 30 min before close).
     for (const o of openRows)
-      open[o.id] = !!o.is_open && withinOrderingWindow(o.id);
+      open[o.id] = !!o.is_open && !orderingCutoff(o.id);
     return {
       products: products.length ? products : PRODUCTS,
       coupons: couponRows.map(rowToCoupon),
@@ -616,7 +616,7 @@ export async function createOrder(
       };
     // New orders stop ORDER_CUTOFF_BEFORE_CLOSE minutes before closing time so
     // the kitchen can finish what's in the queue before they close.
-    if (!withinOrderingWindow(data.restaurantId))
+    if (orderingCutoff(data.restaurantId))
       return {
         ok: false,
         error:
@@ -1347,20 +1347,23 @@ function toMinutes(hhmm: string): number {
 // New orders are refused this many minutes before the day's closing time.
 const ORDER_CUTOFF_BEFORE_CLOSE = 30;
 
-// Whether the ordering window is still open right now (Europe/Bratislava): today
-// must be an opening day and it must be earlier than 30 min before closing time.
-// This is independent of the manual "open" flag — it just closes ordering early.
-function withinOrderingWindow(restaurantId: string): boolean {
+// Whether the automatic order cutoff applies right now (Europe/Bratislava).
+// On regular opening days ordering stops 30 min before closing time. On
+// non-opening days there is no schedule — a manual (test) open counts as a
+// normal open with no auto-cutoff; the admin closes it manually or via
+// sold-out, and the open flag resets at midnight anyway.
+function orderingCutoff(restaurantId: string): boolean {
   const { weekdayIdx, minutes } = bratislavaNow();
   const r = RESTAURANTS.find((x) => x.id === restaurantId);
   const today = r?.openingHours.find((h) => h.day === weekdayIdx);
-  if (!today || today.closed === true) return false;
-  return minutes < toMinutes(today.close) - ORDER_CUTOFF_BEFORE_CLOSE;
+  if (!today || today.closed === true) return false; // no schedule → no cutoff
+  return minutes >= toMinutes(today.close) - ORDER_CUTOFF_BEFORE_CLOSE;
 }
 
 // Whether the day's service is over — the settlement (vyúčtovanie) may only be
 // saved once the pizzeria is closed: manually closed / sold out (open flag
-// cleared), past today's closing time, or a non-opening day.
+// cleared) or past today's closing time. A manual open on a non-opening day
+// (test) stays open until it's closed manually.
 async function isClosedForToday(restaurantId: string): Promise<boolean> {
   const rows = (await sql.query(
     `SELECT COALESCE(open_date = ${SERVICE_DATE}, false) AS is_open
@@ -1371,7 +1374,7 @@ async function isClosedForToday(restaurantId: string): Promise<boolean> {
   const { weekdayIdx, minutes } = bratislavaNow();
   const r = RESTAURANTS.find((x) => x.id === restaurantId);
   const today = r?.openingHours.find((h) => h.day === weekdayIdx);
-  if (!today || today.closed === true) return true;
+  if (!today || today.closed === true) return false; // test open — close manually
   return minutes >= toMinutes(today.close);
 }
 
