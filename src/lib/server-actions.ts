@@ -1429,9 +1429,13 @@ export async function getServiceStatus(
   let canOpenNow = false;
   let openTime: string | null = null;
   let closeTime: string | null = null;
+  // Closing time drives the countdown. Every weekday has defined open/close
+  // times in the schedule (even nominally-closed days), so expose it whenever
+  // a schedule entry exists — this way a test-open on a closed day still gets
+  // a countdown.
+  if (today) closeTime = today.close;
   if (!closedToday && today) {
     openTime = today.open;
-    closeTime = today.close;
     canOpenNow =
       !open &&
       minutes >= toMinutes(today.open) - 60 &&
