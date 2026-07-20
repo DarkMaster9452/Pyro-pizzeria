@@ -200,6 +200,11 @@ async function ensureOrderColumns(): Promise<void> {
     // Whether the order was paid by card. NULL = unknown → fall back to the
     // payment label. Card money is pooled (not tied to a driver's cash wallet).
     await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS by_card boolean`;
+    // Order was modified after entering the kitchen — it re-runs prep with an
+    // "upravená" tag so cooks know to check what changed.
+    await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS edited boolean NOT NULL DEFAULT false`;
+    // Reason the admin flipped a paid order back to unpaid.
+    await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS unpaid_note text`;
     // Per-order secret returned to the customer at checkout so they can cancel
     // their own order (IDs are sequential and therefore guessable).
     await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS cancel_token text`;
@@ -800,8 +805,11 @@ export interface AdminOrderRow {
   minsAgo: number;
   createdAt: string; // ISO — used to sort the kitchen FIFO + show the time
   paid: boolean;
+  byCard: boolean; // paid by card
+  edited: boolean; // order was modified after entering the kitchen
+  note: string | null;
   driverName: string | null;
-  lines: { name: string; quantity: number }[];
+  lines: { name: string; quantity: number; note?: string; polpol?: boolean }[];
 }
 
 interface AdminOrderRaw {
@@ -811,8 +819,11 @@ interface AdminOrderRaw {
   customer_name: string;
   total: number;
   pizza_count: number;
-  lines: { name: string; quantity: number }[];
+  lines: { name: string; quantity: number; note?: string; polpol?: boolean }[];
   paid: boolean;
+  by_card: boolean;
+  edited: boolean;
+  note: string | null;
   driver_name: string | null;
   created_at: string;
   mins_ago: number;
@@ -829,13 +840,18 @@ function mapAdminOrderRow(o: AdminOrderRaw): AdminOrderRow {
     minsAgo: Math.max(0, Math.round(o.mins_ago)),
     createdAt: o.created_at,
     paid: o.paid,
+    byCard: o.by_card,
+    edited: o.edited,
+    note: o.note,
     driverName: o.driver_name,
     lines: Array.isArray(o.lines) ? o.lines : [],
   };
 }
 
 const ADMIN_ORDER_COLS = `id, status, fulfillment, customer_name, total::float AS total,
-  pizza_count, lines, COALESCE(paid, false) AS paid, driver_name, created_at,
+  pizza_count, lines, COALESCE(paid, false) AS paid,
+  COALESCE(by_card, COALESCE(payment,'') ILIKE '%karta%') AS by_card,
+  COALESCE(edited, false) AS edited, note, driver_name, created_at,
   EXTRACT(EPOCH FROM (now() - created_at))/60 AS mins_ago`;
 
 // Distinct calendar days (Europe/Bratislava) that have orders — powers the day
@@ -886,6 +902,8 @@ export interface AdminSummary {
   revenueToday: number;
   cashToday: number;
   cardToday: number;
+  weekThis: number; // revenue in the current Mon–Sun week (open days only earn)
+  weekLast: number; // revenue in the previous week
   week: { label: string; value: number }[];
   topProducts: { name: string; value: number }[];
   orders: AdminOrderRow[];
@@ -922,6 +940,20 @@ export async function getAdminSummary(
        AND ${todaySql}`,
     [restaurantId]
   )) as { pizzas: number; cnt: number; revenue: number; cash: number; card: number }[];
+
+  // This Mon–Sun week vs the previous one (closed days simply contribute 0, so
+  // this is effectively the 4 open days compared week-over-week).
+  const weekCmp = (await sql.query(
+    `SELECT
+       COALESCE(SUM(total) FILTER (WHERE date_trunc('week', (created_at AT TIME ZONE 'Europe/Bratislava'))
+         = date_trunc('week', (now() AT TIME ZONE 'Europe/Bratislava'))),0)::float AS this_week,
+       COALESCE(SUM(total) FILTER (WHERE date_trunc('week', (created_at AT TIME ZONE 'Europe/Bratislava'))
+         = date_trunc('week', (now() AT TIME ZONE 'Europe/Bratislava')) - interval '7 days'),0)::float AS last_week
+     FROM orders
+     WHERE restaurant_id = $1 AND status <> 'cancelled'
+       AND created_at >= now() - interval '15 days'`,
+    [restaurantId]
+  )) as { this_week: number; last_week: number }[];
 
   // real 7-day revenue (for the dashboard bar chart). Bucket by the
   // Europe/Bratislava calendar day and return the key as text; the JS side
@@ -971,7 +1003,9 @@ export async function getAdminSummary(
 
   const orderRows = (await sql`
     SELECT id, status, fulfillment, customer_name, total::float AS total,
-           pizza_count, lines, COALESCE(paid, false) AS paid, driver_name,
+           pizza_count, lines, COALESCE(paid, false) AS paid,
+           COALESCE(by_card, COALESCE(payment,'') ILIKE '%karta%') AS by_card,
+           COALESCE(edited, false) AS edited, note, driver_name,
            created_at,
            EXTRACT(EPOCH FROM (now() - created_at))/60 AS mins_ago
     FROM orders
@@ -985,8 +1019,11 @@ export async function getAdminSummary(
     customer_name: string;
     total: number;
     pizza_count: number;
-    lines: { name: string; quantity: number }[];
+    lines: { name: string; quantity: number; note?: string; polpol?: boolean }[];
     paid: boolean;
+    by_card: boolean;
+    edited: boolean;
+    note: string | null;
     driver_name: string | null;
     created_at: string;
     mins_ago: number;
@@ -1009,6 +1046,8 @@ export async function getAdminSummary(
     revenueToday: Math.round((today[0]?.revenue ?? 0) * 100) / 100,
     cashToday: Math.round((today[0]?.cash ?? 0) * 100) / 100,
     cardToday: Math.round((today[0]?.card ?? 0) * 100) / 100,
+    weekThis: Math.round((weekCmp[0]?.this_week ?? 0) * 100) / 100,
+    weekLast: Math.round((weekCmp[0]?.last_week ?? 0) * 100) / 100,
     week,
     topProducts: topRows.map((t) => ({ name: t.name, value: t.qty })),
     orders: orderRows.map((o) => ({
@@ -1021,6 +1060,9 @@ export async function getAdminSummary(
       minsAgo: Math.max(0, Math.round(o.mins_ago)),
       createdAt: o.created_at,
       paid: o.paid,
+      byCard: o.by_card,
+      edited: o.edited,
+      note: o.note,
       driverName: o.driver_name,
       lines: Array.isArray(o.lines) ? o.lines : [],
     })),
@@ -1057,6 +1099,11 @@ export interface OrderDetail {
   paid: boolean;
   pizzaCount: number; // real pizzas (excludes dough sides) — gates pol/pol
   byCard: boolean; // paid by card (pooled, not a driver's cash wallet)
+  edited: boolean; // modified after entering the kitchen
+  unpaidNote: string | null; // reason it was flipped back to unpaid
+  // Editable while not delivered & unpaid, or (pickup) within 20 min of the
+  // first payment.
+  editable: boolean;
 }
 
 export async function getOrderDetail(
@@ -1073,7 +1120,11 @@ export async function getOrderDetail(
            COALESCE(surcharge, 0)::float AS surcharge, surcharge_note,
            eta, created_at, driver_name,
            COALESCE(paid, false) AS paid, COALESCE(pizza_count, 0)::int AS pizza_count,
-           COALESCE(by_card, COALESCE(payment,'') ILIKE '%karta%') AS by_card
+           COALESCE(by_card, COALESCE(payment,'') ILIKE '%karta%') AS by_card,
+           COALESCE(edited, false) AS edited, unpaid_note,
+           ((status <> 'delivered' AND COALESCE(paid, false) = false)
+             OR (fulfillment = 'pickup' AND paid_at IS NOT NULL
+                 AND paid_at > now() - interval '20 minutes')) AS editable
     FROM orders WHERE id = ${id} AND restaurant_id = ${restaurantId} LIMIT 1
   `) as Array<{
     id: string;
@@ -1099,6 +1150,9 @@ export async function getOrderDetail(
     paid: boolean;
     pizza_count: number;
     by_card: boolean;
+    edited: boolean;
+    unpaid_note: string | null;
+    editable: boolean;
   }>;
   const o = rows[0];
   if (!o) return null;
@@ -1126,21 +1180,29 @@ export async function getOrderDetail(
     paid: o.paid,
     pizzaCount: o.pizza_count,
     byCard: o.by_card,
+    edited: o.edited,
+    unpaidNote: o.unpaid_note,
+    editable: o.editable,
   };
 }
 
-// Toggle whether an order was paid by card (admin correction / pickup card).
+// Toggle whether an order was paid by card (admin correction). Locked once the
+// order is paid — same rule as pol/pol.
 export async function setOrderCard(
   restaurantId: string,
   id: string,
   card: boolean
-): Promise<{ ok: boolean }> {
+): Promise<{ ok: boolean; error?: string }> {
   const session = await requireAdmin(restaurantId);
   await ensureOrderColumns();
-  await sql`
+  const rows = (await sql`
     UPDATE orders SET by_card = ${card}
     WHERE id = ${id} AND restaurant_id = ${restaurantId}
-  `;
+      AND COALESCE(paid, false) = false
+    RETURNING id
+  `) as { id: string }[];
+  if (!rows.length)
+    return { ok: false, error: "Po zaplatení sa už spôsob platby nedá meniť." };
   await audit({
     action: "order.card_set",
     actorId: session.user.id,
@@ -1148,6 +1210,37 @@ export async function setOrderCard(
     restaurantId,
     target: id,
     meta: { card },
+  });
+  return { ok: true };
+}
+
+// Flip a paid order back to unpaid — needs a reason so the day's money makes
+// sense later. The reason is stored on the order and shown in its detail.
+export async function markOrderUnpaid(
+  restaurantId: string,
+  id: string,
+  reason: string
+): Promise<{ ok: boolean; error?: string }> {
+  const session = await requireAdmin(restaurantId);
+  await ensureOrderColumns();
+  const note = reason.trim().slice(0, 300);
+  if (!note) return { ok: false, error: "Napíšte dôvod, prečo je nezaplatená." };
+  const rows = (await sql`
+    UPDATE orders
+    SET paid = false, paid_at = NULL, unpaid_note = ${note}
+    WHERE id = ${id} AND restaurant_id = ${restaurantId}
+      AND COALESCE(paid, false) = true
+    RETURNING id
+  `) as { id: string }[];
+  if (!rows.length)
+    return { ok: false, error: "Objednávka nie je zaplatená." };
+  await audit({
+    action: "order.marked_unpaid",
+    actorId: session.user.id,
+    actorEmail: session.user.email,
+    restaurantId,
+    target: id,
+    meta: { reason: note },
   });
   return { ok: true };
 }
@@ -1248,6 +1341,23 @@ function withinOrderingWindow(restaurantId: string): boolean {
   const today = r?.openingHours.find((h) => h.day === weekdayIdx);
   if (!today || today.closed === true) return false;
   return minutes < toMinutes(today.close) - ORDER_CUTOFF_BEFORE_CLOSE;
+}
+
+// Whether the day's service is over — the settlement (vyúčtovanie) may only be
+// saved once the pizzeria is closed: manually closed / sold out (open flag
+// cleared), past today's closing time, or a non-opening day.
+async function isClosedForToday(restaurantId: string): Promise<boolean> {
+  const rows = (await sql.query(
+    `SELECT COALESCE(open_date = ${SERVICE_DATE}, false) AS is_open
+     FROM restaurant_state WHERE id = $1 LIMIT 1`,
+    [restaurantId]
+  )) as { is_open: boolean }[];
+  if (!rows[0]?.is_open) return true; // never opened, closed manually or sold out
+  const { weekdayIdx, minutes } = bratislavaNow();
+  const r = RESTAURANTS.find((x) => x.id === restaurantId);
+  const today = r?.openingHours.find((h) => h.day === weekdayIdx);
+  if (!today || today.closed === true) return true;
+  return minutes >= toMinutes(today.close);
 }
 
 // Current weekday (0 = Monday … 6 = Sunday) and minutes-since-midnight in the
@@ -1573,6 +1683,8 @@ export interface TipData {
   expectedTotal: number; // all orders (cash + card)
   orderCount: number;
   pizzaCount: number; // real pizzas made today (from orders)
+  // Settlement can only be saved once the pizzeria is closed for the day.
+  canSettle: boolean;
   // Everyone on shift today (cooks + drivers). Owners take no tips / wage.
   staff: { id: string; name: string; role: string; isOwner: boolean }[];
   saved: SavedTips | null;
@@ -1700,6 +1812,7 @@ export async function getTipData(restaurantId: string): Promise<TipData> {
     expectedTotal,
     orderCount: (money[0]?.cash_cnt ?? 0) + (money[0]?.card_cnt ?? 0),
     pizzaCount: pizzas[0]?.n ?? 0,
+    canSettle: await isClosedForToday(restaurantId),
     staff: staff.map((s) => ({
       id: s.id,
       name: s.name,
@@ -1753,6 +1866,13 @@ export async function saveTips(
 ): Promise<{ ok: boolean; error?: string }> {
   const session = await requireAdmin(restaurantId);
   await ensureOrderColumns();
+  // Settlement only after the day is closed (manual close, sold out, or past
+  // closing time) — otherwise the numbers would still be moving.
+  if (!(await isClosedForToday(restaurantId)))
+    return {
+      ok: false,
+      error: "Vyúčtovanie sa dá uložiť až po zatvorení prevádzky.",
+    };
   const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
   const driverCash = (input.driverCash ?? []).slice(0, 50).map((d) => ({
     id: String(d.id),
@@ -3005,6 +3125,7 @@ export interface KitchenOrder {
   taken: boolean; // claimed by a driver / already paid
   paid: boolean;
   pizzaCount: number; // real pizzas (excludes dough sides) — gates pol/pol
+  edited: boolean; // order was modified — re-check what changed
   note: string | null;
   surcharge: number; // custom-request surcharge already included in `total`
   lines: { name: string; quantity: number; note?: string; polpol?: boolean }[];
@@ -3055,7 +3176,8 @@ export async function getKitchenBoard(): Promise<KitchenOrder[]> {
     SELECT id, status, fulfillment, customer_name, total::float AS total, note,
            COALESCE(surcharge, 0)::float AS surcharge,
            lines, driver_id, COALESCE(paid, false) AS paid,
-           COALESCE(pizza_count, 0)::int AS pizza_count, created_at,
+           COALESCE(pizza_count, 0)::int AS pizza_count,
+           COALESCE(edited, false) AS edited, created_at,
            EXTRACT(EPOCH FROM (now() - created_at))/60 AS mins_ago
     FROM orders
     WHERE restaurant_id = ${ctx.restaurantId}
@@ -3076,6 +3198,7 @@ export async function getKitchenBoard(): Promise<KitchenOrder[]> {
     driver_id: string | null;
     paid: boolean;
     pizza_count: number;
+    edited: boolean;
     created_at: string;
     mins_ago: number;
   }>;
@@ -3090,6 +3213,7 @@ export async function getKitchenBoard(): Promise<KitchenOrder[]> {
     taken: o.driver_id != null || o.paid,
     paid: o.paid,
     pizzaCount: o.pizza_count,
+    edited: o.edited,
     note: o.note,
     surcharge: o.surcharge,
     lines: Array.isArray(o.lines) ? o.lines : [],
@@ -3624,6 +3748,115 @@ export async function updateStaffOrder(
     return { ok: true, id, total: totals.total };
   } catch (e) {
     console.error("updateStaffOrder failed", e);
+    return { ok: false, error: "Zmeny sa nepodarilo uložiť." };
+  }
+}
+
+// Admin edit of any order. Allowed while the order is not delivered & unpaid,
+// or — for pickup — within 20 minutes of the first payment. The edited order
+// goes back through the kitchen (status → received) with an "upravená" tag.
+export async function adminUpdateOrder(
+  id: string,
+  input: StaffOrderInput
+): Promise<CreateOrderResult> {
+  const session = await requireAdmin(input.restaurantId);
+  if (!Array.isArray(input.lines) || input.lines.length === 0)
+    return { ok: false, error: "Objednávka musí mať aspoň jednu položku." };
+
+  try {
+    await ensureContent();
+    await ensureOrderColumns();
+
+    const existing = (await sql`
+      SELECT status, fulfillment, COALESCE(paid, false) AS paid, paid_at,
+             COALESCE(surcharge, 0)::float AS surcharge
+      FROM orders WHERE id = ${id} AND restaurant_id = ${input.restaurantId} LIMIT 1
+    `) as Array<{
+      status: string;
+      fulfillment: string;
+      paid: boolean;
+      paid_at: string | null;
+      surcharge: number;
+    }>;
+    const ex = existing[0];
+    if (!ex) return { ok: false, error: "Objednávka sa nenašla." };
+    const within20 =
+      ex.paid_at != null &&
+      Date.now() - new Date(ex.paid_at).getTime() < 20 * 60 * 1000;
+    const editable =
+      (ex.status !== "delivered" && !ex.paid) ||
+      (ex.fulfillment === "pickup" && ex.paid && within20);
+    if (!editable)
+      return {
+        ok: false,
+        error:
+          "Objednávku už nie je možné upraviť (doručená, alebo od zaplatenia prešlo viac ako 20 min).",
+      };
+
+    const products = await loadProducts();
+    const usable = products.length ? products : PRODUCTS;
+    const pizza = pizzaIds(usable);
+
+    const lines: CartLine[] = [];
+    for (const l of input.lines) {
+      const priced = repriceLine(l as CartLine, usable, input.restaurantId, pizza);
+      if (!priced)
+        return { ok: false, error: "Niektorý produkt už nie je dostupný." };
+      lines.push(priced);
+    }
+
+    let zone: DeliveryZone | null = null;
+    if (input.fulfillment === "delivery" && input.address) {
+      const zoneRows = (await sql`
+        SELECT id, restaurant_id, name, minimum_order, delivery_fee,
+               estimated_minutes, areas
+        FROM delivery_zones WHERE restaurant_id = ${input.restaurantId}
+        ORDER BY sort`) as ZoneRow[];
+      const usableZones = zoneRows.length
+        ? zoneRows.map(rowToZone)
+        : RESTAURANTS.find((r) => r.id === input.restaurantId)
+            ?.deliveryZones ?? [];
+      zone = matchZone(usableZones, `${input.address.street} ${input.address.city}`);
+    }
+
+    const totals = computeTotals(
+      lines,
+      input.restaurantId,
+      zone,
+      input.fulfillment,
+      null,
+      COUPONS
+    );
+    // Keep an existing pol/pol surcharge on top of the recomputed total.
+    const total = round2(totals.total + ex.surcharge);
+    const phone = (input.phone ?? "").trim();
+    const name = (input.customerName ?? "").trim() || phone || "Objednávka";
+    const note = input.note?.trim() ? input.note.trim() : null;
+
+    await sql`
+      UPDATE orders SET
+        fulfillment = ${input.fulfillment},
+        customer_name = ${name}, phone = ${phone},
+        address = ${input.address ? JSON.stringify(input.address) : null},
+        zone_name = ${zone?.name ?? null},
+        lines = ${JSON.stringify(lines)}, pizza_count = ${pizzaCount(lines, pizza)},
+        subtotal = ${totals.subtotal}, delivery_fee = ${totals.deliveryFee},
+        discount = ${totals.discount}, total = ${total},
+        note = ${note},
+        edited = true, status = 'received'
+      WHERE id = ${id} AND restaurant_id = ${input.restaurantId}
+    `;
+    await audit({
+      action: "order.admin_edited",
+      actorId: session.user.id,
+      actorEmail: session.user.email,
+      restaurantId: input.restaurantId,
+      target: id,
+      meta: { total },
+    });
+    return { ok: true, id, total };
+  } catch (e) {
+    console.error("adminUpdateOrder failed", e);
     return { ok: false, error: "Zmeny sa nepodarilo uložiť." };
   }
 }

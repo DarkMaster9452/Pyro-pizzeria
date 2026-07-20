@@ -1,21 +1,10 @@
 "use client";
 
-import dynamic from "next/dynamic";
 import { useApp } from "@/lib/store";
 import { RESTAURANTS, DAY_NAMES } from "@/lib/data";
 import { getOpenState } from "@/lib/utils";
 import { Footer } from "@/components/Footer";
-import { Phone, Mail, MapPin, Clock, Navigation, Car } from "lucide-react";
-
-// MapLibre needs the browser — load client-side only.
-const MapView = dynamic(() => import("@/components/MapView"), {
-  ssr: false,
-  loading: () => (
-    <div className="flex h-full min-h-[400px] w-full items-center justify-center text-sm text-neutral-500">
-      Načítavam mapu…
-    </div>
-  ),
-});
+import { Phone, Mail, MapPin, Clock, Navigation } from "lucide-react";
 
 export default function ContactPage() {
   const restaurantId = useApp((s) => s.restaurantId);
@@ -100,26 +89,19 @@ export default function ContactPage() {
             </ul>
           </div>
 
-          <div className="card flex items-center gap-3 p-6">
-            <span className="rounded-xl bg-brand-secondary/10 p-2.5 text-brand-secondary">
-              <Car className="h-5 w-5" />
-            </span>
-            <div>
-              <p className="font-semibold">Parkovanie zdarma</p>
-              <p className="text-sm text-neutral-500">
-                Priamo pred prevádzkou.
-              </p>
-            </div>
-          </div>
         </div>
 
-        {/* map */}
+        {/* map — plain OpenStreetMap embed with a marker (reliable, no JS). */}
         <div className="card overflow-hidden">
-          <MapView
-            lat={r.lat}
-            lng={r.lng}
-            label={r.name}
-            accent={r.accent}
+          <iframe
+            title={`Mapa — ${r.name}`}
+            src={`https://www.openstreetmap.org/export/embed.html?bbox=${
+              r.lng - 0.008
+            }%2C${r.lat - 0.005}%2C${r.lng + 0.008}%2C${
+              r.lat + 0.005
+            }&layer=mapnik&marker=${r.lat}%2C${r.lng}`}
+            className="h-full min-h-[400px] w-full border-0"
+            loading="lazy"
           />
         </div>
       </div>

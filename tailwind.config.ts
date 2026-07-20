@@ -12,7 +12,7 @@ const config: Config = {
           primary: "rgb(var(--brand-primary) / <alpha-value>)",
           primaryHover: "rgb(var(--brand-primary-hover) / <alpha-value>)",
           red: "rgb(var(--brand-primary) / <alpha-value>)",
-          secondary: "#E85D04",
+          secondary: "rgb(var(--brand-secondary) / <alpha-value>)",
           accent: "rgb(var(--brand-accent) / <alpha-value>)",
           dark: "#111111",
           surface: "#171717",

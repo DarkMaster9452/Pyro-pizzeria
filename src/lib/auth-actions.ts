@@ -127,7 +127,12 @@ export async function logoutAllDevicesAction() {
   await signOut({ redirectTo: "/" });
 }
 
-export async function deleteAccountAction() {
+export async function deleteAccountAction(formData?: FormData) {
+  // Deletion must be confirmed by typing "potvrdzujem" — without it, no-op.
+  const confirm = String(formData?.get("confirm") ?? "")
+    .trim()
+    .toLowerCase();
+  if (confirm !== "potvrdzujem") return;
   const session = await auth();
   if (!session?.user?.id) return;
   await deleteAccount(session.user.id);

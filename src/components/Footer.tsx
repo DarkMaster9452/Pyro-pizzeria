@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useApp } from "@/lib/store";
 import { RESTAURANTS, DAY_NAMES } from "@/lib/data";
-import { Phone, Mail, MapPin, Clock } from "lucide-react";
+import { Phone, Mail, MapPin, Clock, Flame } from "lucide-react";
 
 export function Footer() {
   const restaurantId = useApp((s) => s.restaurantId);
@@ -17,7 +17,8 @@ export function Footer() {
       <div className="section grid gap-10 py-14 md:grid-cols-4">
         <div>
           <div className="flex items-center gap-2 text-white">
-            <span className="text-2xl">🔥</span>
+            {/* Brand-coloured flame (emoji can't take the brand colour). */}
+            <Flame className="h-6 w-6 text-brand-primary" />
             <span className="font-display text-lg font-extrabold">
               {r.name}
             </span>

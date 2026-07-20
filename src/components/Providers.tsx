@@ -52,21 +52,27 @@ export function Providers({ children }: { children: React.ReactNode }) {
     };
   }, [setSoldOut, setStorefront]);
 
-  // The public site is always dark. Light/dark mode only applies inside the
-  // admin panel, where it follows the theme toggle.
+  // The public site is always dark. Light/dark mode applies inside the admin
+  // panel AND the delivery board (its classes are theme-aware), so an admin in
+  // light mode stays in light mode when hopping to /rozvoz. Kitchen and call
+  // boards stay dark — they're built dark-only.
+  const themed = isAdmin || pathname?.startsWith("/rozvoz");
   useEffect(() => {
     const root = document.documentElement;
-    const wantDark = isAdmin ? theme === "dark" : true;
+    const wantDark = themed ? theme === "dark" : true;
     root.classList.toggle("dark", wantDark);
-  }, [theme, isAdmin]);
+  }, [theme, themed]);
 
   // Theme the whole page to the selected restaurant's brand colour (Pyro
-  // orange vs Polomárik gold) so the two pizzerias feel distinct.
+  // orange vs Polomárik gold) so the two pizzerias feel distinct. Staff
+  // surfaces (admin/rozvoz/kuchyňa/call) set data-brand themselves from the
+  // logged-in account's restaurant, so leave it alone there.
   useEffect(() => {
+    if (hideChrome) return;
     const root = document.documentElement;
-    if (!isAdmin && restaurantId) root.setAttribute("data-brand", restaurantId);
+    if (restaurantId) root.setAttribute("data-brand", restaurantId);
     else root.removeAttribute("data-brand");
-  }, [restaurantId, isAdmin]);
+  }, [restaurantId, hideChrome]);
 
   // Swap the browser-tab favicon to the rounded logo of the pizzeria the guest
   // is currently on (falls back to the neutral brand icon before they pick one).

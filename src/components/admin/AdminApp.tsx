@@ -13,13 +13,16 @@ import { StaffOrderForm } from "@/components/StaffOrderForm";
 import {
   StaffPasswordBanner,
   OperatorContact,
-  StaffPasswordPanel,
 } from "@/components/StaffSecurity";
 import {
   getAdminSummary,
   getOrderDetail,
   setSoldOut as setSoldOutServer,
   setOrderCard,
+  markOrderUnpaid,
+  getEditableOrder,
+  adminUpdateOrder,
+  type EditableOrder,
   adminGetProducts,
   saveProduct,
   setProductAvailable,
@@ -46,7 +49,6 @@ import {
   getShiftDayDetail,
   getOrderDays,
   getAdminOrdersByDay,
-  setOrderSurcharge,
   type TipData,
   type TipAllocation,
   type TipWage,
@@ -203,6 +205,12 @@ export function AdminApp({
     return () => clearInterval(t);
   }, [refresh]);
 
+  // Brand colours follow the admin's own restaurant (Pyro orange / Polomárik
+  // gold) — Providers leaves data-brand alone on staff surfaces.
+  useEffect(() => {
+    document.documentElement.setAttribute("data-brand", restaurantId);
+  }, [restaurantId]);
+
   // Resume the audio context + preload the bell on the first interaction
   // (browser autoplay rules), so the first order rings instantly and loud.
   useEffect(() => {
@@ -230,10 +238,10 @@ export function AdminApp({
   }, [summary, sound]);
 
   return (
-    <div className="flex min-h-screen bg-[#f4f4f5] text-neutral-800 dark:bg-[#0f0f0f] dark:text-neutral-200">
+    <div className="flex min-h-screen bg-[#e9e9ee] text-neutral-800 dark:bg-[#0f0f0f] dark:text-neutral-200">
       {/* sidebar — sticky full-height so the nav stays fully visible while the
           content scrolls (tablet/desktop) */}
-      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col self-start overflow-y-auto border-r border-black/[0.08] bg-white dark:border-white/5 dark:bg-[#161616] md:flex">
+      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col self-start overflow-y-auto border-r border-black/15 bg-white shadow-sm dark:border-white/5 dark:bg-[#161616] md:flex">
         <div className="flex items-center gap-3 border-b border-black/[0.08] p-5 dark:border-white/5">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
@@ -481,7 +489,7 @@ function ThemeToggle() {
   );
 }
 
-const CARD = "rounded-2xl bg-white p-5 ring-1 ring-black/[0.06] dark:bg-[#1a1a1a] dark:ring-white/5";
+const CARD = "rounded-2xl bg-white p-5 ring-1 ring-black/10 shadow-sm dark:bg-[#1a1a1a] dark:ring-white/5";
 
 // ---------------- DASHBOARD (real stats) ----------------
 function Dashboard({
@@ -495,7 +503,7 @@ function Dashboard({
     {
       label: "Predané pizze dnes",
       value: summary ? String(summary.soldToday) : "—",
-      sub: "reset o 12:00",
+      sub: "reset o polnoci",
       icon: <Pizza />,
       accent: true,
     },
@@ -521,6 +529,11 @@ function Dashboard({
   const week = summary?.week ?? [];
   const top = summary?.topProducts ?? [];
   const topMax = Math.max(1, ...top.map((t) => t.value));
+  // Week-over-week revenue (Mon–Sun; only the open days earn anything).
+  const wkThis = summary?.weekThis ?? 0;
+  const wkLast = summary?.weekLast ?? 0;
+  const wkDiff = Math.round((wkThis - wkLast) * 100) / 100;
+  const wkPct = wkLast > 0 ? Math.round(((wkThis - wkLast) / wkLast) * 100) : null;
 
   return (
     <div className="space-y-6">
@@ -544,6 +557,44 @@ function Dashboard({
             <p className="text-sm text-neutral-500">{s.label}</p>
           </div>
         ))}
+      </div>
+
+      {/* week-over-week revenue (the 4 open days) */}
+      <div className={CARD}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="font-display font-bold text-neutral-900 dark:text-white">
+              Tento týždeň vs minulý
+            </p>
+            <p className="text-sm text-neutral-500">
+              Tržby za otvorené dni (Št–Ne)
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-1">
+            <span className="text-sm text-neutral-500">
+              Minulý:{" "}
+              <b className="text-neutral-900 dark:text-white">{eur(wkLast)}</b>
+            </span>
+            <span className="text-sm text-neutral-500">
+              Tento:{" "}
+              <b className="font-display text-lg text-brand-primary">
+                {eur(wkThis)}
+              </b>
+            </span>
+            <span
+              className={cn(
+                "rounded-full px-3 py-1 text-sm font-bold",
+                wkDiff >= 0
+                  ? "bg-brand-success/15 text-brand-success"
+                  : "bg-brand-error/15 text-brand-error"
+              )}
+            >
+              {wkDiff >= 0 ? "+" : "−"}
+              {eur(Math.abs(wkDiff))}
+              {wkPct != null && ` (${wkPct >= 0 ? "+" : ""}${wkPct} %)`}
+            </span>
+          </div>
+        </div>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -736,8 +787,15 @@ function Kitchen({
                     >
                       #{o.id}
                     </button>
-                    <span className="chip bg-black/[0.06] text-neutral-900 dark:bg-white/10 dark:text-white">
-                      {o.fulfillment === "delivery" ? "Rozvoz" : "Odber"}
+                    <span className="flex items-center gap-1.5">
+                      {o.edited && (
+                        <span className="chip bg-amber-500/15 font-bold text-amber-600 dark:text-amber-400">
+                          UPRAVENÁ
+                        </span>
+                      )}
+                      <span className="chip bg-black/[0.06] text-neutral-900 dark:bg-white/10 dark:text-white">
+                        {o.fulfillment === "delivery" ? "Rozvoz" : "Odber"}
+                      </span>
                     </span>
                   </div>
                   <p className="mt-1 flex items-center gap-1 text-xs text-neutral-400">
@@ -751,9 +809,23 @@ function Kitchen({
                     {o.lines.map((it, i) => (
                       <li key={i}>
                         • {it.quantity}× {it.name}
+                        {it.polpol && (
+                          <Pizza className="ml-1 inline h-3.5 w-3.5 text-brand-primary" />
+                        )}
+                        {it.note && (
+                          <span className="block pl-4 text-xs font-semibold text-amber-600 dark:text-amber-400">
+                            → {it.note}
+                          </span>
+                        )}
                       </li>
                     ))}
                   </ul>
+                  {o.note && (
+                    <p className="mb-2 flex items-start gap-1.5 rounded-lg bg-amber-500/10 px-2.5 py-1.5 text-xs font-semibold text-amber-700 dark:text-amber-300">
+                      <StickyNote className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                      {o.note}
+                    </p>
+                  )}
 
                   <div className="mt-2 flex flex-wrap items-center gap-2">
                     <span className="inline-flex items-center gap-1.5 rounded-full bg-black/[0.06] px-3 py-1 text-sm font-semibold text-neutral-900 dark:bg-white/10 dark:text-white">
@@ -917,7 +989,7 @@ function Handover({ restaurantId }: { restaurantId: string }) {
   const done = orders.filter((o) => o.paid);
 
   return (
-    <div className="rounded-2xl border border-black/[0.08] bg-white p-4 dark:border-white/5 dark:bg-[#161616]">
+    <div className="rounded-2xl border border-black/15 bg-white shadow-sm p-4 dark:border-white/5 dark:bg-[#161616]">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="flex items-center gap-2 font-display font-bold text-neutral-900 dark:text-white">
           <PackageCheck className="h-5 w-5 text-brand-primary" /> Výdaj (odber)
@@ -1152,7 +1224,7 @@ function Orders({
         ))}
       </div>
 
-      <div className="overflow-x-auto rounded-2xl bg-white ring-1 ring-black/[0.06] dark:bg-[#1a1a1a] dark:ring-white/5">
+      <div className="overflow-x-auto rounded-2xl bg-white ring-1 ring-black/10 shadow-sm dark:bg-[#1a1a1a] dark:ring-white/5">
         <table className="w-full text-left text-sm">
           <thead className="border-b border-black/[0.08] text-neutral-500 dark:border-white/5">
             <tr>
@@ -1197,6 +1269,16 @@ function Orders({
                       {r.paid && (
                         <span className="chip bg-brand-success/15 text-brand-success">
                           Zaplatené
+                        </span>
+                      )}
+                      {r.paid && r.byCard && (
+                        <span className="chip bg-brand-primary/15 font-bold text-brand-primary">
+                          <CreditCard className="h-3 w-3" /> Kartou
+                        </span>
+                      )}
+                      {r.edited && (
+                        <span className="chip bg-amber-500/15 font-bold text-amber-600 dark:text-amber-400">
+                          Upravená
                         </span>
                       )}
                     </div>
@@ -1266,16 +1348,6 @@ function OrderDetailModal({
     };
   }, [restaurantId, id]);
 
-  async function toggleSurcharge(on: boolean) {
-    setSurBusy(true);
-    try {
-      await setOrderSurcharge(id, on);
-      await reload();
-    } finally {
-      setSurBusy(false);
-    }
-  }
-
   async function toggleCard(on: boolean) {
     setSurBusy(true);
     try {
@@ -1283,6 +1355,40 @@ function OrderDetailModal({
       await reload();
     } finally {
       setSurBusy(false);
+    }
+  }
+
+  // Mark a paid order back as unpaid — asks for a reason first.
+  const [unpaidOpen, setUnpaidOpen] = useState(false);
+  const [unpaidReason, setUnpaidReason] = useState("");
+  const [unpaidErr, setUnpaidErr] = useState("");
+  async function doMarkUnpaid() {
+    setSurBusy(true);
+    setUnpaidErr("");
+    try {
+      const res = await markOrderUnpaid(restaurantId, id, unpaidReason);
+      if (!res.ok) {
+        setUnpaidErr(res.error ?? "Akcia zlyhala.");
+        return;
+      }
+      setUnpaidOpen(false);
+      setUnpaidReason("");
+      await reload();
+    } finally {
+      setSurBusy(false);
+    }
+  }
+
+  // Admin edit — loads the order into the staff order form.
+  const [editData, setEditData] = useState<EditableOrder | null>(null);
+  const [editLoading, setEditLoading] = useState(false);
+  async function openEdit() {
+    setEditLoading(true);
+    try {
+      const data = await getEditableOrder(id);
+      if (data) setEditData(data);
+    } finally {
+      setEditLoading(false);
     }
   }
 
@@ -1332,6 +1438,16 @@ function OrderDetailModal({
               <span className="chip bg-black/[0.06] dark:bg-white/10">
                 {detail.payment}
               </span>
+              {detail.paid && detail.byCard && (
+                <span className="chip bg-brand-primary/15 font-bold text-brand-primary">
+                  <CreditCard className="h-3 w-3" /> Kartou
+                </span>
+              )}
+              {detail.edited && (
+                <span className="chip bg-amber-500/15 font-bold text-amber-600 dark:text-amber-400">
+                  Upravená
+                </span>
+              )}
               <span className="chip bg-black/[0.06] dark:bg-white/10">
                 ETA ~{detail.eta} min
               </span>
@@ -1367,13 +1483,20 @@ function OrderDetailModal({
               </div>
             )}
 
+            {detail.unpaidNote && (
+              <div className="flex items-start gap-2 rounded-2xl border border-brand-error/40 bg-brand-error/10 px-4 py-3 text-sm font-semibold text-brand-error">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>Nezaplatená: {detail.unpaidNote}</span>
+              </div>
+            )}
+
             {/* Paid by card — pooled to the card total instead of a driver's
-                cash wallet. Toggleable so the admin can classify any order. */}
+                cash wallet. Locked once the order is paid (like pol/pol). */}
             <button
-              disabled={surBusy}
+              disabled={surBusy || detail.paid}
               onClick={() => toggleCard(!detail.byCard)}
               className={cn(
-                "flex w-full items-center justify-between gap-2 rounded-2xl border px-4 py-3 text-sm font-semibold transition-colors disabled:opacity-50",
+                "flex w-full items-center justify-between gap-2 rounded-2xl border px-4 py-3 text-sm font-semibold transition-colors disabled:opacity-60",
                 detail.byCard
                   ? "border-brand-primary/50 bg-brand-primary/10 text-brand-primary"
                   : "border-black/10 text-neutral-600 hover:bg-black/[0.03] dark:border-white/15 dark:text-neutral-300 dark:hover:bg-white/5"
@@ -1381,6 +1504,11 @@ function OrderDetailModal({
             >
               <span className="flex items-center gap-2">
                 <CreditCard className="h-4 w-4" /> Platené kartou
+                {detail.paid && (
+                  <span className="text-xs font-normal text-neutral-400">
+                    (zaplatené — nedá sa meniť)
+                  </span>
+                )}
               </span>
               <span
                 className={cn(
@@ -1394,42 +1522,70 @@ function OrderDetailModal({
               </span>
             </button>
 
-            {/* Custom-request surcharge (half-and-half pizza). Only for unpaid
-                orders that contain a real pizza. If it's already applied it
-                stays visible (read-only) even once paid. */}
-            {(detail.pizzaCount > 0 || detail.surcharge > 0) && (
-              <button
-                disabled={
-                  surBusy || detail.paid || detail.status === "delivered"
-                }
-                onClick={() => toggleSurcharge(detail.surcharge <= 0)}
-                className={cn(
-                  "flex w-full items-center justify-between gap-2 rounded-2xl border px-4 py-3 text-sm font-semibold transition-colors disabled:opacity-50",
-                  detail.surcharge > 0
-                    ? "border-brand-primary/50 bg-brand-primary/10 text-brand-primary"
-                    : "border-black/10 text-neutral-600 hover:bg-black/[0.03] dark:border-white/15 dark:text-neutral-300 dark:hover:bg-white/5"
-                )}
-              >
-                <span className="flex items-center gap-2">
-                  <Pizza className="h-4 w-4" /> Pol/pol pizza · príplatok{" "}
-                  {eur(POL_POL_SURCHARGE)}
-                  {detail.paid && (
-                    <span className="text-xs font-normal text-neutral-400">
-                      (zaplatené — nedá sa meniť)
-                    </span>
-                  )}
-                </span>
-                <span
-                  className={cn(
-                    "flex h-5 w-5 items-center justify-center rounded-full border",
-                    detail.surcharge > 0
-                      ? "border-brand-primary bg-brand-primary text-white"
-                      : "border-black/25 dark:border-white/25"
-                  )}
+            {/* Pol/pol is only an indicator here — it's toggled in the kitchen. */}
+            {detail.surcharge > 0 && (
+              <div className="flex w-full items-center gap-2 rounded-2xl border border-brand-primary/50 bg-brand-primary/10 px-4 py-3 text-sm font-semibold text-brand-primary">
+                <Pizza className="h-4 w-4" /> Pol/pol pizza · príplatok{" "}
+                {eur(detail.surcharge)}
+              </div>
+            )}
+
+            {/* actions: edit (while allowed) + mark unpaid (with a reason) */}
+            <div className="flex flex-wrap gap-2">
+              {detail.editable && (
+                <button
+                  disabled={editLoading}
+                  onClick={openEdit}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-brand-secondary/50 px-4 py-2 text-sm font-bold text-brand-secondary hover:bg-brand-secondary/10 disabled:opacity-50"
                 >
-                  {detail.surcharge > 0 && <Check className="h-3.5 w-3.5" />}
-                </span>
-              </button>
+                  <Pencil className="h-4 w-4" />
+                  {editLoading ? "Načítavam…" : "Upraviť objednávku"}
+                </button>
+              )}
+              {detail.paid && !unpaidOpen && (
+                <button
+                  disabled={surBusy}
+                  onClick={() => setUnpaidOpen(true)}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-brand-error/50 px-4 py-2 text-sm font-bold text-brand-error hover:bg-brand-error/10 disabled:opacity-50"
+                >
+                  <AlertTriangle className="h-4 w-4" /> Označiť ako nezaplatenú
+                </button>
+              )}
+            </div>
+            {unpaidOpen && (
+              <div className="rounded-2xl border border-brand-error/40 bg-brand-error/5 p-4">
+                <p className="mb-2 text-sm font-semibold text-brand-error">
+                  Naozaj označiť ako nezaplatenú? Napíšte dôvod:
+                </p>
+                <textarea
+                  value={unpaidReason}
+                  onChange={(e) => setUnpaidReason(e.target.value)}
+                  rows={2}
+                  placeholder="Napr. zákazník neprevzal, vrátené peniaze…"
+                  className="w-full resize-none rounded-xl border border-black/10 bg-white p-3 text-sm outline-none focus:border-brand-error dark:border-white/10 dark:bg-[#242424]"
+                />
+                {unpaidErr && (
+                  <p className="mt-1 text-xs text-brand-error">{unpaidErr}</p>
+                )}
+                <div className="mt-2 flex gap-2">
+                  <button
+                    onClick={() => {
+                      setUnpaidOpen(false);
+                      setUnpaidErr("");
+                    }}
+                    className="flex-1 rounded-full border border-black/10 py-2 text-sm font-semibold dark:border-white/15"
+                  >
+                    Zrušiť
+                  </button>
+                  <button
+                    disabled={surBusy || !unpaidReason.trim()}
+                    onClick={doMarkUnpaid}
+                    className="flex-1 rounded-full bg-brand-error py-2 text-sm font-bold text-white disabled:opacity-40"
+                  >
+                    Áno, nezaplatená
+                  </button>
+                </div>
+              </div>
             )}
 
             <div>
@@ -1493,6 +1649,49 @@ function OrderDetailModal({
                 <span>Spolu</span>
                 <span className="text-brand-primary">{eur(detail.total)}</span>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* edit overlay — the order re-enters the kitchen tagged "upravená" */}
+        {editData && (
+          <div
+            className="fixed inset-0 z-[95] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-3xl bg-white p-5 dark:bg-[#1b1b1b]">
+              <div className="mb-3 flex items-center justify-between">
+                <h4 className="font-display text-lg font-extrabold text-neutral-900 dark:text-white">
+                  Upraviť objednávku #{id}
+                </h4>
+                <button
+                  onClick={() => setEditData(null)}
+                  className="rounded-full p-2 text-neutral-400 hover:bg-black/5 dark:hover:bg-white/10"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <p className="mb-3 rounded-xl bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-700 dark:text-amber-300">
+                Po uložení sa objednávka vráti do kuchyne s označením „upravená“.
+              </p>
+              <StaffOrderForm
+                restaurantId={restaurantId}
+                orderId={id}
+                initial={{
+                  fulfillment: editData.fulfillment,
+                  name: editData.customerName,
+                  phone: editData.phone,
+                  address: editData.address,
+                  note: editData.note,
+                  items: editData.items,
+                }}
+                updateFn={adminUpdateOrder}
+                compact
+                onSaved={() => {
+                  setEditData(null);
+                  reload();
+                }}
+              />
             </div>
           </div>
         )}
@@ -1567,7 +1766,7 @@ function Operations({
             "flex flex-col justify-between gap-4 rounded-2xl border p-5",
             soldOut
               ? "border-brand-error/40 bg-brand-error/10"
-              : "border-black/[0.08] bg-white dark:border-white/5 dark:bg-[#1a1a1a]"
+              : "border-black/15 bg-white shadow-sm dark:border-white/5 dark:bg-[#1a1a1a]"
           )}
         >
           <div className="flex items-center gap-3">
@@ -1646,6 +1845,8 @@ function Operations({
         </div>
       </div>
 
+      <TipCalculator restaurantId={restaurantId} />
+
       <div className={CARD}>
         <h3 className="mb-4 font-display font-bold text-neutral-900 dark:text-white">
           Údaje prevádzky
@@ -1669,16 +1870,12 @@ function Operations({
         </p>
       </div>
 
-      <TipCalculator restaurantId={restaurantId} />
-
       <PruneOrders restaurantId={restaurantId} onDone={refresh} />
 
-      {/* Password change + operator contact — staff-only, kept at the bottom of
-          the Prevádzka section (nowhere else in the app). */}
-      <div className="grid gap-4 lg:grid-cols-2">
-        <StaffPasswordPanel />
-        <OperatorContact />
-      </div>
+      {/* Operator contact — staff-only, bottom of Prevádzka. Password change is
+          no longer freely available here: it happens only via the monthly
+          expiry banner (StaffPasswordBanner) when the rotation is due. */}
+      <OperatorContact />
 
       <AnimatePresence>
         {confirming && (
@@ -1822,11 +2019,14 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
   const manko = Math.max(0, -diff);
   const cardDiff = r2(cardNum - (data?.expectedCard ?? 0));
 
-  // Owners take neither tips nor wages. Tips split equally among the rest.
+  // Owners take neither tips nor wages. Tips split equally among the rest —
+  // each share rounded DOWN to 0,10 € (42,63 → 42,60); the remainder is shown
+  // below the list.
   const workers = staff.filter((s) => !s.isOwner);
+  const owners = staff.filter((s) => s.isOwner);
   const tipStaff = workers.filter((s) => !excluded.has(s.id));
   const per = tipStaff.length
-    ? Math.floor((tips / tipStaff.length) * 100) / 100
+    ? Math.floor((tips / tipStaff.length) * 10) / 10
     : 0;
   const leftover = r2(tips - per * tipStaff.length);
   const wageOf = (id: string) => r2((hours[id] ?? 0) * WAGE_PER_HOUR);
@@ -2052,26 +2252,22 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
             {eur(WAGE_PER_HOUR)}/h
           </span>
         </p>
-        {staff.length === 0 ? (
+        {workers.length === 0 ? (
           <p className="text-sm text-neutral-500">
-            Dnes nemá nikto zmenu. Zmeny sa zadávajú pri otvorení prevádzky.
+            {staff.length === 0
+              ? "Dnes nemá nikto zmenu. Zmeny sa zadávajú pri otvorení prevádzky."
+              : "Na zmene sú len vlastníci — bez výplat."}
           </p>
         ) : (
           <ul className="space-y-1.5">
-            {staff.map((s) => {
-              const owner = s.isOwner;
-              const inTips = !owner && !excluded.has(s.id);
-              const wage = owner ? 0 : wageOf(s.id);
-              const tip = owner ? 0 : tipOf(s.id);
+            {workers.map((s) => {
+              const inTips = !excluded.has(s.id);
+              const wage = wageOf(s.id);
+              const tip = tipOf(s.id);
               return (
                 <li
                   key={s.id}
-                  className={cn(
-                    "rounded-xl border px-3 py-2",
-                    owner
-                      ? "border-black/10 opacity-70 dark:border-white/10"
-                      : "border-brand-primary/25 bg-brand-primary/[0.03]"
-                  )}
+                  className="rounded-xl border border-brand-primary/25 bg-brand-primary/[0.03] px-3 py-2"
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex min-w-0 items-center gap-2">
@@ -2083,76 +2279,95 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
                       </span>
                     </div>
                     <button
-                      onClick={() => toggleOwner(s.id, !owner)}
+                      onClick={() => toggleOwner(s.id, true)}
                       disabled={ownerBusy === s.id}
-                      className={cn(
-                        "shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold disabled:opacity-50",
-                        owner
-                          ? "border-neutral-400 text-neutral-500"
-                          : "border-brand-secondary/40 text-brand-secondary"
-                      )}
+                      title="Označiť ako vlastníka (bez tringeltov a mzdy)"
+                      className="shrink-0 rounded-full border border-black/15 px-2.5 py-0.5 text-[11px] font-semibold text-neutral-400 hover:text-neutral-600 disabled:opacity-50 dark:border-white/15 dark:hover:text-neutral-200"
                     >
-                      {owner ? "Vlastník" : "Brigádnik"}
+                      → vlastník
                     </button>
                   </div>
 
-                  {owner ? (
-                    <p className="mt-1 text-xs text-neutral-400">
-                      Vlastník — bez tringeltov a mzdy.
-                    </p>
-                  ) : (
-                    <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2">
-                      {/* tips include toggle */}
-                      <label className="flex cursor-pointer items-center gap-1.5 text-xs text-neutral-600 dark:text-neutral-300">
-                        <input
-                          type="checkbox"
-                          checked={inTips}
-                          onChange={() => toggle(s.id)}
-                          className="h-4 w-4 accent-brand-primary"
-                        />
-                        tringelt
-                      </label>
-                      {/* hours stepper */}
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs text-neutral-500">Hodiny</span>
-                        <button
-                          onClick={() => bumpHours(s.id, -0.5)}
-                          className="flex h-7 w-7 items-center justify-center rounded-full bg-black/10 text-neutral-700 dark:bg-white/15 dark:text-white"
-                        >
-                          <Minus className="h-3.5 w-3.5" />
-                        </button>
-                        <span className="w-12 text-center text-sm font-semibold tabular-nums">
-                          {(hours[s.id] ?? 0).toLocaleString("sk-SK")} h
-                        </span>
-                        <button
-                          onClick={() => bumpHours(s.id, 0.5)}
-                          className="flex h-7 w-7 items-center justify-center rounded-full bg-brand-primary text-white"
-                        >
-                          <Plus className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                      {/* payout */}
-                      <span className="ml-auto text-sm">
-                        <span className="text-neutral-500">
-                          {eur(tip)} + {eur(wage)} ={" "}
-                        </span>
-                        <b className="tabular-nums text-neutral-900 dark:text-white">
-                          {eur(r2(tip + wage))}
-                        </b>
+                  <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2">
+                    {/* tip-share pill toggle */}
+                    <button
+                      type="button"
+                      onClick={() => toggle(s.id)}
+                      className={cn(
+                        "inline-flex items-center gap-1.5 rounded-full border-2 px-3 py-1.5 text-xs font-bold transition-colors",
+                        inTips
+                          ? "border-brand-primary bg-brand-primary text-white"
+                          : "border-black/15 text-neutral-400 hover:border-brand-primary/40 dark:border-white/20"
+                      )}
+                    >
+                      <Coins className="h-3.5 w-3.5" />
+                      Tringelt
+                      {inTips && <Check className="h-3.5 w-3.5" />}
+                    </button>
+                    {/* hours stepper */}
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs text-neutral-500">Hodiny</span>
+                      <button
+                        onClick={() => bumpHours(s.id, -0.5)}
+                        className="flex h-7 w-7 items-center justify-center rounded-full bg-black/10 text-neutral-700 dark:bg-white/15 dark:text-white"
+                      >
+                        <Minus className="h-3.5 w-3.5" />
+                      </button>
+                      <span className="w-12 text-center text-sm font-semibold tabular-nums">
+                        {(hours[s.id] ?? 0).toLocaleString("sk-SK")} h
                       </span>
+                      <button
+                        onClick={() => bumpHours(s.id, 0.5)}
+                        className="flex h-7 w-7 items-center justify-center rounded-full bg-brand-primary text-white"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                      </button>
                     </div>
-                  )}
+                    {/* payout — tip share already rounded down to 0,10 € */}
+                    <span className="ml-auto text-sm">
+                      <span className="text-neutral-500">
+                        {eur(tip)} + {eur(wage)} ={" "}
+                      </span>
+                      <b className="tabular-nums text-neutral-900 dark:text-white">
+                        {eur(r2(tip + wage))}
+                      </b>
+                    </span>
+                  </div>
                 </li>
               );
             })}
           </ul>
         )}
-        {leftover > 0 && tipStaff.length > 0 && tips > 0 && (
-          <p className="mt-2 text-xs text-neutral-500">
-            Zvyšok tringeltov po zaokrúhlení: {eur(leftover)} — rozdeľte ručne.
+        {owners.length > 0 && (
+          <p className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-neutral-400">
+            Vlastníci (bez výplaty):
+            {owners.map((o) => (
+              <button
+                key={o.id}
+                onClick={() => toggleOwner(o.id, false)}
+                disabled={ownerBusy === o.id}
+                title="Vrátiť medzi brigádnikov"
+                className="rounded-full bg-black/[0.05] px-2.5 py-1 font-semibold text-neutral-500 hover:text-neutral-800 disabled:opacity-50 dark:bg-white/[0.06] dark:hover:text-neutral-200"
+              >
+                {o.name} ✕
+              </button>
+            ))}
+          </p>
+        )}
+        {leftover > 0.005 && tipStaff.length > 0 && tips > 0 && (
+          <p className="mt-2 text-xs font-semibold text-neutral-500">
+            Zvyšok po zaokrúhlení na 0,10 €: {eur(leftover)} — ostáva v kase.
           </p>
         )}
       </div>
+
+      {data && !data.canSettle && (
+        <div className="mt-4 flex items-start gap-2 rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm font-semibold text-amber-700 dark:text-amber-300">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          Vyúčtovanie sa dá uložiť až po zatvorení prevádzky — zavrite deň
+          (alebo označte vypredané), prípadne počkajte na zatváraciu dobu.
+        </div>
+      )}
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-black/[0.06] pt-4 dark:border-white/5">
         <div className="text-xs text-neutral-500">
@@ -2173,7 +2388,7 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
         </div>
         <button
           onClick={save}
-          disabled={saving}
+          disabled={saving || !data?.canSettle}
           className="inline-flex items-center gap-2 rounded-full bg-brand-primary px-5 py-2.5 text-sm font-bold text-white hover:brightness-110 disabled:opacity-50"
         >
           {saving ? (
@@ -2232,7 +2447,7 @@ function ServiceOpen({ restaurantId }: { restaurantId: string }) {
         "flex flex-col justify-between gap-4 rounded-2xl border p-5 sm:flex-row sm:items-center",
         open
           ? "border-brand-success/40 bg-brand-success/10"
-          : "border-black/[0.08] bg-white dark:border-white/5 dark:bg-[#1a1a1a]"
+          : "border-black/15 bg-white shadow-sm dark:border-white/5 dark:bg-[#1a1a1a]"
       )}
     >
       <div className="flex items-center gap-3">
@@ -2998,7 +3213,7 @@ function Products({ restaurantId }: { restaurantId: string }) {
         </button>
       </div>
 
-      <div className="overflow-x-auto rounded-2xl bg-white ring-1 ring-black/[0.06] dark:bg-[#1a1a1a] dark:ring-white/5">
+      <div className="overflow-x-auto rounded-2xl bg-white ring-1 ring-black/10 shadow-sm dark:bg-[#1a1a1a] dark:ring-white/5">
         <table className="w-full text-left text-sm">
           <thead className="border-b border-black/[0.08] text-neutral-500 dark:border-white/5">
             <tr>
