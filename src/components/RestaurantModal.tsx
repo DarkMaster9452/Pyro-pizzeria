@@ -193,8 +193,10 @@ export function RestaurantModal() {
                             className="h-4 w-4 shrink-0"
                             style={{ color: r.accent }}
                           />
-                          {state.open
-                            ? `Do ${state.closesAt}`
+                          {isOpen
+                            ? state.open
+                              ? `Do ${state.closesAt}`
+                              : "Otvorené"
                             : state.opensAt
                             ? `Otvára ${state.opensAt}`
                             : "Dnes zatvorené"}

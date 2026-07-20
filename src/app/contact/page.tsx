@@ -8,9 +8,13 @@ import { Phone, Mail, MapPin, Clock, Navigation } from "lucide-react";
 
 export default function ContactPage() {
   const restaurantId = useApp((s) => s.restaurantId);
+  const dbOpen = useApp((s) => s.dbOpen);
   const r = RESTAURANTS.find((x) => x.id === restaurantId);
   if (!r) return null;
   const state = getOpenState(r);
+  // Live open flag (manual open incl. test opens) wins over the static hours,
+  // so "Otvorené" shows consistently everywhere.
+  const isOpen = dbOpen != null ? (dbOpen[r.id] ?? false) : state.open;
 
   return (
     <main className="section py-10">
@@ -66,12 +70,12 @@ export default function ContactPage() {
               <Clock className="h-5 w-5 text-brand-secondary" /> Otváracie hodiny
               <span
                 className={`chip ml-auto ${
-                  state.open
+                  isOpen
                     ? "bg-brand-success/15 text-brand-success"
                     : "bg-brand-error/15 text-brand-error"
                 }`}
               >
-                {state.label}
+                {isOpen ? "Otvorené" : "Zatvorené"}
               </span>
             </h2>
             <ul className="space-y-1.5 text-sm">

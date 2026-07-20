@@ -44,6 +44,7 @@ import type {
 } from "./types";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+const eurText = (n: number) => `${n.toFixed(2).replace(".", ",")} €`;
 
 // Ids of products that count as real pizzas. Products arrive in menu (sort)
 // order grouped per restaurant, so we number the pizza-category items 1..N and
@@ -205,6 +206,8 @@ async function ensureOrderColumns(): Promise<void> {
     await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS edited boolean NOT NULL DEFAULT false`;
     // Reason the admin flipped a paid order back to unpaid.
     await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS unpaid_note text`;
+    // Human summary of what the last edit changed (items added/removed, total).
+    await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS edit_note text`;
     // Per-order secret returned to the customer at checkout so they can cancel
     // their own order (IDs are sequential and therefore guessable).
     await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS cancel_token text`;
@@ -807,6 +810,7 @@ export interface AdminOrderRow {
   paid: boolean;
   byCard: boolean; // paid by card
   edited: boolean; // order was modified after entering the kitchen
+  unpaid: boolean; // flipped back to unpaid (has a reason note)
   note: string | null;
   driverName: string | null;
   lines: { name: string; quantity: number; note?: string; polpol?: boolean }[];
@@ -823,6 +827,7 @@ interface AdminOrderRaw {
   paid: boolean;
   by_card: boolean;
   edited: boolean;
+  unpaid: boolean;
   note: string | null;
   driver_name: string | null;
   created_at: string;
@@ -842,6 +847,7 @@ function mapAdminOrderRow(o: AdminOrderRaw): AdminOrderRow {
     paid: o.paid,
     byCard: o.by_card,
     edited: o.edited,
+    unpaid: o.unpaid,
     note: o.note,
     driverName: o.driver_name,
     lines: Array.isArray(o.lines) ? o.lines : [],
@@ -851,7 +857,9 @@ function mapAdminOrderRow(o: AdminOrderRaw): AdminOrderRow {
 const ADMIN_ORDER_COLS = `id, status, fulfillment, customer_name, total::float AS total,
   pizza_count, lines, COALESCE(paid, false) AS paid,
   COALESCE(by_card, COALESCE(payment,'') ILIKE '%karta%') AS by_card,
-  COALESCE(edited, false) AS edited, note, driver_name, created_at,
+  COALESCE(edited, false) AS edited,
+  (COALESCE(paid, false) = false AND unpaid_note IS NOT NULL) AS unpaid,
+  note, driver_name, created_at,
   EXTRACT(EPOCH FROM (now() - created_at))/60 AS mins_ago`;
 
 // Distinct calendar days (Europe/Bratislava) that have orders — powers the day
@@ -1005,7 +1013,9 @@ export async function getAdminSummary(
     SELECT id, status, fulfillment, customer_name, total::float AS total,
            pizza_count, lines, COALESCE(paid, false) AS paid,
            COALESCE(by_card, COALESCE(payment,'') ILIKE '%karta%') AS by_card,
-           COALESCE(edited, false) AS edited, note, driver_name,
+           COALESCE(edited, false) AS edited,
+           (COALESCE(paid, false) = false AND unpaid_note IS NOT NULL) AS unpaid,
+           note, driver_name,
            created_at,
            EXTRACT(EPOCH FROM (now() - created_at))/60 AS mins_ago
     FROM orders
@@ -1023,6 +1033,7 @@ export async function getAdminSummary(
     paid: boolean;
     by_card: boolean;
     edited: boolean;
+    unpaid: boolean;
     note: string | null;
     driver_name: string | null;
     created_at: string;
@@ -1062,6 +1073,7 @@ export async function getAdminSummary(
       paid: o.paid,
       byCard: o.by_card,
       edited: o.edited,
+      unpaid: o.unpaid,
       note: o.note,
       driverName: o.driver_name,
       lines: Array.isArray(o.lines) ? o.lines : [],
@@ -1100,6 +1112,7 @@ export interface OrderDetail {
   pizzaCount: number; // real pizzas (excludes dough sides) — gates pol/pol
   byCard: boolean; // paid by card (pooled, not a driver's cash wallet)
   edited: boolean; // modified after entering the kitchen
+  editNote: string | null; // what the last edit changed
   unpaidNote: string | null; // reason it was flipped back to unpaid
   // Editable while not delivered & unpaid, or (pickup) within 20 min of the
   // first payment.
@@ -1121,7 +1134,7 @@ export async function getOrderDetail(
            eta, created_at, driver_name,
            COALESCE(paid, false) AS paid, COALESCE(pizza_count, 0)::int AS pizza_count,
            COALESCE(by_card, COALESCE(payment,'') ILIKE '%karta%') AS by_card,
-           COALESCE(edited, false) AS edited, unpaid_note,
+           COALESCE(edited, false) AS edited, edit_note, unpaid_note,
            ((status <> 'delivered' AND COALESCE(paid, false) = false)
              OR (fulfillment = 'pickup' AND paid_at IS NOT NULL
                  AND paid_at > now() - interval '20 minutes')) AS editable
@@ -1151,6 +1164,7 @@ export async function getOrderDetail(
     pizza_count: number;
     by_card: boolean;
     edited: boolean;
+    edit_note: string | null;
     unpaid_note: string | null;
     editable: boolean;
   }>;
@@ -1181,6 +1195,7 @@ export async function getOrderDetail(
     pizzaCount: o.pizza_count,
     byCard: o.by_card,
     edited: o.edited,
+    editNote: o.edit_note,
     unpaidNote: o.unpaid_note,
     editable: o.editable,
   };
@@ -2999,6 +3014,26 @@ export async function markDispatchPaid(
   const isAdmin = isAdminRole(ctx.role);
 
   if (isAdmin) {
+    // An edited order that was already paid comes back through the kitchen —
+    // handing it over again only flips the status (the payment already
+    // happened, money untouched).
+    const reissued = (await sql`
+      UPDATE orders SET status = 'delivered'
+      WHERE id = ${id} AND restaurant_id = ${ctx.restaurantId}
+        AND fulfillment = 'pickup' AND COALESCE(paid, false) = true
+        AND COALESCE(edited, false) = true AND status = 'ready'
+      RETURNING id
+    `) as { id: string }[];
+    if (reissued.length) {
+      await audit({
+        action: "dispatch.reissued",
+        actorId: ctx.userId,
+        actorEmail: ctx.email,
+        restaurantId: ctx.restaurantId,
+        target: id,
+      });
+      return { ok: true };
+    }
     // Card money isn't tied to a driver's cash wallet — no wallet needed.
     if (card) {
       const cardRows = (await sql`
@@ -3769,7 +3804,8 @@ export async function adminUpdateOrder(
 
     const existing = (await sql`
       SELECT status, fulfillment, COALESCE(paid, false) AS paid, paid_at,
-             COALESCE(surcharge, 0)::float AS surcharge
+             COALESCE(surcharge, 0)::float AS surcharge,
+             lines, total::float AS total, edit_note
       FROM orders WHERE id = ${id} AND restaurant_id = ${input.restaurantId} LIMIT 1
     `) as Array<{
       status: string;
@@ -3777,6 +3813,9 @@ export async function adminUpdateOrder(
       paid: boolean;
       paid_at: string | null;
       surcharge: number;
+      lines: CartLine[];
+      total: number;
+      edit_note: string | null;
     }>;
     const ex = existing[0];
     if (!ex) return { ok: false, error: "Objednávka sa nenašla." };
@@ -3833,6 +3872,31 @@ export async function adminUpdateOrder(
     const name = (input.customerName ?? "").trim() || phone || "Objednávka";
     const note = input.note?.trim() ? input.note.trim() : null;
 
+    // Summarise what changed (item quantities + total) so the kitchen and the
+    // payment breakdown show exactly what the edit did.
+    const qtyByName = (ls: CartLine[]) => {
+      const m = new Map<string, number>();
+      for (const l of Array.isArray(ls) ? ls : [])
+        m.set(l.name, (m.get(l.name) ?? 0) + l.quantity);
+      return m;
+    };
+    const before = qtyByName(ex.lines);
+    const after = qtyByName(lines);
+    const changes: string[] = [];
+    for (const [n, q] of after) {
+      const prev = before.get(n) ?? 0;
+      if (q > prev) changes.push(`+${q - prev}× ${n}`);
+      else if (q < prev) changes.push(`−${prev - q}× ${n}`);
+    }
+    for (const [n, q] of before) {
+      if (!after.has(n)) changes.push(`−${q}× ${n}`);
+    }
+    if (Math.abs(round2(ex.total) - total) >= 0.005)
+      changes.push(`suma ${eurText(ex.total)} → ${eurText(total)}`);
+    const editNote = changes.length
+      ? `Úprava: ${changes.join(", ")}`
+      : ex.edit_note ?? "Úprava: bez zmeny položiek";
+
     await sql`
       UPDATE orders SET
         fulfillment = ${input.fulfillment},
@@ -3843,7 +3907,7 @@ export async function adminUpdateOrder(
         subtotal = ${totals.subtotal}, delivery_fee = ${totals.deliveryFee},
         discount = ${totals.discount}, total = ${total},
         note = ${note},
-        edited = true, status = 'received'
+        edited = true, edit_note = ${editNote}, status = 'received'
       WHERE id = ${id} AND restaurant_id = ${input.restaurantId}
     `;
     await audit({
