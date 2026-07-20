@@ -84,6 +84,7 @@ export interface Restaurant {
   openingHours: OpeningHours[];
   deliveryZones: DeliveryZone[];
   accent: string; // hex accent unique to restaurant
+  instagram?: string; // full Instagram profile URL, if the prevádzka has one
 }
 
 export interface Coupon {

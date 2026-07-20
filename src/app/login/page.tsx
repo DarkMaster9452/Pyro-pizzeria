@@ -1,9 +1,9 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import Link from "next/link";
 import { loginAction, type FormState } from "@/lib/auth-actions";
-import { LogIn, Lock } from "lucide-react";
+import { LogIn, Lock, Eye, EyeOff } from "lucide-react";
 
 export default function LoginPage() {
   const [state, action, pending] = useActionState<FormState, FormData>(
@@ -28,9 +28,8 @@ export default function LoginPage() {
 
           <form action={action} className="space-y-3">
             <Field name="email" type="email" placeholder="Email" autoComplete="email" />
-            <Field
+            <PasswordField
               name="password"
-              type="password"
               placeholder="Heslo"
               autoComplete="current-password"
             />
@@ -68,5 +67,27 @@ function Field(props: React.InputHTMLAttributes<HTMLInputElement>) {
       required
       className="w-full rounded-xl border border-white/[0.1] bg-white/[0.03] px-4 py-3 text-sm text-white outline-none placeholder:text-neutral-500 focus:border-brand-primary"
     />
+  );
+}
+
+function PasswordField(props: React.InputHTMLAttributes<HTMLInputElement>) {
+  const [show, setShow] = useState(false);
+  return (
+    <div className="relative">
+      <input
+        {...props}
+        type={show ? "text" : "password"}
+        required
+        className="w-full rounded-xl border border-white/[0.1] bg-white/[0.03] px-4 py-3 pr-12 text-sm text-white outline-none placeholder:text-neutral-500 focus:border-brand-primary"
+      />
+      <button
+        type="button"
+        onClick={() => setShow((s) => !s)}
+        aria-label={show ? "Skryť heslo" : "Zobraziť heslo"}
+        className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-2 text-neutral-400 hover:text-white"
+      >
+        {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+      </button>
+    </div>
   );
 }

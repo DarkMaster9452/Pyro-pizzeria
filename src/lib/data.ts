@@ -70,6 +70,7 @@ export const RESTAURANTS: Restaurant[] = [
     lng: 18.68703694165607,
     prepTimeMinutes: 45,
     accent: "#E85D04",
+    instagram: "https://www.instagram.com/pyro_pizzeria/",
     // Po–St zatvorené · Štv/Ned 16:00–21:00 · Pi/So 16:00–22:00
     openingHours: [
       { day: 0, open: "16:00", close: "21:00", closed: true },

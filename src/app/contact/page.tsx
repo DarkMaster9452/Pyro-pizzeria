@@ -4,7 +4,7 @@ import { useApp } from "@/lib/store";
 import { RESTAURANTS, DAY_NAMES } from "@/lib/data";
 import { getOpenState } from "@/lib/utils";
 import { Footer } from "@/components/Footer";
-import { Phone, Mail, MapPin, Clock, Navigation } from "lucide-react";
+import { Phone, Mail, MapPin, Clock, Navigation, Instagram } from "lucide-react";
 
 export default function ContactPage() {
   const restaurantId = useApp((s) => s.restaurantId);
@@ -52,6 +52,21 @@ export default function ContactPage() {
                 </span>
                 <span className="font-semibold">{r.address}</span>
               </li>
+              {r.instagram && (
+                <li className="flex items-center gap-3">
+                  <span className="rounded-xl bg-brand-primary/10 p-2.5 text-brand-primary">
+                    <Instagram className="h-5 w-5" />
+                  </span>
+                  <a
+                    href={r.instagram}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-semibold hover:text-brand-primary"
+                  >
+                    @{r.instagram.replace(/\/+$/, "").split("/").pop()}
+                  </a>
+                </li>
+              )}
             </ul>
             <div className="mt-5 flex gap-3">
               <a

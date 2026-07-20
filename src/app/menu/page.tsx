@@ -193,17 +193,35 @@ function MenuInner() {
         {products.length === 0 ? (
           <div className="flex flex-col items-center gap-3 py-20 text-center">
             <div className="text-5xl">🔍</div>
-            <p className="text-lg font-semibold">Nič sme nenašli</p>
+            <p className="text-lg font-semibold">
+              {query.trim() ? `Pre „${query.trim()}" nič nemáme` : "Nič sme nenašli"}
+            </p>
             <p className="text-sm text-neutral-500">
-              Skúste iný filter alebo kategóriu.
+              Skúste iný výraz, filter alebo kategóriu.
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-4 sm:gap-5 lg:grid-cols-3 xl:grid-cols-4">
-            {products.map((p) => (
-              <ProductCard key={p.id} product={p} number={numberMap[p.id]} />
-            ))}
-          </div>
+          <>
+            <p className="mb-4 text-sm text-neutral-500 dark:text-neutral-400">
+              {products.length}{" "}
+              {products.length === 1
+                ? "položka"
+                : products.length < 5
+                ? "položky"
+                : "položiek"}
+              {query.trim() && (
+                <>
+                  {" "}
+                  pre „<span className="font-semibold text-brand-primary">{query.trim()}</span>"
+                </>
+              )}
+            </p>
+            <div className="grid grid-cols-2 gap-4 sm:gap-5 lg:grid-cols-3 xl:grid-cols-4">
+              {products.map((p) => (
+                <ProductCard key={p.id} product={p} number={numberMap[p.id]} />
+              ))}
+            </div>
+          </>
         )}
       </div>
     </main>

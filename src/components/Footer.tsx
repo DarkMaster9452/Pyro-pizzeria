@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useApp } from "@/lib/store";
 import { RESTAURANTS, DAY_NAMES } from "@/lib/data";
-import { Phone, Mail, MapPin, Clock, Flame } from "lucide-react";
+import { Phone, Mail, MapPin, Clock, Flame, Instagram } from "lucide-react";
 
 export function Footer() {
   const restaurantId = useApp((s) => s.restaurantId);
@@ -27,6 +27,18 @@ export function Footer() {
           <p className="mt-4 text-xs text-neutral-500">
             Prémiová pizza platforma pre dve prevádzky. Rozvoz a osobný odber.
           </p>
+          {r.instagram && (
+            <a
+              href={r.instagram}
+              target="_blank"
+              rel="noreferrer"
+              aria-label="Instagram"
+              className="mt-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3.5 py-2 text-sm font-medium text-neutral-200 transition-colors hover:border-brand-primary/50 hover:text-white"
+            >
+              <Instagram className="h-4 w-4 text-brand-primary" />
+              Instagram
+            </a>
+          )}
         </div>
 
         <div>
