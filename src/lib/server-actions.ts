@@ -1403,6 +1403,8 @@ export interface ServiceStatus {
   open: boolean; // opened for today's service day
   canOpenNow: boolean; // within the 1h-before-open window and not open yet
   openTime: string | null;
+  closeTime: string | null; // today's closing time "HH:MM" on regular opening days
+  nowMinutes: number; // Bratislava minutes-since-midnight at fetch time
   closedToday: boolean; // today is a non-opening day
 }
 
@@ -1426,14 +1428,24 @@ export async function getServiceStatus(
   const closedToday = !today || today.closed === true;
   let canOpenNow = false;
   let openTime: string | null = null;
+  let closeTime: string | null = null;
   if (!closedToday && today) {
     openTime = today.open;
+    closeTime = today.close;
     canOpenNow =
       !open &&
       minutes >= toMinutes(today.open) - 60 &&
       minutes < toMinutes(today.close);
   }
-  return { serviceDate, open, canOpenNow, openTime, closedToday };
+  return {
+    serviceDate,
+    open,
+    canOpenNow,
+    openTime,
+    closeTime,
+    nowMinutes: minutes,
+    closedToday,
+  };
 }
 
 export interface OpenPrep {
