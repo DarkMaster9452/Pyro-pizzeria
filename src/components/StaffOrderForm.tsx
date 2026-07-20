@@ -38,6 +38,7 @@ export function StaffOrderForm({
   orderId,
   initial,
   compact,
+  updateFn,
 }: {
   restaurantId: string;
   onCreated?: (id: string) => void;
@@ -45,6 +46,12 @@ export function StaffOrderForm({
   orderId?: string;
   initial?: StaffOrderInitial;
   compact?: boolean;
+  // Override the save action when editing (e.g. the admin edit flow) — defaults
+  // to the courier updateStaffOrder.
+  updateFn?: (
+    id: string,
+    input: StaffOrderInput
+  ) => Promise<{ ok: boolean; id?: string; error?: string }>;
 }) {
   const editing = orderId != null;
   const [products, setProducts] = useState<Product[] | null>(null);
@@ -152,7 +159,7 @@ export function StaffOrderForm({
 
     setSubmitting(true);
     const res = editing
-      ? await updateStaffOrder(orderId!, payload)
+      ? await (updateFn ?? updateStaffOrder)(orderId!, payload)
       : await createStaffOrder(payload);
     setSubmitting(false);
     if (!res.ok) return setError(res.error ?? "Nepodarilo sa uložiť.");

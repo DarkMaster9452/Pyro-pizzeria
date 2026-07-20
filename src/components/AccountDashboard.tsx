@@ -46,6 +46,7 @@ export function AccountDashboard({
   email: string;
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteText, setDeleteText] = useState("");
   const [dbOrders, setDbOrders] = useState<MyOrderRow[] | null>(null);
   const [emailOptIn, setEmailOptIn] = useState(true);
   const [savingEmail, setSavingEmail] = useState(false);
@@ -227,25 +228,49 @@ export function AccountDashboard({
                 <MonitorSmartphone className="h-4 w-4 text-brand-secondary" />
                 Odhlásiť zo všetkých zariadení
               </button>
+              <p className="mt-1.5 px-3 text-xs text-[#8a8a8a]">
+                Zneplatní prihlásenie na všetkých zariadeniach, kde ste boli
+                prihlásení (mobil, počítač…). Všade vás odhlási a na ďalšie
+                použitie sa treba znova prihlásiť heslom. Hodí sa, ak ste sa
+                prihlásili na cudzom zariadení alebo máte podozrenie, že heslo
+                pozná niekto iný.
+              </p>
             </form>
             {confirmDelete ? (
               <div className="rounded-xl border border-brand-error/30 bg-brand-error/10 p-3">
                 <p className="mb-2 text-[#ffb4b4]">
                   Naozaj natrvalo zmazať účet? Túto akciu nie je možné vrátiť.
+                  Pre potvrdenie napíšte <strong>potvrdzujem</strong>:
                 </p>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setConfirmDelete(false)}
-                    className="flex-1 rounded-full border border-white/15 py-2 font-semibold text-white"
-                  >
-                    Zrušiť
-                  </button>
-                  <form action={deleteAccountAction} className="flex-1">
-                    <button className="w-full rounded-full bg-brand-error py-2 font-bold text-white">
+                <form action={deleteAccountAction} className="space-y-2">
+                  <input
+                    name="confirm"
+                    value={deleteText}
+                    onChange={(e) => setDeleteText(e.target.value)}
+                    placeholder="potvrdzujem"
+                    autoComplete="off"
+                    className="w-full rounded-lg border border-white/15 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-brand-error"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setConfirmDelete(false);
+                        setDeleteText("");
+                      }}
+                      className="flex-1 rounded-full border border-white/15 py-2 font-semibold text-white"
+                    >
+                      Zrušiť
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={deleteText.trim().toLowerCase() !== "potvrdzujem"}
+                      className="flex-1 rounded-full bg-brand-error py-2 font-bold text-white disabled:cursor-not-allowed disabled:opacity-40"
+                    >
                       Zmazať účet
                     </button>
-                  </form>
-                </div>
+                  </div>
+                </form>
               </div>
             ) : (
               <button

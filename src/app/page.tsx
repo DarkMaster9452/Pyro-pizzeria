@@ -492,7 +492,7 @@ function ClosingCta() {
           </h2>
           <p className="mt-5 max-w-md text-lg leading-relaxed text-[#B5B5B5]">
             Zadajte adresu, overíme dostupnosť rozvozu a doručíme horúcu pizzu
-            priamo k vám. Alebo si vyberte osobný odber bez poplatku.
+            priamo k vám zadarmo. Alebo si vyberte osobný odber.
           </p>
           <Link
             href="/menu"

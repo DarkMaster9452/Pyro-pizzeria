@@ -10,14 +10,17 @@
   --brand-primary: 233 78 27;
   --brand-primary-hover: 245 100 44;
   --brand-accent: 255 200 87;
+  --brand-secondary: 232 93 4;
 }
 
 /* Polomárik themes the page to its gold-on-charcoal logo, so the two
-   pizzerias feel like distinct brands. */
+   pizzerias feel like distinct brands. Secondary (icon/accent tint) follows
+   the gold too, so footer/contact icons match the brand. */
 [data-brand="polomarik"] {
   --brand-primary: 245 179 1;
   --brand-primary-hover: 255 197 51;
   --brand-accent: 245 179 1;
+  --brand-secondary: 245 179 1;
 }
 
 @layer base {
