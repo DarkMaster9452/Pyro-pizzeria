@@ -18,7 +18,6 @@ import {
   getAdminSummary,
   getOrderDetail,
   setSoldOut as setSoldOutServer,
-  setOrderCard,
   markOrderUnpaid,
   getEditableOrder,
   adminUpdateOrder,
@@ -45,7 +44,6 @@ import {
   getShiftsReport,
   getTipData,
   saveTips,
-  setUserOwner,
   getShiftDayDetail,
   getOrderDays,
   getAdminOrdersByDay,
@@ -985,8 +983,10 @@ function Handover({ restaurantId }: { restaurantId: string }) {
     }
   }
 
-  const waiting = orders.filter((o) => !o.paid);
-  const done = orders.filter((o) => o.paid);
+  // "Waiting" = everything the kitchen marked ready — including an edited order
+  // that was already paid (it re-runs prep and gets handed over again).
+  const waiting = orders.filter((o) => o.status === "ready");
+  const done = orders.filter((o) => o.paid && o.status !== "ready");
 
   return (
     <div className="rounded-2xl border border-black/15 bg-white shadow-sm p-4 dark:border-white/5 dark:bg-[#161616]">
@@ -1067,7 +1067,9 @@ function Handover({ restaurantId }: { restaurantId: string }) {
                 )}
                 {/* Whose wallet the cash goes into. All takings are tracked per
                     courier, so the admin must attribute a counter payment to a
-                    driver before settling. One driver on shift → automatic. */}
+                    driver before settling. One driver on shift → automatic.
+                    Already-paid (edited) orders skip this entirely. */}
+                {!o.paid && (
                 <div className="mt-3 border-t border-black/[0.06] pt-2 dark:border-white/10">
                   <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-neutral-400">
                     Kto prevzal (peňaženka)
@@ -1098,26 +1100,40 @@ function Handover({ restaurantId }: { restaurantId: string }) {
                     </div>
                   )}
                 </div>
+                )}
 
                 <div className="mt-2 flex flex-wrap gap-2">
-                  <button
-                    disabled={
-                      busyId === o.id ||
-                      drivers.length === 0 ||
-                      (!soleDriver && !wallet[o.id])
-                    }
-                    onClick={() => settle(o.id)}
-                    className="inline-flex items-center gap-1.5 rounded-full bg-brand-success px-3 py-2 text-xs font-bold text-white transition-colors hover:brightness-110 disabled:opacity-40"
-                  >
-                    <Check className="h-4 w-4" /> Vydané · hotovosť
-                  </button>
-                  <button
-                    disabled={busyId === o.id}
-                    onClick={() => settleCard(o.id)}
-                    className="inline-flex items-center gap-1.5 rounded-full bg-brand-primary px-3 py-2 text-xs font-bold text-white transition-colors hover:brightness-110 disabled:opacity-40"
-                  >
-                    <CreditCard className="h-4 w-4" /> Vydané · karta
-                  </button>
+                  {o.paid ? (
+                    // Edited order that was already paid — just hand it over.
+                    <button
+                      disabled={busyId === o.id}
+                      onClick={() => settleCard(o.id)}
+                      className="inline-flex items-center gap-1.5 rounded-full bg-brand-success px-3 py-2 text-xs font-bold text-white transition-colors hover:brightness-110 disabled:opacity-40"
+                    >
+                      <Check className="h-4 w-4" /> Vydať (už zaplatené)
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        disabled={
+                          busyId === o.id ||
+                          drivers.length === 0 ||
+                          (!soleDriver && !wallet[o.id])
+                        }
+                        onClick={() => settle(o.id)}
+                        className="inline-flex items-center gap-1.5 rounded-full bg-brand-success px-3 py-2 text-xs font-bold text-white transition-colors hover:brightness-110 disabled:opacity-40"
+                      >
+                        <Check className="h-4 w-4" /> Vydané · hotovosť
+                      </button>
+                      <button
+                        disabled={busyId === o.id}
+                        onClick={() => settleCard(o.id)}
+                        className="inline-flex items-center gap-1.5 rounded-full bg-brand-primary px-3 py-2 text-xs font-bold text-white transition-colors hover:brightness-110 disabled:opacity-40"
+                      >
+                        <CreditCard className="h-4 w-4" /> Vydané · karta
+                      </button>
+                    </>
+                  )}
                 </div>
               </motion.div>
             ))}
@@ -1228,7 +1244,7 @@ function Orders({
         <table className="w-full text-left text-sm">
           <thead className="border-b border-black/[0.08] text-neutral-500 dark:border-white/5">
             <tr>
-              {["ID", "Zákazník", "Typ", "Suma", "Stav", "Doručil", ""].map(
+              {["ID", "Zákazník", "Typ", "Suma", "Stav", "Platba", ""].map(
                 (h) => (
                   <th key={h} className="p-4 font-semibold">
                     {h}
@@ -1271,9 +1287,9 @@ function Orders({
                           Zaplatené
                         </span>
                       )}
-                      {r.paid && r.byCard && (
-                        <span className="chip bg-brand-primary/15 font-bold text-brand-primary">
-                          <CreditCard className="h-3 w-3" /> Kartou
+                      {r.unpaid && (
+                        <span className="chip bg-brand-error/15 font-bold text-brand-error">
+                          Nezaplatená
                         </span>
                       )}
                       {r.edited && (
@@ -1283,11 +1299,17 @@ function Orders({
                       )}
                     </div>
                   </td>
+                  {/* Platba: card → "Kartou" (no name); cash → the courier whose
+                      wallet took it. */}
                   <td className="p-4">
-                    {r.driverName && color ? (
+                    {r.paid && r.byCard ? (
+                      <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs font-bold text-brand-primary">
+                        <CreditCard className="h-4 w-4" /> Kartou
+                      </span>
+                    ) : r.driverName && color ? (
                       <span
                         className="inline-flex items-center gap-2"
-                        title={`Doručil: ${r.driverName}`}
+                        title={`Prevzal: ${r.driverName}`}
                       >
                         <span
                           className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold"
@@ -1347,16 +1369,6 @@ function OrderDetailModal({
       active = false;
     };
   }, [restaurantId, id]);
-
-  async function toggleCard(on: boolean) {
-    setSurBusy(true);
-    try {
-      await setOrderCard(restaurantId, id, on);
-      await reload();
-    } finally {
-      setSurBusy(false);
-    }
-  }
 
   // Mark a paid order back as unpaid — asks for a reason first.
   const [unpaidOpen, setUnpaidOpen] = useState(false);
@@ -1490,37 +1502,21 @@ function OrderDetailModal({
               </div>
             )}
 
-            {/* Paid by card — pooled to the card total instead of a driver's
-                cash wallet. Locked once the order is paid (like pol/pol). */}
-            <button
-              disabled={surBusy || detail.paid}
-              onClick={() => toggleCard(!detail.byCard)}
-              className={cn(
-                "flex w-full items-center justify-between gap-2 rounded-2xl border px-4 py-3 text-sm font-semibold transition-colors disabled:opacity-60",
-                detail.byCard
-                  ? "border-brand-primary/50 bg-brand-primary/10 text-brand-primary"
-                  : "border-black/10 text-neutral-600 hover:bg-black/[0.03] dark:border-white/15 dark:text-neutral-300 dark:hover:bg-white/5"
-              )}
-            >
-              <span className="flex items-center gap-2">
+            {/* Card is decided at payment time (driver / handover) — here it's
+                only an indicator, shown when the order was paid by card. */}
+            {detail.paid && detail.byCard && (
+              <div className="flex w-full items-center gap-2 rounded-2xl border border-brand-primary/50 bg-brand-primary/10 px-4 py-3 text-sm font-semibold text-brand-primary">
                 <CreditCard className="h-4 w-4" /> Platené kartou
-                {detail.paid && (
-                  <span className="text-xs font-normal text-neutral-400">
-                    (zaplatené — nedá sa meniť)
-                  </span>
-                )}
-              </span>
-              <span
-                className={cn(
-                  "flex h-5 w-5 items-center justify-center rounded-full border",
-                  detail.byCard
-                    ? "border-brand-primary bg-brand-primary text-white"
-                    : "border-black/25 dark:border-white/25"
-                )}
-              >
-                {detail.byCard && <Check className="h-3.5 w-3.5" />}
-              </span>
-            </button>
+              </div>
+            )}
+
+            {/* What the last edit changed — visible for the payment breakdown. */}
+            {detail.edited && detail.editNote && (
+              <div className="flex items-start gap-2 rounded-2xl border border-amber-400/50 bg-amber-400/10 px-4 py-3 text-sm font-semibold text-amber-700 dark:text-amber-300">
+                <Pencil className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{detail.editNote}</span>
+              </div>
+            )}
 
             {/* Pol/pol is only an indicator here — it's toggled in the kitchen. */}
             {detail.surcharge > 0 && (
@@ -1959,7 +1955,6 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
   const [actual, setActual] = useState<Record<string, string>>({});
   const [hours, setHours] = useState<Record<string, number>>({});
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
-  const [ownerBusy, setOwnerBusy] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
@@ -2023,13 +2018,14 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
   // each share rounded DOWN to 0,10 € (42,63 → 42,60); the remainder is shown
   // below the list.
   const workers = staff.filter((s) => !s.isOwner);
-  const owners = staff.filter((s) => s.isOwner);
   const tipStaff = workers.filter((s) => !excluded.has(s.id));
   const per = tipStaff.length
     ? Math.floor((tips / tipStaff.length) * 10) / 10
     : 0;
   const leftover = r2(tips - per * tipStaff.length);
-  const wageOf = (id: string) => r2((hours[id] ?? 0) * WAGE_PER_HOUR);
+  // Base shift is 6 hours — the stepper adjusts from there in 0,5 h steps.
+  const hoursOf = (id: string) => hours[id] ?? 6;
+  const wageOf = (id: string) => r2(hoursOf(id) * WAGE_PER_HOUR);
   const tipOf = (id: string) => (excluded.has(id) ? 0 : per);
   const wageTotal = r2(workers.reduce((s, w) => s + wageOf(w.id), 0));
 
@@ -2049,17 +2045,8 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
     setSaved(false);
     setHours((prev) => ({
       ...prev,
-      [id]: Math.max(0, r2((prev[id] ?? 0) + delta)),
+      [id]: Math.max(0, r2((prev[id] ?? 6) + delta)),
     }));
-  }
-  async function toggleOwner(id: string, next: boolean) {
-    setOwnerBusy(id);
-    try {
-      await setUserOwner(restaurantId, id, next);
-      await load();
-    } finally {
-      setOwnerBusy(null);
-    }
   }
 
   const editStr =
@@ -2278,14 +2265,6 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
                         {roleLabel(s.role)}
                       </span>
                     </div>
-                    <button
-                      onClick={() => toggleOwner(s.id, true)}
-                      disabled={ownerBusy === s.id}
-                      title="Označiť ako vlastníka (bez tringeltov a mzdy)"
-                      className="shrink-0 rounded-full border border-black/15 px-2.5 py-0.5 text-[11px] font-semibold text-neutral-400 hover:text-neutral-600 disabled:opacity-50 dark:border-white/15 dark:hover:text-neutral-200"
-                    >
-                      → vlastník
-                    </button>
                   </div>
 
                   <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -2314,7 +2293,7 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
                         <Minus className="h-3.5 w-3.5" />
                       </button>
                       <span className="w-12 text-center text-sm font-semibold tabular-nums">
-                        {(hours[s.id] ?? 0).toLocaleString("sk-SK")} h
+                        {hoursOf(s.id).toLocaleString("sk-SK")} h
                       </span>
                       <button
                         onClick={() => bumpHours(s.id, 0.5)}
@@ -2337,22 +2316,6 @@ function TipCalculator({ restaurantId }: { restaurantId: string }) {
               );
             })}
           </ul>
-        )}
-        {owners.length > 0 && (
-          <p className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-neutral-400">
-            Vlastníci (bez výplaty):
-            {owners.map((o) => (
-              <button
-                key={o.id}
-                onClick={() => toggleOwner(o.id, false)}
-                disabled={ownerBusy === o.id}
-                title="Vrátiť medzi brigádnikov"
-                className="rounded-full bg-black/[0.05] px-2.5 py-1 font-semibold text-neutral-500 hover:text-neutral-800 disabled:opacity-50 dark:bg-white/[0.06] dark:hover:text-neutral-200"
-              >
-                {o.name} ✕
-              </button>
-            ))}
-          </p>
         )}
         {leftover > 0.005 && tipStaff.length > 0 && tips > 0 && (
           <p className="mt-2 text-xs font-semibold text-neutral-500">
