@@ -2440,6 +2440,9 @@ function ServiceOpen({ restaurantId }: { restaurantId: string }) {
   }
 
   const open = status?.open ?? false;
+  // Past today's closing time while still flagged open: new orders are locked,
+  // but the day's existing orders can still be finished.
+  const orderingLocked = open && msLeft != null && msLeft <= 0;
   const showButton = open || status?.canOpenNow;
 
   return (
@@ -2469,7 +2472,9 @@ function ServiceOpen({ restaurantId }: { restaurantId: string }) {
           </p>
           <p className="text-sm text-neutral-500">
             {open
-              ? status?.closeTime
+              ? orderingLocked
+                ? "Nové objednávky sú uzamknuté. Rozrobené dokončite a potom zavrite prevádzku."
+                : status?.closeTime
                 ? `Prijímame objednávky. Dnes zatvárame o ${status.closeTime}.`
                 : "Prijímame objednávky. Dostupnosť a služby môžete upraviť."
               : status?.closedToday
@@ -2486,10 +2491,10 @@ function ServiceOpen({ restaurantId }: { restaurantId: string }) {
               Do zatvorenia: {countdown}
             </span>
           )}
-          {open && msLeft != null && msLeft <= 0 && (
+          {open && orderingLocked && (
             <span className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-brand-error/15 px-3 py-1 text-sm font-bold text-brand-error">
-              <Timer className="h-4 w-4" />
-              Otváracie hodiny skončili
+              <Lock className="h-4 w-4" />
+              Otváracie hodiny skončili — objednávanie uzamknuté
             </span>
           )}
         </div>

@@ -614,13 +614,12 @@ export async function createOrder(
         ok: false,
         error: "Prevádzka ešte nie je dnes otvorená. Skúste neskôr.",
       };
-    // New orders stop ORDER_CUTOFF_BEFORE_CLOSE minutes before closing time so
-    // the kitchen can finish what's in the queue before they close.
+    // Once the day's closing time passes, new orders stop. Orders already
+    // placed are unaffected — the kitchen finishes what's in the queue.
     if (orderingCutoff(data.restaurantId))
       return {
         ok: false,
-        error:
-          "Objednávky sú na dnes už uzavreté (posledné prijímame 30 min pred zatvorením).",
+        error: "Otváracie hodiny na dnes skončili — objednávky sú uzavreté.",
       };
 
     // items the admin marked unavailable for today
@@ -1344,26 +1343,31 @@ function toMinutes(hhmm: string): number {
   return (h || 0) * 60 + (m || 0);
 }
 
-// New orders are refused this many minutes before the day's closing time.
-const ORDER_CUTOFF_BEFORE_CLOSE = 30;
-
-// Whether the automatic order cutoff applies right now (Europe/Bratislava).
-// On regular opening days ordering stops 30 min before closing time. On
-// non-opening days there is no schedule — a manual (test) open counts as a
-// normal open with no auto-cutoff; the admin closes it manually or via
-// sold-out, and the open flag resets at midnight anyway.
-function orderingCutoff(restaurantId: string): boolean {
-  const { weekdayIdx, minutes } = bratislavaNow();
+// Today's Bratislava closing time (minutes since midnight), or null when the
+// day has no schedule entry at all. Every weekday has defined open/close times
+// in the seed data — even nominally-closed days — so a manual (test) open still
+// has a closing time to count down to and to auto-lock at.
+function closeMinutesToday(restaurantId: string): number | null {
+  const { weekdayIdx } = bratislavaNow();
   const r = RESTAURANTS.find((x) => x.id === restaurantId);
   const today = r?.openingHours.find((h) => h.day === weekdayIdx);
-  if (!today || today.closed === true) return false; // no schedule → no cutoff
-  return minutes >= toMinutes(today.close) - ORDER_CUTOFF_BEFORE_CLOSE;
+  if (!today) return null;
+  return toMinutes(today.close);
+}
+
+// Whether new orders are locked right now (Europe/Bratislava). Once the day's
+// closing time passes, ordering stops — this holds for regular opening days and
+// for manual (test) opens alike, since both have a defined closing time. Orders
+// already placed are never affected; only the ability to place NEW ones locks.
+function orderingCutoff(restaurantId: string): boolean {
+  const closeMin = closeMinutesToday(restaurantId);
+  if (closeMin == null) return false; // no schedule entry → no auto-lock
+  return bratislavaNow().minutes >= closeMin;
 }
 
 // Whether the day's service is over — the settlement (vyúčtovanie) may only be
 // saved once the pizzeria is closed: manually closed / sold out (open flag
-// cleared) or past today's closing time. A manual open on a non-opening day
-// (test) stays open until it's closed manually.
+// cleared) or past today's closing time.
 async function isClosedForToday(restaurantId: string): Promise<boolean> {
   const rows = (await sql.query(
     `SELECT COALESCE(open_date = ${SERVICE_DATE}, false) AS is_open
@@ -1371,11 +1375,9 @@ async function isClosedForToday(restaurantId: string): Promise<boolean> {
     [restaurantId]
   )) as { is_open: boolean }[];
   if (!rows[0]?.is_open) return true; // never opened, closed manually or sold out
-  const { weekdayIdx, minutes } = bratislavaNow();
-  const r = RESTAURANTS.find((x) => x.id === restaurantId);
-  const today = r?.openingHours.find((h) => h.day === weekdayIdx);
-  if (!today || today.closed === true) return false; // test open — close manually
-  return minutes >= toMinutes(today.close);
+  const closeMin = closeMinutesToday(restaurantId);
+  if (closeMin == null) return false; // no schedule entry — close manually
+  return bratislavaNow().minutes >= closeMin;
 }
 
 // Current weekday (0 = Monday … 6 = Sunday) and minutes-since-midnight in the
