@@ -2388,8 +2388,7 @@ function ServiceOpen({ restaurantId }: { restaurantId: string }) {
         setStatus(s);
         if (s.closeTime) {
           const [hh, mm] = s.closeTime.split(":").map(Number);
-          let untilMin = hh * 60 + mm - s.nowMinutes;
-          if (untilMin < -60) untilMin += 24 * 60; // guard past-midnight close
+          const untilMin = hh * 60 + mm - s.nowMinutes;
           setCloseAtTs(fetchedAt + untilMin * 60_000);
         } else {
           setCloseAtTs(null);
