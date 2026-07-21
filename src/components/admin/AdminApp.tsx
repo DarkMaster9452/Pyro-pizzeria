@@ -4076,46 +4076,48 @@ function Accounts() {
 
   if (!unlocked) {
     return (
-      <div className={cn(CARD, "mx-auto max-w-md")}>
-        <div className="mb-3 flex items-center gap-3">
-          <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-brand-primary/15 text-brand-primary">
-            <Lock className="h-5 w-5" />
-          </span>
-          <div>
-            <h2 className="font-display text-base font-extrabold text-neutral-900 dark:text-white">
-              Správa účtov
-            </h2>
-            <p className="text-xs text-neutral-500">
-              Zadajte heslo správy účtov pre prístup.
-            </p>
+      <div className="flex min-h-[70vh] items-center justify-center">
+        <div className={cn(CARD, "w-full max-w-md")}>
+          <div className="mb-3 flex items-center gap-3">
+            <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-brand-primary/15 text-brand-primary">
+              <Lock className="h-5 w-5" />
+            </span>
+            <div>
+              <h2 className="font-display text-base font-extrabold text-neutral-900 dark:text-white">
+                Správa účtov
+              </h2>
+              <p className="text-xs text-neutral-500">
+                Zadajte heslo správy účtov pre prístup.
+              </p>
+            </div>
           </div>
-        </div>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!busy && gate) unlock();
-          }}
-          className="space-y-3"
-        >
-          <input
-            type="password"
-            autoFocus
-            value={gate}
-            onChange={(e) => setGate(e.target.value)}
-            placeholder="Heslo správy účtov"
-            className={SELECT_CLS}
-          />
-          {error && (
-            <p className="text-sm font-semibold text-brand-error">{error}</p>
-          )}
-          <button
-            type="submit"
-            disabled={busy || !gate}
-            className="w-full rounded-full bg-brand-primary py-2.5 text-sm font-bold text-white transition-colors hover:brightness-110 disabled:opacity-50"
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!busy && gate) unlock();
+            }}
+            className="space-y-3"
           >
-            {busy ? "Overujem…" : "Odomknúť"}
-          </button>
-        </form>
+            <input
+              type="password"
+              autoFocus
+              value={gate}
+              onChange={(e) => setGate(e.target.value)}
+              placeholder="Heslo správy účtov"
+              className={SELECT_CLS}
+            />
+            {error && (
+              <p className="text-sm font-semibold text-brand-error">{error}</p>
+            )}
+            <button
+              type="submit"
+              disabled={busy || !gate}
+              className="w-full rounded-full bg-brand-primary py-2.5 text-sm font-bold text-white transition-colors hover:brightness-110 disabled:opacity-50"
+            >
+              {busy ? "Overujem…" : "Odomknúť"}
+            </button>
+          </form>
+        </div>
       </div>
     );
   }
