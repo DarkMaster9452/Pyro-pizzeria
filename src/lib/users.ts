@@ -1,6 +1,7 @@
 import "server-only";
 import { hash as argonHash, verify as argonVerify } from "@node-rs/argon2";
 import { sql } from "./db";
+import { logError } from "./log";
 
 export interface DbUser {
   id: string;
@@ -80,6 +81,12 @@ export async function ensureStaffAccounts(): Promise<void> {
     await sql`ALTER TABLE users ADD CONSTRAINT users_role_chk CHECK (role IN ('customer','employee','driver','kuchar','call','admin','super_admin'))`.catch(
       () => {}
     );
+    // Whether the account may sign in. Deactivated accounts stay in the table
+    // (history stays intact) but are refused at login. Created here so it always
+    // exists before the first credential check reads it.
+    await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS active boolean NOT NULL DEFAULT true`.catch(
+      () => {}
+    );
     // Provision the real staff accounts. Each is created once with the shared
     // bootstrap password; an existing account is never touched, so a password
     // the owner changed later stays changed. The owner is expected to rotate
@@ -120,6 +127,7 @@ interface UserRow extends DbUser {
   password_hash: string;
   failed_attempts: number;
   locked_until: string | null;
+  active: boolean;
 }
 
 // Verify credentials with Argon2id + temporary account lockout after repeated
@@ -132,16 +140,22 @@ export async function verifyCredentials(
   // Make sure the demo staff accounts exist before the first login. Never let a
   // seeding hiccup block a real login.
   await ensureStaffAccounts().catch((err) =>
-    console.error("ensureStaffAccounts failed", err)
+    logError("ensureStaffAccounts", err)
   );
   const rows = (await sql`
     SELECT id, email, name, role, restaurant_id, session_version,
-           password_hash, failed_attempts, locked_until
+           password_hash, failed_attempts, locked_until,
+           COALESCE(active, true) AS active
     FROM users WHERE email = ${e} LIMIT 1
   `) as UserRow[];
   const row = rows[0];
 
   if (!row) {
+    await argonVerify(DUMMY_HASH, password).catch(() => false);
+    return null;
+  }
+  // Deactivated accounts can never sign in (still equalise timing above).
+  if (row.active === false) {
     await argonVerify(DUMMY_HASH, password).catch(() => false);
     return null;
   }

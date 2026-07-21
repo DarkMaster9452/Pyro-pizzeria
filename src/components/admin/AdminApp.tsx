@@ -47,6 +47,10 @@ import {
   getShiftDayDetail,
   getOrderDays,
   getAdminOrdersByDay,
+  listAccounts,
+  saveAccount,
+  unlockAccount,
+  type ManagedAccount,
   type TipData,
   type TipAllocation,
   type TipWage,
@@ -112,7 +116,8 @@ type Tab =
   | "restaurants"
   | "zones"
   | "coupons"
-  | "reviews";
+  | "reviews"
+  | "accounts";
 
 const NAV: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: "dashboard", label: "Prehľad", icon: <LayoutDashboard className="h-5 w-5" /> },
@@ -124,6 +129,7 @@ const NAV: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: "zones", label: "Rozvozové zóny", icon: <MapPin className="h-5 w-5" /> },
   { id: "coupons", label: "Kupóny", icon: <Ticket className="h-5 w-5" /> },
   { id: "reviews", label: "Recenzie", icon: <Star className="h-5 w-5" /> },
+  { id: "accounts", label: "Správa účtov", icon: <Users className="h-5 w-5" /> },
 ];
 
 // ------------ new-order sound (bell WAV, amplified LOUD) ------------
@@ -412,6 +418,7 @@ export function AdminApp({
             {tab === "zones" && <Zones restaurantId={restaurantId} />}
             {tab === "coupons" && <Coupons restaurantId={restaurantId} />}
             {tab === "reviews" && <Reviews />}
+            {tab === "accounts" && <Accounts />}
         </motion.div>
       </main>
 
@@ -3961,6 +3968,368 @@ function Reviews() {
 }
 
 // ---------------- shared UI ----------------
+/* ------------------------------ ÚČTY ------------------------------ */
+
+const ROLE_LABELS: Record<string, string> = {
+  customer: "Zákazník",
+  driver: "Rozvoz (vodič)",
+  kuchar: "Kuchár",
+  call: "Telefón / pult",
+  admin: "Admin",
+  super_admin: "Super admin",
+  employee: "Zamestnanec",
+};
+
+const SELECT_CLS =
+  "w-full rounded-lg border border-black/10 bg-neutral-100 px-3 py-2 text-sm outline-none focus:border-brand-primary dark:border-white/10 dark:bg-[#222]";
+
+function Accounts() {
+  const [gate, setGate] = useState("");
+  const [unlocked, setUnlocked] = useState(false);
+  const [accounts, setAccounts] = useState<ManagedAccount[] | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState<ManagedAccount | null>(null);
+
+  const load = useCallback(async (g: string) => {
+    const res = await listAccounts(g);
+    if (!res.ok) {
+      setError(res.error ?? "Chyba.");
+      return false;
+    }
+    setAccounts(res.accounts ?? []);
+    setError("");
+    return true;
+  }, []);
+
+  async function unlock() {
+    setBusy(true);
+    const ok = await load(gate);
+    if (ok) setUnlocked(true);
+    setBusy(false);
+  }
+
+  if (!unlocked) {
+    return (
+      <div className={cn(CARD, "mx-auto max-w-md")}>
+        <div className="mb-3 flex items-center gap-3">
+          <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-brand-primary/15 text-brand-primary">
+            <Lock className="h-5 w-5" />
+          </span>
+          <div>
+            <h2 className="font-display text-base font-extrabold text-neutral-900 dark:text-white">
+              Správa účtov
+            </h2>
+            <p className="text-xs text-neutral-500">
+              Zadajte heslo správy účtov pre prístup.
+            </p>
+          </div>
+        </div>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!busy && gate) unlock();
+          }}
+          className="space-y-3"
+        >
+          <input
+            type="password"
+            autoFocus
+            value={gate}
+            onChange={(e) => setGate(e.target.value)}
+            placeholder="Heslo správy účtov"
+            className={SELECT_CLS}
+          />
+          {error && (
+            <p className="text-sm font-semibold text-brand-error">{error}</p>
+          )}
+          <button
+            type="submit"
+            disabled={busy || !gate}
+            className="w-full rounded-full bg-brand-primary py-2.5 text-sm font-bold text-white transition-colors hover:brightness-110 disabled:opacity-50"
+          >
+            {busy ? "Overujem…" : "Odomknúť"}
+          </button>
+        </form>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="font-display text-lg font-extrabold text-neutral-900 dark:text-white">
+            Správa účtov
+          </h2>
+          <p className="text-xs text-neutral-500">
+            {accounts?.length ?? 0} účtov — meno, email, rola, prevádzka, heslo,
+            deaktivácia.
+          </p>
+        </div>
+        <button
+          onClick={() => load(gate)}
+          className="rounded-full border border-black/10 p-2 text-neutral-500 hover:bg-black/5 dark:border-white/10 dark:hover:bg-white/5"
+          aria-label="Obnoviť"
+        >
+          <RefreshCw className="h-4 w-4" />
+        </button>
+      </div>
+
+      {error && (
+        <p className="text-sm font-semibold text-brand-error">{error}</p>
+      )}
+
+      <div className="space-y-2">
+        {accounts?.map((a) => (
+          <button
+            key={a.id}
+            onClick={() => setEditing(a)}
+            className={cn(
+              CARD,
+              "flex w-full items-center gap-3 p-4 text-left transition-colors hover:ring-brand-primary/40",
+              !a.active && "opacity-60"
+            )}
+          >
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="truncate font-semibold text-neutral-900 dark:text-white">
+                  {a.name || "(bez mena)"}
+                </span>
+                {a.isOwner && (
+                  <span className="rounded-full bg-brand-secondary/15 px-2 py-0.5 text-[10px] font-bold uppercase text-brand-secondary">
+                    Majiteľ
+                  </span>
+                )}
+                {!a.active && (
+                  <span className="rounded-full bg-brand-error/15 px-2 py-0.5 text-[10px] font-bold uppercase text-brand-error">
+                    Deaktivovaný
+                  </span>
+                )}
+                {a.locked && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-600 dark:text-amber-400">
+                    <Lock className="h-3 w-3" /> Zamknutý
+                  </span>
+                )}
+              </div>
+              <p className="truncate text-xs text-neutral-500">{a.email}</p>
+            </div>
+            <div className="shrink-0 text-right text-xs text-neutral-500">
+              <p className="font-semibold text-neutral-700 dark:text-neutral-300">
+                {ROLE_LABELS[a.role] ?? a.role}
+              </p>
+              <p>
+                {RESTAURANTS.find((r) => r.id === a.restaurantId)?.name ?? "—"}
+              </p>
+            </div>
+            <Pencil className="h-4 w-4 shrink-0 text-neutral-400" />
+          </button>
+        ))}
+      </div>
+
+      {editing && (
+        <AccountEditor
+          account={editing}
+          gate={gate}
+          onClose={() => setEditing(null)}
+          onSaved={async () => {
+            setEditing(null);
+            await load(gate);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function AccountEditor({
+  account,
+  gate,
+  onClose,
+  onSaved,
+}: {
+  account: ManagedAccount;
+  gate: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState(account.name);
+  const [email, setEmail] = useState(account.email);
+  const [role, setRole] = useState(account.role);
+  const [restaurantId, setRestaurantId] = useState<string | null>(
+    account.restaurantId
+  );
+  const [isOwner, setIsOwner] = useState(account.isOwner);
+  const [active, setActive] = useState(account.active);
+  const [newPassword, setNewPassword] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const roleOptions = ["customer", "driver", "kuchar", "call", "admin"];
+
+  async function save() {
+    setBusy(true);
+    setError("");
+    const res = await saveAccount(gate, {
+      id: account.id,
+      name,
+      email,
+      role,
+      restaurantId: role === "customer" ? null : restaurantId,
+      isOwner,
+      active,
+      newPassword: newPassword || undefined,
+    });
+    setBusy(false);
+    if (!res.ok) {
+      setError(res.error ?? "Uloženie zlyhalo.");
+      return;
+    }
+    onSaved();
+  }
+
+  async function doUnlock() {
+    setBusy(true);
+    setError("");
+    const res = await unlockAccount(gate, account.id);
+    setBusy(false);
+    if (!res.ok) {
+      setError(res.error ?? "Odomknutie zlyhalo.");
+      return;
+    }
+    onSaved();
+  }
+
+  return (
+    <Modal title={account.name || account.email} onClose={onClose}>
+      <div className="space-y-3">
+        <TextInput label="Meno" value={name} onChange={setName} />
+        <TextInput
+          label="Email (prihlasovací)"
+          value={email}
+          onChange={setEmail}
+        />
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <FieldLabel>Rola</FieldLabel>
+            <select
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              className={SELECT_CLS}
+            >
+              {roleOptions.map((r) => (
+                <option key={r} value={r}>
+                  {ROLE_LABELS[r] ?? r}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <FieldLabel>Prevádzka</FieldLabel>
+            <select
+              value={restaurantId ?? ""}
+              onChange={(e) => setRestaurantId(e.target.value || null)}
+              disabled={role === "customer"}
+              className={cn(SELECT_CLS, role === "customer" && "opacity-50")}
+            >
+              <option value="">—</option>
+              {RESTAURANTS.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <TextInput
+          label="Nové heslo (nechajte prázdne = bez zmeny)"
+          value={newPassword}
+          onChange={setNewPassword}
+          hint="Min. 6 znakov. Zahashuje sa (Argon2id) a účet sa odhlási zo všetkých zariadení."
+        />
+
+        <div className="flex flex-wrap gap-2 pt-1">
+          <ToggleChip
+            on={isOwner}
+            onClick={() => setIsOwner((v) => !v)}
+            label="Majiteľ (bez tipov/mzdy)"
+          />
+          <ToggleChip
+            on={active}
+            onClick={() => setActive((v) => !v)}
+            label={active ? "Aktívny" : "Deaktivovaný"}
+            danger={!active}
+          />
+          {account.locked && (
+            <button
+              onClick={doUnlock}
+              disabled={busy}
+              className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-600 hover:bg-amber-500/20 disabled:opacity-50 dark:text-amber-400"
+            >
+              <Lock className="h-3.5 w-3.5" /> Odomknúť účet
+            </button>
+          )}
+        </div>
+
+        {error && (
+          <p className="text-sm font-semibold text-brand-error">{error}</p>
+        )}
+
+        <div className="flex gap-2 pt-2">
+          <button
+            onClick={onClose}
+            className="flex-1 rounded-full border border-black/10 py-2.5 text-sm font-semibold text-neutral-700 hover:bg-black/5 dark:border-white/15 dark:text-neutral-200 dark:hover:bg-white/5"
+          >
+            Zrušiť
+          </button>
+          <button
+            onClick={save}
+            disabled={busy}
+            className="flex-1 rounded-full bg-brand-primary py-2.5 text-sm font-bold text-white hover:brightness-110 disabled:opacity-50"
+          >
+            {busy ? "Ukladám…" : "Uložiť"}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function ToggleChip({
+  on,
+  onClick,
+  label,
+  danger,
+}: {
+  on: boolean;
+  onClick: () => void;
+  label: string;
+  danger?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors",
+        on && !danger && "border-brand-success/50 bg-brand-success/10 text-brand-success",
+        on && danger && "border-brand-error/50 bg-brand-error/10 text-brand-error",
+        !on && "border-black/15 text-neutral-500 dark:border-white/15"
+      )}
+    >
+      <span
+        className={cn(
+          "flex h-4 w-4 items-center justify-center rounded-full border",
+          on ? "border-current" : "border-neutral-400"
+        )}
+      >
+        {on && <Check className="h-3 w-3" />}
+      </span>
+      {label}
+    </button>
+  );
+}
+
 function Modal({
   title,
   onClose,
