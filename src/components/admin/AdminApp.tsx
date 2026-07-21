@@ -110,6 +110,11 @@ import {
   Search,
   UserCog,
   UserRound,
+  BatteryFull,
+  BatteryMedium,
+  BatteryLow,
+  BatteryWarning,
+  BatteryCharging,
 } from "lucide-react";
 
 type Tab =
@@ -187,6 +192,106 @@ function beep() {
   });
 }
 
+// The battery readout only makes sense on the shop tablet, so the toggle is
+// offered only on touch devices whose browser exposes the Battery Status API
+// (Android Chrome / Samsung Internet — not desktop, not iPad Safari).
+function useIsTablet(): boolean {
+  const [tablet, setTablet] = useState(false);
+  useEffect(() => {
+    const nav = navigator as Navigator & { getBattery?: unknown };
+    const touch = nav.maxTouchPoints > 0 || "ontouchstart" in window;
+    setTablet(touch && typeof nav.getBattery === "function");
+  }, []);
+  return tablet;
+}
+
+interface BatteryState {
+  level: number; // 0..1
+  charging: boolean;
+}
+
+// Live battery level + charging state via the Battery Status API. Returns null
+// until the first reading (or forever if the browser doesn't support it).
+function useBattery(enabled: boolean): BatteryState | null {
+  const [state, setState] = useState<BatteryState | null>(null);
+  useEffect(() => {
+    if (!enabled) {
+      setState(null);
+      return;
+    }
+    const nav = navigator as Navigator & {
+      getBattery?: () => Promise<BatteryManagerLike>;
+    };
+    if (typeof nav.getBattery !== "function") return;
+    let battery: BatteryManagerLike | null = null;
+    let alive = true;
+    const update = () => {
+      if (alive && battery)
+        setState({ level: battery.level, charging: battery.charging });
+    };
+    nav.getBattery().then((b) => {
+      if (!alive) return;
+      battery = b;
+      update();
+      b.addEventListener("levelchange", update);
+      b.addEventListener("chargingchange", update);
+    });
+    return () => {
+      alive = false;
+      if (battery) {
+        battery.removeEventListener("levelchange", update);
+        battery.removeEventListener("chargingchange", update);
+      }
+    };
+  }, [enabled]);
+  return state;
+}
+
+interface BatteryManagerLike {
+  level: number;
+  charging: boolean;
+  addEventListener: (type: string, fn: () => void) => void;
+  removeEventListener: (type: string, fn: () => void) => void;
+}
+
+// Header pill showing the tablet's battery. Turns green while charging; amber
+// under 30 %, red under 15 %.
+function BatteryIndicator({ battery }: { battery: BatteryState }) {
+  const pct = Math.round(battery.level * 100);
+  const low = pct <= 15;
+  const mid = !low && pct <= 30;
+  const tone = battery.charging
+    ? "bg-brand-success/15 text-brand-success"
+    : low
+    ? "bg-brand-error/15 text-brand-error"
+    : mid
+    ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+    : "bg-black/[0.06] text-neutral-600 dark:bg-white/5 dark:text-neutral-300";
+
+  const Icon = battery.charging
+    ? BatteryCharging
+    : low
+    ? BatteryWarning
+    : mid
+    ? BatteryLow
+    : pct <= 70
+    ? BatteryMedium
+    : BatteryFull;
+
+  return (
+    <span
+      title={battery.charging ? `Nabíja sa · ${pct} %` : `Batéria ${pct} %`}
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-semibold tabular-nums transition-colors",
+        tone
+      )}
+    >
+      <Icon className="h-5 w-5" />
+      {pct} %
+    </span>
+  );
+}
+
 export function AdminApp({
   restaurantId,
   adminName,
@@ -204,6 +309,17 @@ export function AdminApp({
   // Collapsible side menu (tablet/desktop). Persisted so it stays how the
   // operator left it across sessions.
   const [collapsed, setCollapsed] = useState(false);
+  // Battery readout in the header — opt-in per tablet, persisted locally.
+  const isTablet = useIsTablet();
+  const [batteryEnabled, setBatteryEnabled] = useState(false);
+  useEffect(() => {
+    setBatteryEnabled(localStorage.getItem("admin.showBattery") === "1");
+  }, []);
+  const toggleBattery = useCallback((on: boolean) => {
+    setBatteryEnabled(on);
+    localStorage.setItem("admin.showBattery", on ? "1" : "0");
+  }, []);
+  const battery = useBattery(isTablet && batteryEnabled);
   const restaurant = RESTAURANTS.find((r) => r.id === restaurantId)!;
   const seenIds = useRef<Set<string> | null>(null);
 
@@ -390,6 +506,7 @@ export function AdminApp({
             </p>
           </div>
           <div className="flex items-center gap-2">
+            {battery && <BatteryIndicator battery={battery} />}
             <Link
               href="/"
               title="Späť na web (bez odhlásenia)"
@@ -471,6 +588,9 @@ export function AdminApp({
                 restaurantId={restaurantId}
                 summary={summary}
                 refresh={refresh}
+                showBatteryToggle={isTablet}
+                batteryEnabled={batteryEnabled}
+                onToggleBattery={toggleBattery}
               />
             )}
             {tab === "zones" && <Zones restaurantId={restaurantId} />}
@@ -1786,10 +1906,16 @@ function Operations({
   restaurantId,
   summary,
   refresh,
+  showBatteryToggle,
+  batteryEnabled,
+  onToggleBattery,
 }: {
   restaurantId: string;
   summary: AdminSummary | null;
   refresh: () => void;
+  showBatteryToggle: boolean;
+  batteryEnabled: boolean;
+  onToggleBattery: (on: boolean) => void;
 }) {
   const r = RESTAURANTS.find((x) => x.id === restaurantId)!;
   const soldOut = summary?.soldOut ?? false;
@@ -1921,9 +2047,22 @@ function Operations({
             </div>
           ))}
         </div>
-        <p className="mt-3 text-xs text-neutral-400">
-          Kontaktné údaje sú súčasťou webu — na zmenu ma kontaktujte.
-        </p>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs text-neutral-400">
+            Kontaktné údaje sú súčasťou webu — na zmenu ma kontaktujte.
+          </p>
+          {showBatteryToggle && (
+            <label className="inline-flex cursor-pointer select-none items-center gap-2 text-xs font-medium text-neutral-600 dark:text-neutral-300">
+              <input
+                type="checkbox"
+                checked={batteryEnabled}
+                onChange={(e) => onToggleBattery(e.target.checked)}
+                className="h-4 w-4 accent-brand-primary"
+              />
+              Zobraziť batériu tabletu
+            </label>
+          )}
+        </div>
       </div>
 
       <PruneOrders restaurantId={restaurantId} onDone={refresh} />
