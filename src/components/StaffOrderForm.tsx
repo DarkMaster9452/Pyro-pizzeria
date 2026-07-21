@@ -8,7 +8,14 @@ import {
   type StaffOrderInput,
 } from "@/lib/server-actions";
 import { CATEGORIES } from "@/lib/data";
-import { eur, cn, shortId, pizzaNumbers } from "@/lib/utils";
+import {
+  eur,
+  cn,
+  shortId,
+  pizzaNumbers,
+  isRealPizza,
+  POL_POL_SURCHARGE,
+} from "@/lib/utils";
 import type { Product, CartLine } from "@/lib/types";
 
 export interface StaffOrderInitial {
@@ -69,6 +76,7 @@ export function StaffOrderForm({
   const [phone, setPhone] = useState(initial?.phone ?? "");
   const [address, setAddress] = useState(initial?.address ?? "");
   const [note, setNote] = useState(initial?.note ?? "");
+  const [polpol, setPolpol] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [okId, setOkId] = useState<string | null>(null);
@@ -109,6 +117,15 @@ export function StaffOrderForm({
   }, [products, qty]);
 
   const itemCount = Object.values(qty).reduce((s, n) => s + n, 0);
+
+  // Pol/pol is only offered when a real pizza is in the order, and only on new
+  // orders (the edit flow keeps whatever surcharge the order already has).
+  const hasPizza = (products ?? []).some(
+    (p) => (qty[p.id] ?? 0) > 0 && isRealPizza(p, numberMap[p.id])
+  );
+  const showPolpol = !editing && hasPizza;
+  const wantsPolpol = polpol && hasPizza;
+  const grandTotal = total + (wantsPolpol ? POL_POL_SURCHARGE : 0);
 
   function bump(id: string, delta: number) {
     setQty((m) => {
@@ -151,6 +168,7 @@ export function StaffOrderForm({
       phone,
       lines,
       note,
+      polpol: wantsPolpol,
       address:
         fulfillment === "delivery" && address.trim()
           ? { street: address.trim(), houseNumber: "", city: "", zip: "" }
@@ -174,6 +192,7 @@ export function StaffOrderForm({
     setPhone("");
     setAddress("");
     setNote("");
+    setPolpol(false);
     onCreated?.(res.id ?? "");
   }
 
@@ -350,10 +369,37 @@ export function StaffOrderForm({
           className={cn(inputCls, "resize-none")}
         />
 
+        {showPolpol && (
+          <button
+            type="button"
+            onClick={() => setPolpol((v) => !v)}
+            className={cn(
+              "flex w-full items-center justify-between gap-2 rounded-xl border px-3 py-2.5 text-sm font-semibold transition-colors",
+              polpol
+                ? "border-brand-primary bg-brand-primary/10 text-brand-primary"
+                : "border-black/10 text-neutral-600 hover:bg-black/[0.03] dark:border-white/10 dark:text-neutral-300 dark:hover:bg-white/5"
+            )}
+          >
+            <span className="flex items-center gap-1.5">
+              🍕 Pol/pol pizza · +{eur(POL_POL_SURCHARGE)}
+            </span>
+            <span
+              className={cn(
+                "flex h-5 w-5 items-center justify-center rounded-full border",
+                polpol
+                  ? "border-brand-primary bg-brand-primary text-white"
+                  : "border-black/25 dark:border-white/25"
+              )}
+            >
+              {polpol && <Check className="h-3.5 w-3.5" />}
+            </span>
+          </button>
+        )}
+
         <div className="flex items-center justify-between rounded-xl bg-black/[0.04] px-3 py-2.5 text-sm dark:bg-white/5">
           <span className="text-neutral-500">{itemCount} položiek</span>
           <span className="font-display text-lg font-extrabold text-brand-primary">
-            {eur(total)}
+            {eur(grandTotal)}
           </span>
         </div>
 

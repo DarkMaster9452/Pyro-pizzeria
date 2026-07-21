@@ -46,6 +46,18 @@ type PaymentId =
   | "cash_pickup"
   | "card_pickup";
 
+// Objednávky na čas: pevné okno 16:00–21:30 po 15 minútach (24h formát), aby
+// zákazník nič nepísal a nezvolil čas mimo otváracích hodín.
+const ORDER_TIME_SLOTS: string[] = (() => {
+  const slots: string[] = [];
+  for (let m = 16 * 60; m <= 21 * 60 + 30; m += 15) {
+    const h = String(Math.floor(m / 60)).padStart(2, "0");
+    const mm = String(m % 60).padStart(2, "0");
+    slots.push(`${h}:${mm}`);
+  }
+  return slots;
+})();
+
 export default function CheckoutPage() {
   const router = useRouter();
   const cart = useApp((s) => s.cart);
@@ -349,14 +361,21 @@ export default function CheckoutPage() {
                 <label className="mb-1 block text-xs font-semibold text-neutral-500">
                   Čas doručenia / odberu *
                 </label>
-                <input
-                  type="time"
+                <select
                   value={scheduleTime}
                   onChange={(e) => setScheduleTime(e.target.value)}
                   className="w-full rounded-xl border border-black/10 bg-white px-3 py-2.5 text-sm outline-none focus:border-brand-primary dark:border-white/10 dark:bg-[#242424]"
-                />
+                >
+                  <option value="">Vyberte čas…</option>
+                  {ORDER_TIME_SLOTS.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
                 <p className="mt-1 text-xs text-neutral-400">
-                  Objednávku pripravíme na zvolený čas.
+                  Rozvoz aj odber medzi 16:00 a 21:30. Objednávku pripravíme na
+                  zvolený čas.
                 </p>
               </div>
             )}
