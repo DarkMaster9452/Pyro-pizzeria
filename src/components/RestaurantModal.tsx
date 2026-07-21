@@ -50,17 +50,17 @@ export function RestaurantModal() {
           <div className="pointer-events-none absolute -top-40 left-1/2 h-[28rem] w-[28rem] -translate-x-1/2 rounded-full bg-brand-primary/20 blur-[130px]" />
           <div className="pointer-events-none absolute bottom-0 right-10 h-80 w-80 rounded-full bg-brand-accent/10 blur-[130px]" />
 
-          <div className="relative mx-auto flex min-h-screen max-w-5xl flex-col items-center justify-center px-4 py-6 sm:py-14">
+          <div className="relative mx-auto flex min-h-screen max-w-5xl flex-col items-center justify-center px-4 py-4 sm:py-14">
             <motion.div
               initial={{ y: 18, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               transition={{ delay: 0.08 }}
-              className="mb-6 text-center sm:mb-10"
+              className="mb-4 text-center sm:mb-10"
             >
-              <p className="mb-2 text-xs font-bold uppercase tracking-[0.3em] text-brand-primary sm:mb-3">
+              <p className="mb-2 hidden text-xs font-bold uppercase tracking-[0.3em] text-brand-primary sm:block sm:mb-3">
                 Vitajte
               </p>
-              <h1 className="font-heading text-3xl uppercase tracking-tight text-white sm:text-5xl">
+              <h1 className="font-heading text-2xl uppercase tracking-tight text-white sm:text-5xl">
                 Vyberte si prevádzku
               </h1>
               <p className="mx-auto mt-3 hidden max-w-md text-[15px] text-white/55 sm:block">
@@ -69,7 +69,7 @@ export function RestaurantModal() {
               {!askedLocation && (
                 <button
                   onClick={requestLocation}
-                  className="mt-4 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.04] px-4 py-2 text-sm text-white/80 backdrop-blur-md transition-colors hover:bg-white/[0.08]"
+                  className="mt-4 hidden items-center gap-2 rounded-full border border-white/15 bg-white/[0.04] px-4 py-2 text-sm text-white/80 backdrop-blur-md transition-colors hover:bg-white/[0.08] sm:inline-flex"
                 >
                   <Navigation className="h-4 w-4 text-brand-primary" />
                   Povoliť polohu pre vzdialenosť
@@ -102,7 +102,7 @@ export function RestaurantModal() {
                       className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full opacity-40 blur-3xl transition-opacity group-hover:opacity-70"
                       style={{ background: r.accent }}
                     />
-                    <div className="relative h-32 overflow-hidden sm:h-44">
+                    <div className="relative h-20 overflow-hidden sm:h-44">
                       <Image
                         src={r.image}
                         alt={r.name}
@@ -146,7 +146,7 @@ export function RestaurantModal() {
                       }}
                     />
 
-                    <div className="space-y-2.5 p-4 sm:space-y-4 sm:p-5">
+                    <div className="space-y-2 p-3 sm:space-y-4 sm:p-5">
                       <div className="flex items-center gap-3 sm:block sm:pr-24">
                         {/* Round brand logo inline on phones (the overlapping
                             desktop logo is hidden on mobile). */}
