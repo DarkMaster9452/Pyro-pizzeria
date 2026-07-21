@@ -10,6 +10,8 @@ import {
   isPasswordExpired,
   getEmailOptIn,
   setEmailOptIn,
+  hashPassword,
+  ensureStaffAccounts,
   PASSWORD_MAX_AGE_DAYS,
   PASSWORD_REMIND_DAYS,
 } from "./users";
@@ -33,6 +35,7 @@ import {
 } from "./utils";
 import { orderInputSchema, firstError } from "./validation";
 import { rateLimit, audit, clientIp } from "./security";
+import { logError, logWarn } from "./log";
 import type {
   CartLine,
   DeliveryZone,
@@ -307,7 +310,7 @@ async function nextOrderId(): Promise<string> {
     }[];
     if (rows[0]?.n != null) return String(rows[0].n);
   } catch (e) {
-    console.error("nextOrderId failed, falling back", e);
+    logWarn("nextOrderId", "sequence unavailable, using fallback id");
   }
   return shortId();
 }
@@ -757,7 +760,7 @@ export async function createOrder(
     });
     return { ok: true, id, total: totals.total, eta, cancelToken };
   } catch (e) {
-    console.error("createOrder failed", e);
+    logError("createOrder", e);
     return { ok: false, error: "Objednávku sa nepodarilo uložiť." };
   }
 }
@@ -795,6 +798,216 @@ async function requireAdmin(restaurantId: string) {
   if (current !== null && current !== session.user.sessionVersion)
     throw new Error("Session revoked");
   return session;
+}
+
+// ===========================================================================
+// Account management (admin) — gated by a SEPARATE management password on top
+// of an admin session. Lets an admin manage every account that exists: rename,
+// change the login email, role + pizzeria, owner flag, deactivate/reactivate,
+// reset the password (hashed with Argon2id, so it actually works at login,
+// unlike a raw SQL update) and unlock an account locked by failed logins.
+// The gate password is a bootstrap value the owner rotates in code.
+// ===========================================================================
+const ACCOUNT_MGMT_PASSWORD = "MARTIN";
+const MANAGEABLE_ROLES = [
+  "customer",
+  "driver",
+  "kuchar",
+  "call",
+  "admin",
+] as const;
+type ManageableRole = (typeof MANAGEABLE_ROLES)[number];
+const KNOWN_RESTAURANT_IDS = RESTAURANTS.map((r) => r.id);
+
+export interface ManagedAccount {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  restaurantId: string | null;
+  isOwner: boolean;
+  active: boolean;
+  locked: boolean;
+  failedAttempts: number;
+  self: boolean; // the currently signed-in admin's own account
+}
+
+export interface AccountSaveInput {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  restaurantId: string | null;
+  isOwner: boolean;
+  active: boolean;
+  newPassword?: string;
+}
+
+// Shared gate: an admin session + the correct management password. Returns the
+// session on success, or an error string the caller surfaces to the UI.
+async function gateAccountMgmt(gate: string) {
+  const session = await auth();
+  if (
+    !session?.user ||
+    (session.user.role !== "admin" && session.user.role !== "super_admin")
+  ) {
+    return { ok: false as const, error: "Nedostatočné oprávnenie." };
+  }
+  const current = await getSessionVersion(session.user.id);
+  if (current !== null && current !== session.user.sessionVersion) {
+    return { ok: false as const, error: "Relácia vypršala, prihláste sa znova." };
+  }
+  if (gate !== ACCOUNT_MGMT_PASSWORD) {
+    return { ok: false as const, error: "Nesprávne heslo pre správu účtov." };
+  }
+  return { ok: true as const, session };
+}
+
+export async function listAccounts(
+  gate: string
+): Promise<{ ok: boolean; error?: string; accounts?: ManagedAccount[] }> {
+  const g = await gateAccountMgmt(gate);
+  if (!g.ok) return { ok: false, error: g.error };
+  await ensureStaffAccounts().catch(() => {});
+  await ensureOrderColumns().catch(() => {});
+  const rows = (await sql`
+    SELECT id, email, name, role, restaurant_id,
+           COALESCE(is_owner, false) AS is_owner,
+           COALESCE(active, true) AS active,
+           failed_attempts, locked_until
+    FROM users
+    ORDER BY (role = 'customer'), role, email
+  `) as {
+    id: string;
+    email: string;
+    name: string;
+    role: string;
+    restaurant_id: string | null;
+    is_owner: boolean;
+    active: boolean;
+    failed_attempts: number;
+    locked_until: string | null;
+  }[];
+  const now = Date.now();
+  const accounts: ManagedAccount[] = rows.map((r) => ({
+    id: r.id,
+    email: r.email,
+    name: r.name,
+    role: r.role,
+    restaurantId: r.restaurant_id,
+    isOwner: r.is_owner,
+    active: r.active,
+    locked: !!r.locked_until && new Date(r.locked_until).getTime() > now,
+    failedAttempts: r.failed_attempts ?? 0,
+    self: r.id === g.session.user.id,
+  }));
+  return { ok: true, accounts };
+}
+
+export async function saveAccount(
+  gate: string,
+  input: AccountSaveInput
+): Promise<{ ok: boolean; error?: string }> {
+  const g = await gateAccountMgmt(gate);
+  if (!g.ok) return { ok: false, error: g.error };
+  const session = g.session;
+
+  const id = input.id;
+  const name = (input.name ?? "").trim();
+  const email = (input.email ?? "").toLowerCase().trim();
+  const role = input.role;
+  const restaurantId = input.restaurantId;
+  const isOwner = !!input.isOwner;
+  const active = !!input.active;
+  const newPassword = input.newPassword?.trim() || "";
+
+  // Validation.
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))
+    return { ok: false, error: "Neplatný email." };
+  if (!MANAGEABLE_ROLES.includes(role as ManageableRole))
+    return { ok: false, error: "Neplatná rola." };
+  if (restaurantId !== null && !KNOWN_RESTAURANT_IDS.includes(restaurantId))
+    return { ok: false, error: "Neplatná prevádzka." };
+  // Staff roles must belong to a pizzeria; customers have none.
+  if (role !== "customer" && restaurantId === null)
+    return { ok: false, error: "Zamestnanecký účet musí mať prevádzku." };
+  if (newPassword && newPassword.length < 6)
+    return { ok: false, error: "Heslo musí mať aspoň 6 znakov." };
+
+  // Self-lockout guards: an admin cannot deactivate their own account or strip
+  // their own admin role while signed in (avoids locking yourself out).
+  if (id === session.user.id && !active)
+    return { ok: false, error: "Nemôžete deaktivovať vlastný účet." };
+  if (id === session.user.id && role !== "admin" && role !== "super_admin")
+    return { ok: false, error: "Nemôžete si odobrať admin rolu." };
+
+  // The account must exist.
+  const existing = (await sql`SELECT id FROM users WHERE id = ${id} LIMIT 1`) as {
+    id: string;
+  }[];
+  if (!existing.length) return { ok: false, error: "Účet sa nenašiel." };
+
+  // Email must stay unique.
+  const clash = (await sql`
+    SELECT 1 FROM users WHERE email = ${email} AND id <> ${id} LIMIT 1
+  `) as unknown[];
+  if (clash.length) return { ok: false, error: "Email už používa iný účet." };
+
+  await sql`
+    UPDATE users
+    SET name = ${name}, email = ${email}, role = ${role},
+        restaurant_id = ${restaurantId}, is_owner = ${isOwner}, active = ${active}
+    WHERE id = ${id}
+  `;
+  // Deactivating signs the account out of every device it is logged into.
+  if (!active) {
+    await sql`UPDATE users SET session_version = session_version + 1 WHERE id = ${id}`;
+  }
+
+  if (newPassword) {
+    const pwHash = await hashPassword(newPassword);
+    await sql`
+      UPDATE users
+      SET password_hash = ${pwHash}, password_changed_at = now(),
+          failed_attempts = 0, locked_until = NULL,
+          session_version = session_version + 1
+      WHERE id = ${id}
+    `;
+  }
+
+  await audit({
+    action: "account.updated",
+    actorId: session.user.id,
+    actorEmail: session.user.email,
+    target: email,
+    meta: {
+      role,
+      restaurantId,
+      active,
+      owner: isOwner,
+      passwordReset: !!newPassword,
+    },
+  });
+  return { ok: true };
+}
+
+// Clear a lockout from repeated failed logins (resets the counter + unlock).
+export async function unlockAccount(
+  gate: string,
+  id: string
+): Promise<{ ok: boolean; error?: string }> {
+  const g = await gateAccountMgmt(gate);
+  if (!g.ok) return { ok: false, error: g.error };
+  await sql`
+    UPDATE users SET failed_attempts = 0, locked_until = NULL WHERE id = ${id}
+  `;
+  await audit({
+    action: "account.unlocked",
+    actorId: g.session.user.id,
+    actorEmail: g.session.user.email,
+    target: id,
+  });
+  return { ok: true };
 }
 
 export interface AdminOrderRow {
@@ -1515,6 +1728,12 @@ export async function openRestaurant(
     };
   }
   await ensureOrderColumns();
+  // Housekeeping: the "unavailable today" list is per service day and is only
+  // ever read for today's date, so old rows are dead weight. Keep the last
+  // 3 days for reference and drop anything older (both pizzerias at once).
+  await sql.query(
+    `DELETE FROM daily_unavailable WHERE service_date < ${RESET_DATE} - 3`
+  );
   // Mark open for today's service day.
   await sql.query(
     `UPDATE restaurant_state SET open_date = ${SERVICE_DATE}, updated_at = now()
@@ -1980,7 +2199,7 @@ export async function saveTips(
     });
     return { ok: true };
   } catch (e) {
-    console.error("saveTips failed", e);
+    logError("saveTips", e);
     return { ok: false, error: "Vyúčtovanie sa nepodarilo uložiť." };
   }
 }
@@ -2131,7 +2350,7 @@ export async function saveProduct(
     });
     return { ok: true, id };
   } catch (e) {
-    console.error("saveProduct failed", e);
+    logError("saveProduct", e);
     return { ok: false, error: "Produkt sa nepodarilo uložiť." };
   }
 }
@@ -2548,7 +2767,7 @@ export async function cancelOrder(
     });
     return { ok: true, status: "cancelled" };
   } catch (e) {
-    console.error("cancelOrder failed", e);
+    logError("cancelOrder", e);
     return { ok: false, error: "Zrušenie sa nepodarilo. Skúste znova." };
   }
 }
@@ -3648,7 +3867,7 @@ export async function createStaffOrder(
     });
     return { ok: true, id, total: totals.total, eta };
   } catch (e) {
-    console.error("createStaffOrder failed", e);
+    logError("createStaffOrder", e);
     return { ok: false, error: "Objednávku sa nepodarilo uložiť." };
   }
 }
@@ -3803,7 +4022,7 @@ export async function updateStaffOrder(
     });
     return { ok: true, id, total: totals.total };
   } catch (e) {
-    console.error("updateStaffOrder failed", e);
+    logError("updateStaffOrder", e);
     return { ok: false, error: "Zmeny sa nepodarilo uložiť." };
   }
 }
@@ -3941,7 +4160,7 @@ export async function adminUpdateOrder(
     });
     return { ok: true, id, total };
   } catch (e) {
-    console.error("adminUpdateOrder failed", e);
+    logError("adminUpdateOrder", e);
     return { ok: false, error: "Zmeny sa nepodarilo uložiť." };
   }
 }
