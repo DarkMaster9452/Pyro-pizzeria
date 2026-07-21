@@ -847,11 +847,20 @@ export interface AccountSaveInput {
 // session on success, or an error string the caller surfaces to the UI.
 async function gateAccountMgmt(gate: string) {
   const session = await auth();
-  if (
-    !session?.user ||
-    (session.user.role !== "admin" && session.user.role !== "super_admin")
-  ) {
-    return { ok: false as const, error: "Nedostatočné oprávnenie." };
+  // Distinguish "not signed in / session expired" from "signed in but not an
+  // admin" — otherwise an admin whose staff session quietly timed out (2h when
+  // the shop is closed, 8h when open) sees a misleading "insufficient rights".
+  if (!session?.user) {
+    return {
+      ok: false as const,
+      error: "Relácia vypršala – prihláste sa znova ako admin.",
+    };
+  }
+  if (session.user.role !== "admin" && session.user.role !== "super_admin") {
+    return {
+      ok: false as const,
+      error: "Nedostatočné oprávnenie – tento účet nie je admin.",
+    };
   }
   const current = await getSessionVersion(session.user.id);
   if (current !== null && current !== session.user.sessionVersion) {
