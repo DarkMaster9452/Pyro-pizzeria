@@ -135,6 +135,7 @@ export const RESTAURANTS: Restaurant[] = [
     lng: 18.8342,
     prepTimeMinutes: 40,
     accent: "#F5B301",
+    instagram: "https://www.instagram.com/polomarik_stranavy/",
     // Po–St zatvorené · Štv/Ned 16:00–21:00 · Pi/So 16:00–22:00
     openingHours: [
       { day: 0, open: "16:00", close: "21:00", closed: true },
