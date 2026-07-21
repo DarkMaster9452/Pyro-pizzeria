@@ -157,10 +157,10 @@ function Hero({ r }: { r: Restaurant }) {
       className="font-heading text-white"
       style={{ lineHeight: 0.92 }}
     >
-      <span className="block text-[46px] sm:text-[64px] xl:text-[82px]">
+      <span className="block text-[38px] sm:text-[64px] xl:text-[82px]">
         {r.heroLine1}
       </span>
-      <span className="block text-[46px] text-brand-primary sm:text-[64px] xl:text-[82px]">
+      <span className="block text-[38px] text-brand-primary sm:text-[64px] xl:text-[82px]">
         {r.heroLine2}
       </span>
     </motion.h1>
@@ -169,7 +169,7 @@ function Hero({ r }: { r: Restaurant }) {
   const Paragraph = (
     <motion.p
       variants={item}
-      className="max-w-[520px] text-[17px] text-[#B5B5B5] sm:text-lg"
+      className="max-w-[520px] text-[15px] text-[#B5B5B5] line-clamp-3 sm:text-lg lg:line-clamp-none"
       style={{ lineHeight: 1.7 }}
     >
       Ručne pripravená pizza z kvalitných surovín, pečená do dokonalosti pri
@@ -285,7 +285,7 @@ function Hero({ r }: { r: Restaurant }) {
 
       {/* ============ MOBILE ============ */}
       <div className="lg:hidden">
-        <div className="relative h-[46vh] min-h-[300px] w-full">
+        <div className="relative h-[34vh] min-h-[210px] w-full">
           <Image
             src={r.image}
             alt={`${r.name} — čerstvá pizza`}
@@ -295,7 +295,7 @@ function Hero({ r }: { r: Restaurant }) {
             className="object-cover"
           />
           <div className="absolute inset-0 bg-gradient-to-t from-[#090909] via-[#090909]/20 to-[#090909]/60" />
-          <div className="absolute right-5 top-24">
+          <div className="absolute right-5 top-14">
             <Seal className="scale-[0.8]" logo={r.logo} label={r.name} />
           </div>
         </div>
@@ -303,7 +303,7 @@ function Hero({ r }: { r: Restaurant }) {
           variants={stagger}
           initial="hidden"
           animate="show"
-          className="section -mt-16 relative z-10 space-y-6 pb-4"
+          className="section -mt-16 relative z-10 space-y-4 pb-4"
         >
           {Pills}
           {SoldOutBanner}
