@@ -161,7 +161,7 @@ export function CookApp({
             Žiadne objednávky v kuchyni.
           </div>
         ) : (
-          <div className="grid gap-6 lg:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-3 md:gap-6">
             <Column title="Nové" hint="Začnite s prípravou." count={nove.length}>
               {nove.map((o) => (
                 <OrderCard
