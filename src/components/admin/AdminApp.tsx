@@ -105,6 +105,8 @@ import {
   CreditCard,
   Minus,
   Lock,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from "lucide-react";
 
 type Tab =
@@ -196,8 +198,22 @@ export function AdminApp({
   const [sound, setSound] = useState(true);
   const [openOrderId, setOpenOrderId] = useState<string | null>(null);
   const [confirmLogout, setConfirmLogout] = useState(false);
+  // Collapsible side menu (tablet/desktop). Persisted so it stays how the
+  // operator left it across sessions.
+  const [collapsed, setCollapsed] = useState(false);
   const restaurant = RESTAURANTS.find((r) => r.id === restaurantId)!;
   const seenIds = useRef<Set<string> | null>(null);
+
+  useEffect(() => {
+    setCollapsed(localStorage.getItem("admin.sidebarCollapsed") === "1");
+  }, []);
+  const toggleSidebar = useCallback(() => {
+    setCollapsed((v) => {
+      const next = !v;
+      localStorage.setItem("admin.sidebarCollapsed", next ? "1" : "0");
+      return next;
+    });
+  }, []);
 
   const refresh = useCallback(() => {
     getAdminSummary(restaurantId).then(setSummary).catch(() => {});
@@ -246,54 +262,93 @@ export function AdminApp({
     <div className="flex min-h-screen bg-[#e9e9ee] text-neutral-800 dark:bg-[#0f0f0f] dark:text-neutral-200">
       {/* sidebar — sticky full-height so the nav stays fully visible while the
           content scrolls (tablet/desktop) */}
-      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col self-start overflow-y-auto border-r border-black/15 bg-white shadow-sm dark:border-white/5 dark:bg-[#161616] md:flex">
-        <div className="flex items-center gap-3 border-b border-black/[0.08] p-5 dark:border-white/5">
+      <aside
+        className={cn(
+          "sticky top-0 hidden h-screen shrink-0 flex-col self-start overflow-y-auto overflow-x-hidden border-r border-black/15 bg-white shadow-sm transition-[width] duration-200 dark:border-white/5 dark:bg-[#161616] md:flex",
+          collapsed ? "w-[4.75rem]" : "w-64"
+        )}
+      >
+        <div
+          className={cn(
+            "flex items-center gap-3 border-b border-black/[0.08] dark:border-white/5",
+            collapsed ? "flex-col gap-2 p-3" : "p-5"
+          )}
+        >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={restaurant.logo}
             alt={restaurant.name}
             className="h-10 w-10 shrink-0 rounded-full object-cover ring-1 ring-black/10 dark:ring-white/15"
           />
-          <div>
-            <p className="font-display font-extrabold text-neutral-900 dark:text-white">
-              {restaurant.name}
-            </p>
-            <p className="text-xs text-neutral-500">Administrácia prevádzky</p>
-          </div>
+          {!collapsed && (
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-display font-extrabold text-neutral-900 dark:text-white">
+                {restaurant.name}
+              </p>
+              <p className="text-xs text-neutral-500">Administrácia prevádzky</p>
+            </div>
+          )}
+          <button
+            onClick={toggleSidebar}
+            title={collapsed ? "Rozbaliť menu" : "Zbaliť menu"}
+            aria-label={collapsed ? "Rozbaliť menu" : "Zbaliť menu"}
+            className="rounded-lg p-2 text-neutral-400 transition-colors hover:bg-black/5 hover:text-neutral-700 dark:hover:bg-white/5 dark:hover:text-white"
+          >
+            {collapsed ? (
+              <PanelLeftOpen className="h-5 w-5" />
+            ) : (
+              <PanelLeftClose className="h-5 w-5" />
+            )}
+          </button>
         </div>
         <nav className="flex-1 space-y-1 px-3 pt-4">
           {NAV.map((n) => (
             <button
               key={n.id}
               onClick={() => setTab(n.id)}
+              title={collapsed ? n.label : undefined}
               className={cn(
-                "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
+                "relative flex w-full items-center gap-3 rounded-xl py-2.5 text-sm font-medium transition-colors",
+                collapsed ? "justify-center px-0" : "px-3",
                 tab === n.id
                   ? "bg-brand-primary text-white"
                   : "text-neutral-500 hover:bg-black/5 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-white/5 dark:hover:text-white"
               )}
             >
               {n.icon}
-              {n.label}
-              {n.id === "kitchen" && summary && summary.pendingCount > 0 && (
-                <span className="ml-auto rounded-full bg-brand-error px-2 py-0.5 text-[11px] font-bold text-white">
-                  {summary.pendingCount}
-                </span>
-              )}
+              {!collapsed && n.label}
+              {n.id === "kitchen" &&
+                summary &&
+                summary.pendingCount > 0 &&
+                (collapsed ? (
+                  <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-brand-error" />
+                ) : (
+                  <span className="ml-auto rounded-full bg-brand-error px-2 py-0.5 text-[11px] font-bold text-white">
+                    {summary.pendingCount}
+                  </span>
+                ))}
             </button>
           ))}
         </nav>
         <Link
           href="/rozvoz"
-          className="mx-3 mt-3 flex items-center gap-2 rounded-xl bg-brand-primary/10 px-3 py-2.5 text-sm font-semibold text-brand-primary hover:bg-brand-primary/15"
+          title={collapsed ? "Výdaj / Rozvoz" : undefined}
+          className={cn(
+            "mx-3 mt-3 flex items-center gap-2 rounded-xl bg-brand-primary/10 py-2.5 text-sm font-semibold text-brand-primary hover:bg-brand-primary/15",
+            collapsed ? "justify-center px-0" : "px-3"
+          )}
         >
-          <Truck className="h-4 w-4" /> Výdaj / Rozvoz
+          <Truck className="h-4 w-4 shrink-0" /> {!collapsed && "Výdaj / Rozvoz"}
         </Link>
         <Link
           href="/"
-          className="m-3 flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm text-neutral-400 hover:bg-black/5 dark:hover:bg-white/5"
+          title={collapsed ? "Späť na web" : undefined}
+          className={cn(
+            "m-3 flex items-center gap-2 rounded-xl py-2.5 text-sm text-neutral-400 hover:bg-black/5 dark:hover:bg-white/5",
+            collapsed ? "justify-center px-0" : "px-3"
+          )}
         >
-          <ArrowLeft className="h-4 w-4" /> Späť na web
+          <ArrowLeft className="h-4 w-4 shrink-0" /> {!collapsed && "Späť na web"}
         </Link>
       </aside>
 
