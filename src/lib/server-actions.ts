@@ -617,12 +617,13 @@ export async function createOrder(
         ok: false,
         error: "Prevádzka ešte nie je dnes otvorená. Skúste neskôr.",
       };
-    // Once the day's closing time passes, new orders stop. Orders already
-    // placed are unaffected — the kitchen finishes what's in the queue.
+    // Ordering stops 30 min before closing so the kitchen can finish the queue.
+    // Orders already placed are unaffected.
     if (orderingCutoff(data.restaurantId))
       return {
         ok: false,
-        error: "Otváracie hodiny na dnes skončili — objednávky sú uzavreté.",
+        error:
+          "Objednávky sme na dnes už uzavreli (30 minút pred zatvorením). Ďakujeme za pochopenie.",
       };
 
     // items the admin marked unavailable for today
@@ -1582,14 +1583,19 @@ function closeMinutesToday(restaurantId: string): number | null {
   return toMinutes(today.close);
 }
 
-// Whether new orders are locked right now (Europe/Bratislava). Once the day's
-// closing time passes, ordering stops — this holds for regular opening days and
-// for manual (test) opens alike, since both have a defined closing time. Orders
-// already placed are never affected; only the ability to place NEW ones locks.
+// New orders stop this many minutes before the day's closing time, so the
+// kitchen and couriers can clear the queue before the shop actually closes.
+const ORDER_CUTOFF_BEFORE_CLOSE = 30;
+
+// Whether new orders are locked right now (Europe/Bratislava). Ordering stops
+// 30 minutes before the day's closing time — this holds for regular opening
+// days and for manual (test) opens alike, since both have a defined closing
+// time. Orders already placed are never affected; only the ability to place
+// NEW ones locks.
 function orderingCutoff(restaurantId: string): boolean {
   const closeMin = closeMinutesToday(restaurantId);
   if (closeMin == null) return false; // no schedule entry → no auto-lock
-  return bratislavaNow().minutes >= closeMin;
+  return bratislavaNow().minutes >= closeMin - ORDER_CUTOFF_BEFORE_CLOSE;
 }
 
 // Whether the day's service is over — the settlement (vyúčtovanie) may only be
