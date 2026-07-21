@@ -906,7 +906,12 @@ export async function listAccounts(
     restaurantId: r.restaurant_id,
     isOwner: r.is_owner,
     active: r.active,
-    locked: !!r.locked_until && new Date(r.locked_until).getTime() > now,
+    // Staff/admin are never locked out, so never show them as locked even if a
+    // stale lock lingers in the row.
+    locked:
+      r.role === "customer" &&
+      !!r.locked_until &&
+      new Date(r.locked_until).getTime() > now,
     failedAttempts: r.failed_attempts ?? 0,
     self: r.id === g.session.user.id,
   }));

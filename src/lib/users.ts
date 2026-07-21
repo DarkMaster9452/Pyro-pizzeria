@@ -159,7 +159,14 @@ export async function verifyCredentials(
     await argonVerify(DUMMY_HASH, password).catch(() => false);
     return null;
   }
-  if (row.locked_until && new Date(row.locked_until) > new Date()) {
+  // The failed-login lockout applies to customers only. Staff and admin
+  // accounts must never get locked out (a lockout mid-service would block the
+  // kitchen / dispatch / counter), so any stale lock on them is ignored.
+  if (
+    row.role === "customer" &&
+    row.locked_until &&
+    new Date(row.locked_until) > new Date()
+  ) {
     return null;
   }
 
@@ -185,7 +192,9 @@ export async function verifyCredentials(
   }
 
   const attempts = row.failed_attempts + 1;
-  if (attempts >= LOCK_THRESHOLD) {
+  // Only customers ever get locked; staff/admin just keep a failed-attempt
+  // count (for the record) but are never locked out.
+  if (row.role === "customer" && attempts >= LOCK_THRESHOLD) {
     await sql`
       UPDATE users
       SET failed_attempts = ${attempts},
