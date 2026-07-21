@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { getCallBoard, type CallOrder } from "@/lib/server-actions";
-import { logoutAction } from "@/lib/auth-actions";
 import { eur } from "@/lib/utils";
 import { StaffPasswordBanner } from "@/components/StaffSecurity";
+import { LogoutButton } from "@/components/LogoutButton";
 import {
   PhoneCall,
   Phone,
@@ -13,7 +13,6 @@ import {
   Store,
   Clock,
   RefreshCw,
-  LogOut,
 } from "lucide-react";
 
 function telUrl(phone: string): string {
@@ -81,11 +80,7 @@ export function CallApp({
             >
               <RefreshCw className="h-4 w-4" />
             </button>
-            <form action={logoutAction}>
-              <button className="flex items-center gap-1.5 rounded-full border border-white/10 px-3 py-2 text-xs font-semibold text-white/70 transition-colors hover:bg-white/5">
-                <LogOut className="h-4 w-4" /> Odhlásiť
-              </button>
-            </form>
+            <LogoutButton className="flex items-center gap-1.5 rounded-full border border-white/10 px-3 py-2 text-xs font-semibold text-white/70 transition-colors hover:bg-white/5" />
           </div>
         </div>
       </header>

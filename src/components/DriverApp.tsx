@@ -13,9 +13,9 @@ import {
   type DispatchOrder,
   type EditableOrder,
 } from "@/lib/server-actions";
-import { logoutAction } from "@/lib/auth-actions";
 import { StaffOrderForm } from "@/components/StaffOrderForm";
 import { StaffPasswordBanner } from "@/components/StaffSecurity";
+import { LogoutButton } from "@/components/LogoutButton";
 import { eur, formatAddress } from "@/lib/utils";
 import {
   Bike,
@@ -32,7 +32,6 @@ import {
   Clock,
   Home,
   LayoutDashboard,
-  LogOut,
   Hand,
   RotateCcw,
   RefreshCw,
@@ -183,11 +182,7 @@ export function DriverApp({
               <Home className="h-4 w-4" />
               <span className="hidden sm:inline">Web</span>
             </Link>
-            <form action={logoutAction}>
-              <button className="flex items-center gap-1.5 rounded-full border border-black/10 dark:border-white/10 px-3 py-2 text-xs font-semibold text-neutral-700 dark:text-white/70 transition-colors hover:bg-black/5 dark:hover:bg-white/5">
-                <LogOut className="h-4 w-4" /> Odhlásiť
-              </button>
-            </form>
+            <LogoutButton className="flex items-center gap-1.5 rounded-full border border-black/10 dark:border-white/10 px-3 py-2 text-xs font-semibold text-neutral-700 dark:text-white/70 transition-colors hover:bg-black/5 dark:hover:bg-white/5" />
           </div>
         </div>
       </header>
@@ -677,11 +672,7 @@ export function NoShift({
           {name}, na dnes ti v prevádzke {restaurantName} nebola pridelená
           služba. Ak je to omyl, ozvi sa vedúcemu.
         </p>
-        <form action={logoutAction} className="mt-6">
-          <button className="inline-flex items-center gap-2 rounded-full border border-black/15 dark:border-white/15 px-5 py-2.5 text-sm font-semibold text-neutral-700 dark:text-white/80 transition-colors hover:bg-black/5 dark:hover:bg-white/5">
-            <LogOut className="h-4 w-4" /> Odhlásiť
-          </button>
-        </form>
+        <LogoutButton className="mt-6 inline-flex items-center gap-2 rounded-full border border-black/15 dark:border-white/15 px-5 py-2.5 text-sm font-semibold text-neutral-700 dark:text-white/80 transition-colors hover:bg-black/5 dark:hover:bg-white/5" />
       </div>
     </main>
   );
