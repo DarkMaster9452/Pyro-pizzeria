@@ -16,7 +16,7 @@ import {
 import { StaffOrderForm } from "@/components/StaffOrderForm";
 import { StaffPasswordBanner } from "@/components/StaffSecurity";
 import { LogoutButton } from "@/components/LogoutButton";
-import { eur, formatAddress } from "@/lib/utils";
+import { eur, formatAddress, driverColor, driverInitials } from "@/lib/utils";
 import {
   Bike,
   Navigation,
@@ -301,9 +301,9 @@ export function DriverApp({
 
             {others.length > 0 && (
               <Section
-                title="Rozvážajú kolegovia"
+                title="Rozvážajú rozvozcovia"
                 count={others.length}
-                hint="Prevzaté iným kuriérom."
+                hint="Prevzaté iným rozvozcom."
               >
                 {others.map((o) => (
                   <OrderCard
@@ -465,6 +465,9 @@ function OrderCard({
   const canAct = isMine && !isAdmin;
   const nav = navUrl(o);
   const addr = formatAddress(o.address) || null;
+  // Stable per-driver colour so every driver reads the same across the admin
+  // and the dispatch board.
+  const dColor = o.driverName ? driverColor(o.driverName) : null;
 
   return (
     <motion.div
@@ -479,6 +482,11 @@ function OrderCard({
           ? "border-brand-primary/50 bg-brand-primary/[0.06]"
           : "border-black/10 dark:border-white/10 bg-white dark:bg-white/[0.02]"
       }`}
+      style={
+        isOther && dColor
+          ? { borderLeftColor: dColor, borderLeftWidth: 4 }
+          : undefined
+      }
     >
       <div className="flex items-start justify-between gap-3">
         <div>
@@ -545,10 +553,22 @@ function OrderCard({
         </p>
       )}
 
-      {isOther && !o.paid && (
-        <p className="mt-3 text-xs text-neutral-500 dark:text-white/40">
-          Prevzal: <span className="text-neutral-700 dark:text-white/70">{o.driverName}</span>
-        </p>
+      {isOther && o.driverName && dColor && (
+        <div className="mt-3 flex items-center gap-2 text-xs text-neutral-500 dark:text-white/40">
+          Prevzal:
+          <span
+            className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 font-semibold"
+            style={{ backgroundColor: `${dColor}26`, color: dColor }}
+          >
+            <span
+              className="flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold text-white"
+              style={{ backgroundColor: dColor }}
+            >
+              {driverInitials(o.driverName)}
+            </span>
+            {o.driverName}
+          </span>
+        </div>
       )}
 
       {/* actions — hidden entirely for admins (view-only) */}
@@ -643,7 +663,23 @@ function OrderCard({
       {o.paid && (
         <p className="mt-3 flex items-center gap-1.5 text-xs font-semibold text-brand-success">
           <CheckCheck className="h-4 w-4" /> Vybavené
-          {o.driverName && ` · ${o.driverName}`}
+          {o.driverName && dColor && (
+            <>
+              <span className="text-neutral-400 dark:text-white/30">·</span>
+              <span
+                className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 font-semibold"
+                style={{ backgroundColor: `${dColor}26`, color: dColor }}
+              >
+                <span
+                  className="flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-bold text-white"
+                  style={{ backgroundColor: dColor }}
+                >
+                  {driverInitials(o.driverName)}
+                </span>
+                {o.driverName}
+              </span>
+            </>
+          )}
         </p>
       )}
     </motion.div>

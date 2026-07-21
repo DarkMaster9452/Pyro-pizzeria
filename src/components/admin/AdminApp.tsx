@@ -5,7 +5,7 @@ import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { RESTAURANTS, CATEGORIES, ALLERGENS } from "@/lib/data";
 import type { DeliveryZone, Product, CategoryId, Badge } from "@/lib/types";
-import { eur, cn, formatAddress, POL_POL_SURCHARGE, WAGE_PER_HOUR } from "@/lib/utils";
+import { eur, cn, formatAddress, POL_POL_SURCHARGE, WAGE_PER_HOUR, driverColor, driverInitials } from "@/lib/utils";
 import { useApp } from "@/lib/store";
 import { BarChart } from "@/components/admin/AdminCharts";
 import { logoutAction } from "@/lib/auth-actions";
@@ -712,29 +712,6 @@ function Dashboard({
 }
 
 // ---------------- KITCHEN DISPLAY (real orders) ----------------
-// First-letter initials of the driver who delivered the order (e.g. "Daniel
-// Pekný" → "DP"), shown as a small avatar in the orders list and detail.
-function driverInitials(name: string): string {
-  return name
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((w) => w[0]?.toUpperCase() ?? "")
-    .join("");
-}
-
-// Give each driver a stable, distinct colour (hashed from their name) so orders
-// are easy to tell apart at a glance.
-const DRIVER_COLORS = [
-  "#E85D04", "#2E7D32", "#1565C0", "#6A1B9A",
-  "#00838F", "#C2185B", "#B8860B", "#4E342E",
-];
-function driverColor(name: string): string {
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
-  return DRIVER_COLORS[h % DRIVER_COLORS.length];
-}
-
 // Clock time an order came in (HH:MM), shown on the kitchen cards.
 function orderTime(iso: string): string {
   return new Date(iso).toLocaleTimeString("sk-SK", {
@@ -1550,7 +1527,24 @@ function OrderDetailModal({
                 <Info label="Zóna" value={detail.zoneName} />
               )}
               {detail.driverName && (
-                <Info label="Doručil" value={detail.driverName} />
+                <div>
+                  <p className="text-xs text-neutral-400">Doručil</p>
+                  <span
+                    className="mt-0.5 inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-sm font-semibold"
+                    style={{
+                      backgroundColor: `${driverColor(detail.driverName)}26`,
+                      color: driverColor(detail.driverName),
+                    }}
+                  >
+                    <span
+                      className="flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold text-white"
+                      style={{ backgroundColor: driverColor(detail.driverName) }}
+                    >
+                      {driverInitials(detail.driverName)}
+                    </span>
+                    {detail.driverName}
+                  </span>
+                </div>
               )}
             </div>
 

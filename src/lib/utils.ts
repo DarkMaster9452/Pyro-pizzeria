@@ -154,3 +154,26 @@ export const POL_POL_LABEL = "Pol/pol pizza";
 
 // Part-timer (brigádnik) hourly wage, paid out daily in the settlement.
 export const WAGE_PER_HOUR = 6;
+
+// First-letter initials of a driver (e.g. "Daniel Pekný" → "DP"), shown as a
+// small avatar next to their name across the admin and dispatch board.
+export function driverInitials(name: string): string {
+  return name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase() ?? "")
+    .join("");
+}
+
+// Give each driver a stable, distinct colour (hashed from their name) so the
+// same person reads the same everywhere in the admin and on the dispatch board.
+const DRIVER_COLORS = [
+  "#E85D04", "#2E7D32", "#1565C0", "#6A1B9A",
+  "#00838F", "#C2185B", "#B8860B", "#4E342E",
+];
+export function driverColor(name: string): string {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return DRIVER_COLORS[h % DRIVER_COLORS.length];
+}

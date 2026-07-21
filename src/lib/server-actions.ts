@@ -3852,9 +3852,7 @@ export async function createStaffOrder(
     const eta = zone ? Math.max(zone.estimatedMinutes, wait) : wait;
 
     const id = await nextOrderId();
-    const note = input.note?.trim()
-      ? `Telefón: ${input.note.trim()}`
-      : "Telefonická objednávka";
+    const note = input.note?.trim() ? input.note.trim() : null;
     // Pol/pol is chosen when the order is taken (only meaningful with a pizza).
     const polpol = !!input.polpol && pizzaCount(lines, pizza) > 0;
     const surcharge = polpol ? POL_POL_SURCHARGE : 0;
