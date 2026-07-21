@@ -107,6 +107,9 @@ import {
   Lock,
   PanelLeftClose,
   PanelLeftOpen,
+  Search,
+  UserCog,
+  UserRound,
 } from "lucide-react";
 
 type Tab =
@@ -4045,6 +4048,13 @@ function Accounts() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<ManagedAccount | null>(null);
+  const [query, setQuery] = useState("");
+  const [typeFilter, setTypeFilter] = useState<"all" | "staff" | "customer">(
+    "all"
+  );
+  const [statusFilter, setStatusFilter] = useState<
+    "all" | "active" | "inactive" | "locked"
+  >("all");
 
   const load = useCallback(async (g: string) => {
     const res = await listAccounts(g);
@@ -4110,6 +4120,20 @@ function Accounts() {
     );
   }
 
+  const isStaff = (a: ManagedAccount) => a.role !== "customer";
+  const staffCount = (accounts ?? []).filter(isStaff).length;
+  const customerCount = (accounts ?? []).length - staffCount;
+  const q = query.trim().toLowerCase();
+  const filtered = (accounts ?? []).filter((a) => {
+    if (typeFilter === "staff" && !isStaff(a)) return false;
+    if (typeFilter === "customer" && isStaff(a)) return false;
+    if (statusFilter === "active" && !a.active) return false;
+    if (statusFilter === "inactive" && a.active) return false;
+    if (statusFilter === "locked" && !a.locked) return false;
+    if (q && !`${a.name} ${a.email}`.toLowerCase().includes(q)) return false;
+    return true;
+  });
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -4118,8 +4142,8 @@ function Accounts() {
             Správa účtov
           </h2>
           <p className="text-xs text-neutral-500">
-            {accounts?.length ?? 0} účtov — meno, email, rola, prevádzka, heslo,
-            deaktivácia.
+            <span className="text-brand-primary">{staffCount} personál</span> ·{" "}
+            <span className="text-sky-500">{customerCount} zákazníkov</span>
           </p>
         </div>
         <button
@@ -4131,55 +4155,142 @@ function Accounts() {
         </button>
       </div>
 
+      {/* hľadanie */}
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Hľadať podľa mena alebo emailu…"
+          className={cn(SELECT_CLS, "pl-9")}
+        />
+      </div>
+
+      {/* filtre */}
+      <div className="flex flex-wrap gap-2">
+        <FilterChip active={typeFilter === "all"} onClick={() => setTypeFilter("all")}>
+          Všetci
+        </FilterChip>
+        <FilterChip active={typeFilter === "staff"} onClick={() => setTypeFilter("staff")}>
+          Personál
+        </FilterChip>
+        <FilterChip
+          active={typeFilter === "customer"}
+          onClick={() => setTypeFilter("customer")}
+        >
+          Zákazníci
+        </FilterChip>
+        <span className="mx-1 self-center text-neutral-300 dark:text-neutral-600">
+          |
+        </span>
+        <FilterChip
+          active={statusFilter === "all"}
+          onClick={() => setStatusFilter("all")}
+        >
+          Všetky stavy
+        </FilterChip>
+        <FilterChip
+          active={statusFilter === "active"}
+          onClick={() => setStatusFilter("active")}
+        >
+          Aktívne
+        </FilterChip>
+        <FilterChip
+          active={statusFilter === "inactive"}
+          onClick={() => setStatusFilter("inactive")}
+        >
+          Deaktivované
+        </FilterChip>
+        <FilterChip
+          active={statusFilter === "locked"}
+          onClick={() => setStatusFilter("locked")}
+        >
+          Zamknuté
+        </FilterChip>
+      </div>
+
       {error && (
         <p className="text-sm font-semibold text-brand-error">{error}</p>
       )}
 
       <div className="space-y-2">
-        {accounts?.map((a) => (
-          <button
-            key={a.id}
-            onClick={() => setEditing(a)}
-            className={cn(
-              CARD,
-              "flex w-full items-center gap-3 p-4 text-left transition-colors hover:ring-brand-primary/40",
-              !a.active && "opacity-60"
-            )}
-          >
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="truncate font-semibold text-neutral-900 dark:text-white">
-                  {a.name || "(bez mena)"}
-                </span>
-                {a.isOwner && (
-                  <span className="rounded-full bg-brand-secondary/15 px-2 py-0.5 text-[10px] font-bold uppercase text-brand-secondary">
-                    Majiteľ
-                  </span>
+        {filtered.length === 0 && (
+          <div className={cn(CARD, "py-10 text-center text-sm text-neutral-500")}>
+            Žiadne účty nevyhovujú filtru.
+          </div>
+        )}
+        {filtered.map((a) => {
+          const staff = isStaff(a);
+          return (
+            <button
+              key={a.id}
+              onClick={() => setEditing(a)}
+              className={cn(
+                CARD,
+                "flex w-full items-center gap-3 border-l-4 p-4 text-left transition-colors hover:ring-brand-primary/40",
+                staff ? "border-l-brand-primary" : "border-l-sky-500",
+                !a.active && "opacity-60"
+              )}
+            >
+              <span
+                className={cn(
+                  "flex h-9 w-9 shrink-0 items-center justify-center rounded-full",
+                  staff
+                    ? "bg-brand-primary/15 text-brand-primary"
+                    : "bg-sky-500/15 text-sky-500"
                 )}
-                {!a.active && (
-                  <span className="rounded-full bg-brand-error/15 px-2 py-0.5 text-[10px] font-bold uppercase text-brand-error">
-                    Deaktivovaný
-                  </span>
+              >
+                {staff ? (
+                  <UserCog className="h-4 w-4" />
+                ) : (
+                  <UserRound className="h-4 w-4" />
                 )}
-                {a.locked && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-600 dark:text-amber-400">
-                    <Lock className="h-3 w-3" /> Zamknutý
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="truncate font-semibold text-neutral-900 dark:text-white">
+                    {a.name || "(bez mena)"}
                   </span>
-                )}
+                  <span
+                    className={cn(
+                      "rounded-full px-2 py-0.5 text-[10px] font-bold uppercase",
+                      staff
+                        ? "bg-brand-primary/15 text-brand-primary"
+                        : "bg-sky-500/15 text-sky-500"
+                    )}
+                  >
+                    {staff ? "Personál" : "Zákazník"}
+                  </span>
+                  {a.isOwner && (
+                    <span className="rounded-full bg-brand-secondary/15 px-2 py-0.5 text-[10px] font-bold uppercase text-brand-secondary">
+                      Majiteľ
+                    </span>
+                  )}
+                  {!a.active && (
+                    <span className="rounded-full bg-brand-error/15 px-2 py-0.5 text-[10px] font-bold uppercase text-brand-error">
+                      Deaktivovaný
+                    </span>
+                  )}
+                  {a.locked && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-600 dark:text-amber-400">
+                      <Lock className="h-3 w-3" /> Zamknutý
+                    </span>
+                  )}
+                </div>
+                <p className="truncate text-xs text-neutral-500">{a.email}</p>
               </div>
-              <p className="truncate text-xs text-neutral-500">{a.email}</p>
-            </div>
-            <div className="shrink-0 text-right text-xs text-neutral-500">
-              <p className="font-semibold text-neutral-700 dark:text-neutral-300">
-                {ROLE_LABELS[a.role] ?? a.role}
-              </p>
-              <p>
-                {RESTAURANTS.find((r) => r.id === a.restaurantId)?.name ?? "—"}
-              </p>
-            </div>
-            <Pencil className="h-4 w-4 shrink-0 text-neutral-400" />
-          </button>
-        ))}
+              <div className="shrink-0 text-right text-xs text-neutral-500">
+                <p className="font-semibold text-neutral-700 dark:text-neutral-300">
+                  {ROLE_LABELS[a.role] ?? a.role}
+                </p>
+                <p>
+                  {RESTAURANTS.find((r) => r.id === a.restaurantId)?.name ?? "—"}
+                </p>
+              </div>
+              <Pencil className="h-4 w-4 shrink-0 text-neutral-400" />
+            </button>
+          );
+        })}
       </div>
 
       {editing && (
