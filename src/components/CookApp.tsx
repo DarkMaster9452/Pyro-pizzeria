@@ -6,10 +6,8 @@ import {
   getKitchenBoard,
   advanceKitchenOrder,
   returnKitchenOrder,
-  setOrderSurcharge,
   type KitchenOrder,
 } from "@/lib/server-actions";
-import { eur, POL_POL_SURCHARGE } from "@/lib/utils";
 import { NoShift } from "@/components/DriverApp";
 import { StaffPasswordBanner } from "@/components/StaffSecurity";
 import { LogoutButton } from "@/components/LogoutButton";
@@ -88,18 +86,6 @@ export function CookApp({
     }
   }
 
-  async function toggleSurcharge(id: string, on: boolean) {
-    setBusyId(id);
-    setError("");
-    try {
-      const res = await setOrderSurcharge(id, on);
-      if (!res.ok) setError(res.error ?? "Akcia zlyhala.");
-      refresh();
-    } finally {
-      setBusyId(null);
-    }
-  }
-
   const nove = orders.filter((o) =>
     ["received", "accepted"].includes(o.status)
   );
@@ -168,7 +154,6 @@ export function CookApp({
                   onAskReturn={() => setConfirmReturn(o.id)}
                   onCancelReturn={() => setConfirmReturn(null)}
                   onConfirmReturn={() => takeBack(o.id)}
-                  onToggleSurcharge={(on) => toggleSurcharge(o.id, on)}
                 />
               ))}
             </Column>
@@ -187,7 +172,6 @@ export function CookApp({
                   onAskReturn={() => setConfirmReturn(o.id)}
                   onCancelReturn={() => setConfirmReturn(null)}
                   onConfirmReturn={() => takeBack(o.id)}
-                  onToggleSurcharge={(on) => toggleSurcharge(o.id, on)}
                 />
               ))}
             </Column>
@@ -206,7 +190,6 @@ export function CookApp({
                   onAskReturn={() => setConfirmReturn(o.id)}
                   onCancelReturn={() => setConfirmReturn(null)}
                   onConfirmReturn={() => takeBack(o.id)}
-                  onToggleSurcharge={(on) => toggleSurcharge(o.id, on)}
                 />
               ))}
             </Column>
@@ -260,7 +243,6 @@ function OrderCard({
   onAskReturn,
   onCancelReturn,
   onConfirmReturn,
-  onToggleSurcharge,
 }: {
   o: KitchenOrder;
   busy: boolean;
@@ -269,12 +251,13 @@ function OrderCard({
   onAskReturn: () => void;
   onCancelReturn: () => void;
   onConfirmReturn: () => void;
-  onToggleSurcharge: (on: boolean) => void;
 }) {
   const isDelivery = o.fulfillment === "delivery";
   const advanceLabel =
     o.status === "preparing" ? "Označiť hotové" : "Začať prípravu";
-  const hasSurcharge = o.surcharge > 0;
+  // Pol/pol comes from the order (customer per-pizza flag or the admin's
+  // pol/pol option) — the cook only sees it, never sets it.
+  const isPolpol = o.surcharge > 0 || o.lines.some((l) => l.polpol);
 
   return (
     <motion.div
@@ -299,6 +282,11 @@ function OrderCard({
                 </>
               )}
             </span>
+            {isPolpol && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-brand-error px-2 py-0.5 text-[11px] font-extrabold uppercase text-white">
+                <Pizza className="h-3 w-3" /> Pol/pol
+              </span>
+            )}
           </div>
           <p className="mt-1 flex items-center gap-1 text-xs text-white/40">
             <Clock className="h-3 w-3" />
@@ -318,7 +306,7 @@ function OrderCard({
           <li key={i}>
             {l.quantity}× {l.name}
             {l.polpol && (
-              <span className="ml-1 font-semibold text-brand-primary">
+              <span className="ml-1 font-bold text-brand-error">
                 · 🍕 pol/pol
               </span>
             )}
@@ -336,34 +324,6 @@ function OrderCard({
           <StickyNote className="mt-0.5 h-4 w-4 shrink-0" />
           <span>{o.note}</span>
         </div>
-      )}
-
-      {/* Custom-request surcharge (half-and-half pizza). Only for unpaid orders
-          that contain a real pizza; stays visible if already applied. */}
-      {(o.pizzaCount > 0 || hasSurcharge) && (
-      <button
-        disabled={busy || o.paid}
-        onClick={() => onToggleSurcharge(!hasSurcharge)}
-        className={`mt-2 inline-flex w-full items-center justify-between gap-2 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors disabled:opacity-50 ${
-          hasSurcharge
-            ? "border-brand-primary/50 bg-brand-primary/15 text-brand-primary"
-            : "border-white/15 text-white/60 hover:bg-white/5"
-        }`}
-      >
-        <span className="flex items-center gap-1.5">
-          <Pizza className="h-4 w-4" /> Pol/pol pizza · príplatok{" "}
-          {eur(POL_POL_SURCHARGE)}
-        </span>
-        <span
-          className={`flex h-5 w-5 items-center justify-center rounded-full border ${
-            hasSurcharge
-              ? "border-brand-primary bg-brand-primary text-white"
-              : "border-white/25"
-          }`}
-        >
-          {hasSurcharge && <Check className="h-3.5 w-3.5" />}
-        </span>
-      </button>
       )}
 
       <div className="mt-3 flex flex-wrap gap-2">

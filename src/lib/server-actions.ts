@@ -3782,6 +3782,7 @@ export interface StaffOrderInput {
   address?: { street: string; houseNumber: string; city: string; zip: string };
   lines: CartLine[];
   note?: string;
+  polpol?: boolean; // half-and-half pizza — set when taking the order, not by the cook
 }
 
 export async function createStaffOrder(
@@ -3854,11 +3855,15 @@ export async function createStaffOrder(
     const note = input.note?.trim()
       ? `Telefón: ${input.note.trim()}`
       : "Telefonická objednávka";
+    // Pol/pol is chosen when the order is taken (only meaningful with a pizza).
+    const polpol = !!input.polpol && pizzaCount(lines, pizza) > 0;
+    const surcharge = polpol ? POL_POL_SURCHARGE : 0;
+    const total = totals.total + surcharge;
     await sql`
       INSERT INTO orders (
         id, restaurant_id, status, fulfillment, customer_name, phone, email,
         address, zone_name, lines, pizza_count, subtotal, delivery_fee,
-        discount, total, payment, note, eta, user_id
+        discount, total, payment, note, eta, user_id, surcharge, surcharge_note
       ) VALUES (
         ${id}, ${input.restaurantId}, 'received', ${input.fulfillment},
         ${name}, ${phone}, ${null},
@@ -3866,9 +3871,9 @@ export async function createStaffOrder(
         ${zone?.name ?? null}, ${JSON.stringify(lines)},
         ${pizzaCount(lines, pizza)},
         ${totals.subtotal}, ${totals.deliveryFee}, ${totals.discount},
-        ${totals.total},
+        ${total},
         ${input.fulfillment === "delivery" ? "Platba pri doručení" : "Platba pri odbere"},
-        ${note}, ${eta}, ${null}
+        ${note}, ${eta}, ${null}, ${surcharge}, ${polpol ? POL_POL_LABEL : null}
       )
     `;
     await audit({
@@ -3877,9 +3882,9 @@ export async function createStaffOrder(
       actorEmail: ctx.email,
       restaurantId: input.restaurantId,
       target: id,
-      meta: { total: totals.total, fulfillment: input.fulfillment, role: ctx.role },
+      meta: { total, fulfillment: input.fulfillment, role: ctx.role, polpol },
     });
-    return { ok: true, id, total: totals.total, eta };
+    return { ok: true, id, total, eta };
   } catch (e) {
     logError("createStaffOrder", e);
     return { ok: false, error: "Objednávku sa nepodarilo uložiť." };
