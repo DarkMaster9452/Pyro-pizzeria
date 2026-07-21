@@ -26,7 +26,6 @@ import {
   Banknote,
   ArrowRight,
   CheckCircle2,
-  Clock,
 } from "lucide-react";
 
 const PAYMENTS = {
@@ -332,53 +331,45 @@ export default function CheckoutPage() {
             </Panel>
           )}
 
-          {/* when */}
+          {/* when — compact segmented control + inline time select */}
           <Panel title="Kedy">
-            <div className="grid grid-cols-2 gap-3">
-              {(
-                [
-                  { id: "asap", label: "Čo najskôr" },
-                  { id: "time", label: "Na konkrétny čas" },
-                ] as const
-              ).map((opt) => (
-                <button
-                  key={opt.id}
-                  onClick={() => setSchedule(opt.id)}
-                  className={cn(
-                    "flex items-center gap-2 rounded-2xl border-2 p-4 text-sm font-semibold transition-all",
-                    schedule === opt.id
-                      ? "border-brand-primary bg-brand-primary/5"
-                      : "border-transparent bg-white dark:bg-[#242424]"
-                  )}
-                >
-                  <Clock className="h-5 w-5 text-brand-primary" />
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-            {schedule === "time" && (
-              <div className="mt-3">
-                <label className="mb-1 block text-xs font-semibold text-neutral-500">
-                  Čas doručenia / odberu *
-                </label>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex rounded-full border border-black/10 p-0.5 dark:border-white/10">
+                {(
+                  [
+                    { id: "asap", label: "Čo najskôr" },
+                    { id: "time", label: "Na čas" },
+                  ] as const
+                ).map((opt) => (
+                  <button
+                    key={opt.id}
+                    onClick={() => setSchedule(opt.id)}
+                    className={cn(
+                      "rounded-full px-3.5 py-1.5 text-sm font-semibold transition-colors",
+                      schedule === opt.id
+                        ? "bg-brand-primary text-white"
+                        : "text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200"
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              {schedule === "time" && (
                 <select
                   value={scheduleTime}
                   onChange={(e) => setScheduleTime(e.target.value)}
-                  className="w-full rounded-xl border border-black/10 bg-white px-3 py-2.5 text-sm outline-none focus:border-brand-primary dark:border-white/10 dark:bg-[#242424]"
+                  className="rounded-full border border-black/10 bg-white px-3 py-1.5 text-sm outline-none focus:border-brand-primary dark:border-white/10 dark:bg-[#242424]"
                 >
-                  <option value="">Vyberte čas…</option>
+                  <option value="">Čas… (16:00–21:30)</option>
                   {ORDER_TIME_SLOTS.map((t) => (
                     <option key={t} value={t}>
                       {t}
                     </option>
                   ))}
                 </select>
-                <p className="mt-1 text-xs text-neutral-400">
-                  Rozvoz aj odber medzi 16:00 a 21:30. Objednávku pripravíme na
-                  zvolený čas.
-                </p>
-              </div>
-            )}
+              )}
+            </div>
           </Panel>
 
           {/* customer */}

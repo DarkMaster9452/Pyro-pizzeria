@@ -63,6 +63,8 @@ export const cartLineSchema = z.object({
   addedIngredients: z.array(z.string().max(60)).max(20),
   removedIngredients: z.array(z.string().max(60)).max(20),
   note: z.string().max(300).optional(),
+  polpol: z.boolean().optional(), // half-and-half pizza — must survive so the
+  // surcharge is applied and the kitchen sees it
 });
 
 export const orderInputSchema = z.object({

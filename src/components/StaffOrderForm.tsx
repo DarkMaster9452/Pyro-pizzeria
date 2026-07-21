@@ -118,12 +118,13 @@ export function StaffOrderForm({
 
   const itemCount = Object.values(qty).reduce((s, n) => s + n, 0);
 
-  // Pol/pol is only offered when a real pizza is in the order, and only on new
-  // orders (the edit flow keeps whatever surcharge the order already has).
+  // Pol/pol option is shown for every new order (the edit flow keeps whatever
+  // surcharge the order already has). The surcharge only actually applies when
+  // a real pizza is in the order.
   const hasPizza = (products ?? []).some(
     (p) => (qty[p.id] ?? 0) > 0 && isRealPizza(p, numberMap[p.id])
   );
-  const showPolpol = !editing && hasPizza;
+  const showPolpol = !editing;
   const wantsPolpol = polpol && hasPizza;
   const grandTotal = total + (wantsPolpol ? POL_POL_SURCHARGE : 0);
 
@@ -394,6 +395,11 @@ export function StaffOrderForm({
               {polpol && <Check className="h-3.5 w-3.5" />}
             </span>
           </button>
+        )}
+        {showPolpol && polpol && !hasPizza && (
+          <p className="-mt-1 text-xs text-neutral-400">
+            Príplatok sa uplatní až keď pridáte pizzu.
+          </p>
         )}
 
         <div className="flex items-center justify-between rounded-xl bg-black/[0.04] px-3 py-2.5 text-sm dark:bg-white/5">
