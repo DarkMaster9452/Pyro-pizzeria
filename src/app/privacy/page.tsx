@@ -12,8 +12,11 @@ export default function PrivacyPage() {
         </h1>
         <div className="mt-6 space-y-6 text-[15px] leading-relaxed text-[#B5B5B5]">
           <Section title="1. Prevádzkovateľ">
-            Prevádzkovateľom osobných údajov sú prevádzky Pyro Pizzeria (Kamenná
-            Poruba) a Polomárik (Stráňavy). Kontakt nájdete na stránke Kontakt.
+            Prevádzkovateľom osobných údajov je <strong>[DOPLNIŤ obchodné meno]</strong>,
+            IČO: <strong>[DOPLNIŤ]</strong>, so sídlom <strong>[DOPLNIŤ]</strong>,
+            prevádzkujúci Pyro Pizzeria (Kamenná Poruba) a Polomárik (Stráňavy).
+            Kontakt na prevádzkovateľa (a prípadnú zodpovednú osobu) nájdete na
+            stránke Kontakt.
           </Section>
           <Section title="2. Aké údaje spracúvame">
             Meno, e-mail, telefón a doručovaciu adresu — výhradne za účelom
