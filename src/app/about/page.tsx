@@ -3,9 +3,9 @@
 import Image from "next/image";
 import { motion } from "framer-motion";
 import { useApp } from "@/lib/store";
-import { RESTAURANTS } from "@/lib/data";
+import { RESTAURANTS, OPERATOR_COMPANY } from "@/lib/data";
 import { Footer } from "@/components/Footer";
-import { Flame, Heart, Leaf, Award } from "lucide-react";
+import { Flame, Heart, Leaf, Award, Building2 } from "lucide-react";
 
 export default function AboutPage() {
   const restaurantId = useApp((s) => s.restaurantId);
@@ -66,6 +66,52 @@ export default function AboutPage() {
               <p className="mt-1 text-sm text-neutral-500">{v.d}</p>
             </div>
           ))}
+        </div>
+      </section>
+
+      {/* prevádzkovateľ — legal identity of the operator */}
+      <section className="section pb-8">
+        <div className="rounded-2xl bg-white p-6 shadow-card dark:bg-[#1e1e1e]">
+          <div className="flex items-center gap-2">
+            <span className="inline-flex rounded-xl bg-brand-primary/10 p-2 text-brand-primary">
+              <Building2 className="h-5 w-5" />
+            </span>
+            <h2 className="font-display text-lg font-extrabold">
+              Prevádzkovateľ
+            </h2>
+          </div>
+          <dl className="mt-4 grid gap-x-8 gap-y-3 text-sm sm:grid-cols-2">
+            <div>
+              <dt className="text-xs text-neutral-400">Obchodné meno</dt>
+              <dd className="font-medium text-neutral-900 dark:text-white">
+                {OPERATOR_COMPANY.name}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-neutral-400">Sídlo</dt>
+              <dd className="font-medium text-neutral-900 dark:text-white">
+                {OPERATOR_COMPANY.address}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-neutral-400">IČO</dt>
+              <dd className="font-medium text-neutral-900 dark:text-white">
+                {OPERATOR_COMPANY.ico}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-neutral-400">DIČ</dt>
+              <dd className="font-medium text-neutral-900 dark:text-white">
+                {OPERATOR_COMPANY.dic}
+              </dd>
+            </div>
+            <div className="sm:col-span-2">
+              <dt className="text-xs text-neutral-400">Zápis v registri</dt>
+              <dd className="font-medium text-neutral-900 dark:text-white">
+                {OPERATOR_COMPANY.registry}
+              </dd>
+            </div>
+          </dl>
         </div>
       </section>
 
