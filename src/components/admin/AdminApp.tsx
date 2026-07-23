@@ -19,6 +19,7 @@ import {
   getOrderDetail,
   setSoldOut as setSoldOutServer,
   markOrderUnpaid,
+  adminCancelOrder,
   getEditableOrder,
   adminUpdateOrder,
   type EditableOrder,
@@ -115,6 +116,8 @@ import {
   BatteryLow,
   BatteryWarning,
   BatteryCharging,
+  Loader2,
+  Ban,
 } from "lucide-react";
 
 type Tab =
@@ -1344,6 +1347,16 @@ function FilterChip({
   );
 }
 
+// Centered loading spinner — used wherever a panel is still fetching.
+function Spinner({ label = "Načítavam…" }: { label?: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-3 py-16 text-neutral-500">
+      <Loader2 className="h-8 w-8 animate-spin text-brand-primary" />
+      <p className="text-sm">{label}</p>
+    </div>
+  );
+}
+
 function Orders({
   restaurantId,
   onOpen,
@@ -1403,6 +1416,11 @@ function Orders({
         ))}
       </div>
 
+      {rows === null ? (
+        <div className="rounded-2xl bg-white ring-1 ring-black/10 shadow-sm dark:bg-[#1a1a1a] dark:ring-white/5">
+          <Spinner />
+        </div>
+      ) : (
       <div className="overflow-x-auto rounded-2xl bg-white ring-1 ring-black/10 shadow-sm dark:bg-[#1a1a1a] dark:ring-white/5">
         <table className="w-full text-left text-sm">
           <thead className="border-b border-black/[0.08] text-neutral-500 dark:border-white/5">
@@ -1500,6 +1518,7 @@ function Orders({
           </tbody>
         </table>
       </div>
+      )}
     </div>
   );
 }
@@ -1554,6 +1573,26 @@ function OrderDetailModal({
     }
   }
 
+  // Cancel the whole order — a two-step confirmation guards against misclicks.
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelErr, setCancelErr] = useState("");
+  const [cancelBusy, setCancelBusy] = useState(false);
+  async function doCancel() {
+    setCancelBusy(true);
+    setCancelErr("");
+    try {
+      const res = await adminCancelOrder(restaurantId, id);
+      if (!res.ok) {
+        setCancelErr(res.error ?? "Zrušenie zlyhalo.");
+        return;
+      }
+      setCancelOpen(false);
+      await reload();
+    } finally {
+      setCancelBusy(false);
+    }
+  }
+
   // Admin edit — loads the order into the staff order form.
   const [editData, setEditData] = useState<EditableOrder | null>(null);
   const [editLoading, setEditLoading] = useState(false);
@@ -1594,9 +1633,7 @@ function OrderDetailModal({
         </div>
 
         {loading ? (
-          <p className="py-12 text-center text-sm text-neutral-500">
-            Načítavam…
-          </p>
+          <Spinner />
         ) : !detail ? (
           <p className="py-12 text-center text-sm text-neutral-500">
             Objednávka sa nenašla.
@@ -1727,7 +1764,53 @@ function OrderDetailModal({
                   <AlertTriangle className="h-4 w-4" /> Označiť ako nezaplatenú
                 </button>
               )}
+              {detail.status !== "cancelled" &&
+                detail.status !== "delivered" &&
+                !cancelOpen && (
+                  <button
+                    disabled={cancelBusy}
+                    onClick={() => setCancelOpen(true)}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-brand-error/50 px-4 py-2 text-sm font-bold text-brand-error hover:bg-brand-error/10 disabled:opacity-50"
+                  >
+                    <Ban className="h-4 w-4" /> Zrušiť objednávku
+                  </button>
+                )}
             </div>
+            {cancelOpen && (
+              <div className="rounded-2xl border border-brand-error/40 bg-brand-error/5 p-4">
+                <p className="mb-3 flex items-start gap-2 text-sm font-semibold text-brand-error">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  Naozaj zrušiť objednávku #{id}? Túto akciu nie je možné vrátiť.
+                </p>
+                {cancelErr && (
+                  <p className="mb-2 text-xs text-brand-error">{cancelErr}</p>
+                )}
+                <div className="flex gap-2">
+                  <button
+                    disabled={cancelBusy}
+                    onClick={() => {
+                      setCancelOpen(false);
+                      setCancelErr("");
+                    }}
+                    className="flex-1 rounded-full border border-black/10 py-2 text-sm font-semibold disabled:opacity-50 dark:border-white/15"
+                  >
+                    Späť
+                  </button>
+                  <button
+                    disabled={cancelBusy}
+                    onClick={doCancel}
+                    className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-full bg-brand-error py-2 text-sm font-bold text-white disabled:opacity-40"
+                  >
+                    {cancelBusy ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Ban className="h-4 w-4" />
+                    )}
+                    Áno, zrušiť
+                  </button>
+                </div>
+              </div>
+            )}
             {unpaidOpen && (
               <div className="rounded-2xl border border-brand-error/40 bg-brand-error/5 p-4">
                 <p className="mb-2 text-sm font-semibold text-brand-error">
@@ -3417,8 +3500,7 @@ function Products({ restaurantId }: { restaurantId: string }) {
     load();
   }
 
-  if (!items)
-    return <p className="text-sm text-neutral-500">Načítavam produkty…</p>;
+  if (!items) return <Spinner label="Načítavam produkty…" />;
 
   return (
     <div className="space-y-4">
