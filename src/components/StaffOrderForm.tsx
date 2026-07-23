@@ -7,7 +7,7 @@ import {
   updateStaffOrder,
   type StaffOrderInput,
 } from "@/lib/server-actions";
-import { CATEGORIES } from "@/lib/data";
+import { CATEGORIES, extrasForProduct } from "@/lib/data";
 import {
   eur,
   cn,
@@ -35,6 +35,7 @@ import {
   Phone,
   Check,
   Loader2,
+  ChevronDown,
 } from "lucide-react";
 
 // Phone-order entry used by both the admin panel and the driver board.
@@ -69,6 +70,10 @@ export function StaffOrderForm({
     return m;
   });
   const [q, setQ] = useState("");
+  // Per-product toppings (prílohy). Keyed by product id — the extras apply to
+  // that product's line only. Which product's topping panel is expanded.
+  const [extras, setExtras] = useState<Record<string, string[]>>({});
+  const [openExtras, setOpenExtras] = useState<string | null>(null);
   const [fulfillment, setFulfillment] = useState<"delivery" | "pickup">(
     initial?.fulfillment ?? "pickup"
   );
@@ -111,10 +116,22 @@ export function StaffOrderForm({
   }, [products, q, numberMap]);
 
   const priceOf = (p: Product) => p.basePrice + (p.sizes[0]?.priceDelta ?? 0);
+  // Sum of the extras selected for a given product.
+  const extrasPriceOf = (p: Product) => {
+    const sel = extras[p.id] ?? [];
+    if (sel.length === 0) return 0;
+    const list = extrasForProduct(p) ?? [];
+    return sel.reduce(
+      (s, name) => s + (list.find((i) => i.name === name)?.price ?? 0),
+      0
+    );
+  };
+  const unitPriceOf = (p: Product) => priceOf(p) + extrasPriceOf(p);
   const total = useMemo(() => {
     const list = products ?? [];
-    return list.reduce((s, p) => s + priceOf(p) * (qty[p.id] ?? 0), 0);
-  }, [products, qty]);
+    return list.reduce((s, p) => s + unitPriceOf(p) * (qty[p.id] ?? 0), 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [products, qty, extras]);
 
   const itemCount = Object.values(qty).reduce((s, n) => s + n, 0);
 
@@ -138,6 +155,22 @@ export function StaffOrderForm({
     });
   }
 
+  // Toggle a topping for a product. Selecting one also makes sure at least one
+  // of that pizza is in the order (you can't have a topping on nothing).
+  function toggleExtra(id: string, name: string) {
+    setExtras((m) => {
+      const cur = m[id] ?? [];
+      const next = cur.includes(name)
+        ? cur.filter((x) => x !== name)
+        : [...cur, name];
+      const copy = { ...m };
+      if (next.length === 0) delete copy[id];
+      else copy[id] = next;
+      return copy;
+    });
+    setQty((m) => (m[id] ? m : { ...m, [id]: 1 }));
+  }
+
   async function submit() {
     if (submitting) return;
     setError("");
@@ -152,11 +185,11 @@ export function StaffOrderForm({
         image: p.image,
         sizeId: p.sizes[0]?.id ?? "",
         sizeLabel: p.sizes[0]?.label ?? "",
-        unitPrice: priceOf(p), // server re-prices authoritatively
+        unitPrice: unitPriceOf(p), // server re-prices authoritatively
         quantity: qty[p.id] ?? 1,
         extraCheese: false,
         stuffedCrust: false,
-        addedIngredients: [],
+        addedIngredients: extras[p.id] ?? [],
         removedIngredients: [],
       }));
 
@@ -189,6 +222,8 @@ export function StaffOrderForm({
     }
     setOkId(res.id ?? null);
     setQty({});
+    setExtras({});
+    setOpenExtras(null);
     setName("");
     setPhone("");
     setAddress("");
@@ -251,54 +286,117 @@ export function StaffOrderForm({
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
                     {items.map((p) => {
                       const n = qty[p.id] ?? 0;
+                      const pExtras = extrasForProduct(p); // null = no toppings
+                      const selected = extras[p.id] ?? [];
+                      const isOpen = openExtras === p.id;
                       return (
                         <div
                           key={p.id}
                           className={cn(
-                            "flex min-h-[60px] items-center gap-2 overflow-hidden rounded-xl border px-2.5 py-2 transition-colors",
+                            "overflow-hidden rounded-xl border transition-colors",
                             n > 0
                               ? "border-brand-primary bg-brand-primary/10"
                               : "border-black/10 dark:border-white/10"
                           )}
                         >
-                          <div className="min-w-0 flex-1">
-                            <p className="line-clamp-2 text-sm font-medium leading-tight text-neutral-900 dark:text-white">
-                              {numberMap[p.id] != null && (
-                                <span className="text-brand-primary">
-                                  {numberMap[p.id]}.{" "}
-                                </span>
-                              )}
-                              {p.name}
-                            </p>
-                            <p className="text-xs text-neutral-500">
-                              {eur(priceOf(p))}
-                            </p>
-                          </div>
-                          <div className="flex shrink-0 items-center gap-1.5">
-                            {n > 0 && (
-                              <>
-                                <button
-                                  type="button"
-                                  aria-label="Odobrať"
-                                  onClick={() => bump(p.id, -1)}
-                                  className="flex h-10 w-10 items-center justify-center rounded-full bg-black/10 text-neutral-800 transition-colors hover:bg-black/20 active:scale-95 dark:bg-white/15 dark:text-white"
-                                >
-                                  <Minus className="h-5 w-5" />
-                                </button>
-                                <span className="w-6 text-center text-base font-bold tabular-nums text-neutral-900 dark:text-white">
-                                  {n}
-                                </span>
-                              </>
-                            )}
+                          <div className="flex min-h-[60px] items-center gap-2 px-2.5 py-2">
+                            {/* Tapping the body adds one — or, for pizzas/langoše,
+                                opens the toppings (prílohy) for that item. */}
                             <button
                               type="button"
-                              aria-label="Pridať"
-                              onClick={() => bump(p.id, 1)}
-                              className="flex h-10 w-10 items-center justify-center rounded-full bg-brand-primary text-white transition-colors hover:brightness-110 active:scale-95"
+                              onClick={() =>
+                                pExtras
+                                  ? setOpenExtras((cur) =>
+                                      cur === p.id ? null : p.id
+                                    )
+                                  : bump(p.id, 1)
+                              }
+                              className="min-w-0 flex-1 text-left"
                             >
-                              <Plus className="h-5 w-5" />
+                              <p className="line-clamp-2 text-sm font-medium leading-tight text-neutral-900 dark:text-white">
+                                {numberMap[p.id] != null && (
+                                  <span className="text-brand-primary">
+                                    {numberMap[p.id]}.{" "}
+                                  </span>
+                                )}
+                                {p.name}
+                              </p>
+                              <p className="flex items-center gap-1 text-xs text-neutral-500">
+                                {eur(priceOf(p))}
+                                {pExtras && (
+                                  <span className="inline-flex items-center gap-0.5 font-semibold text-brand-primary">
+                                    · Prílohy
+                                    <ChevronDown
+                                      className={cn(
+                                        "h-3 w-3 transition-transform",
+                                        isOpen && "rotate-180"
+                                      )}
+                                    />
+                                  </span>
+                                )}
+                              </p>
+                              {selected.length > 0 && (
+                                <p className="mt-0.5 line-clamp-2 text-xs font-medium text-brand-primary">
+                                  + {selected.join(", ")}
+                                </p>
+                              )}
                             </button>
+                            <div className="flex shrink-0 items-center gap-1.5">
+                              {n > 0 && (
+                                <>
+                                  <button
+                                    type="button"
+                                    aria-label="Odobrať"
+                                    onClick={() => bump(p.id, -1)}
+                                    className="flex h-10 w-10 items-center justify-center rounded-full bg-black/10 text-neutral-800 transition-colors hover:bg-black/20 active:scale-95 dark:bg-white/15 dark:text-white"
+                                  >
+                                    <Minus className="h-5 w-5" />
+                                  </button>
+                                  <span className="w-6 text-center text-base font-bold tabular-nums text-neutral-900 dark:text-white">
+                                    {n}
+                                  </span>
+                                </>
+                              )}
+                              <button
+                                type="button"
+                                aria-label="Pridať"
+                                onClick={() => bump(p.id, 1)}
+                                className="flex h-10 w-10 items-center justify-center rounded-full bg-brand-primary text-white transition-colors hover:brightness-110 active:scale-95"
+                              >
+                                <Plus className="h-5 w-5" />
+                              </button>
+                            </div>
                           </div>
+
+                          {/* toppings panel — assigned to this item only */}
+                          {isOpen && pExtras && (
+                            <div className="border-t border-black/10 bg-black/[0.02] px-2.5 py-2.5 dark:border-white/10 dark:bg-white/[0.03]">
+                              <div className="flex flex-wrap gap-1.5">
+                                {pExtras.map((ing) => {
+                                  const on = selected.includes(ing.name);
+                                  return (
+                                    <button
+                                      key={ing.name}
+                                      type="button"
+                                      onClick={() => toggleExtra(p.id, ing.name)}
+                                      className={cn(
+                                        "inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+                                        on
+                                          ? "border-brand-primary bg-brand-primary/10 text-brand-primary"
+                                          : "border-black/10 bg-white text-neutral-600 hover:bg-black/[0.03] dark:border-white/10 dark:bg-[#262626] dark:text-neutral-300"
+                                      )}
+                                    >
+                                      {on && <Check className="h-3 w-3" />}
+                                      {ing.name}
+                                      <span className="text-neutral-400">
+                                        +{eur(ing.price)}
+                                      </span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       );
                     })}
