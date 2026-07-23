@@ -572,9 +572,13 @@ function OrderCard({
       )}
 
       {/* actions — hidden entirely for admins (view-only) */}
-      {!o.paid && !isAdmin && (
+      {!isAdmin && (
         <div className="mt-3 flex flex-wrap gap-2">
-          {nav && canAct && (
+          {/* Navigate + call stay available for every order a courier can see:
+              orders still being prepared, ones taken by another driver, and
+              even paid orders while they linger on the board. Editing and the
+              dispatch actions below remain restricted to the assigned courier. */}
+          {nav && (
             <a
               href={nav}
               target="_blank"
@@ -584,78 +588,81 @@ function OrderCard({
               <Navigation className="h-4 w-4 text-brand-primary" /> Navigovať
             </a>
           )}
-          {canAct && (
-            <a
-              href={telUrl(o.phone)}
-              className="inline-flex items-center gap-1.5 rounded-full bg-black/10 dark:bg-white/10 px-3 py-2 text-xs font-semibold text-neutral-800 transition-colors dark:text-white hover:bg-black/15 dark:hover:bg-white/15"
-            >
-              <Phone className="h-4 w-4 text-brand-success" /> Zavolať
-            </a>
-          )}
+          <a
+            href={telUrl(o.phone)}
+            className="inline-flex items-center gap-1.5 rounded-full bg-black/10 dark:bg-white/10 px-3 py-2 text-xs font-semibold text-neutral-800 transition-colors dark:text-white hover:bg-black/15 dark:hover:bg-white/15"
+          >
+            <Phone className="h-4 w-4 text-brand-success" /> Zavolať
+          </a>
 
-          {!o.driverId && !isAdmin && (
-            <button
-              disabled={busy}
-              onClick={() => onClaim(o.id)}
-              className="inline-flex items-center gap-1.5 rounded-full bg-brand-primary px-3 py-2 text-xs font-bold text-white transition-colors hover:brightness-110 disabled:opacity-50"
-            >
-              <Hand className="h-4 w-4" /> Prevziať
-            </button>
-          )}
-
-          {canAct && isDelivery && o.status === "ready" && (
-            <button
-              disabled={busy}
-              onClick={() => {
-                // Open navigation right away (must be sync for popup rules),
-                // then flip the order to "delivering". The Navigovať link stays
-                // available while on the road too.
-                if (nav) window.open(nav, "_blank", "noopener");
-                onDelivering(o.id);
-              }}
-              className="inline-flex items-center gap-1.5 rounded-full bg-brand-accent px-3 py-2 text-xs font-bold text-black transition-colors hover:brightness-110 disabled:opacity-50"
-            >
-              <Truck className="h-4 w-4" /> Na ceste
-            </button>
-          )}
-
-          {canAct && (
+          {/* dispatch management — only while the order is still open */}
+          {!o.paid && (
             <>
-              <button
-                disabled={busy}
-                onClick={() => onPaid(o.id, false)}
-                className="inline-flex items-center gap-1.5 rounded-full bg-brand-success px-3 py-2 text-xs font-bold text-white transition-colors hover:brightness-110 disabled:opacity-50"
-              >
-                <Check className="h-4 w-4" /> Hotovosť
-              </button>
-              <button
-                disabled={busy}
-                onClick={() => onPaid(o.id, true)}
-                className="inline-flex items-center gap-1.5 rounded-full bg-brand-primary px-3 py-2 text-xs font-bold text-white transition-colors hover:brightness-110 disabled:opacity-50"
-              >
-                <CreditCard className="h-4 w-4" /> Karta
-              </button>
+              {!o.driverId && (
+                <button
+                  disabled={busy}
+                  onClick={() => onClaim(o.id)}
+                  className="inline-flex items-center gap-1.5 rounded-full bg-brand-primary px-3 py-2 text-xs font-bold text-white transition-colors hover:brightness-110 disabled:opacity-50"
+                >
+                  <Hand className="h-4 w-4" /> Prevziať
+                </button>
+              )}
+
+              {canAct && isDelivery && o.status === "ready" && (
+                <button
+                  disabled={busy}
+                  onClick={() => {
+                    // Open navigation right away (must be sync for popup rules),
+                    // then flip the order to "delivering". The Navigovať link stays
+                    // available while on the road too.
+                    if (nav) window.open(nav, "_blank", "noopener");
+                    onDelivering(o.id);
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-full bg-brand-accent px-3 py-2 text-xs font-bold text-black transition-colors hover:brightness-110 disabled:opacity-50"
+                >
+                  <Truck className="h-4 w-4" /> Na ceste
+                </button>
+              )}
+
+              {canAct && (
+                <>
+                  <button
+                    disabled={busy}
+                    onClick={() => onPaid(o.id, false)}
+                    className="inline-flex items-center gap-1.5 rounded-full bg-brand-success px-3 py-2 text-xs font-bold text-white transition-colors hover:brightness-110 disabled:opacity-50"
+                  >
+                    <Check className="h-4 w-4" /> Hotovosť
+                  </button>
+                  <button
+                    disabled={busy}
+                    onClick={() => onPaid(o.id, true)}
+                    className="inline-flex items-center gap-1.5 rounded-full bg-brand-primary px-3 py-2 text-xs font-bold text-white transition-colors hover:brightness-110 disabled:opacity-50"
+                  >
+                    <CreditCard className="h-4 w-4" /> Karta
+                  </button>
+                </>
+              )}
+
+              {canAct && o.driverId && (
+                <button
+                  disabled={busy}
+                  onClick={() => onRelease(o.id)}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-black/15 dark:border-white/15 px-3 py-2 text-xs font-semibold text-neutral-600 dark:text-white/60 transition-colors hover:bg-black/5 dark:hover:bg-white/5 disabled:opacity-50"
+                >
+                  <RotateCcw className="h-4 w-4" /> Uvoľniť
+                </button>
+              )}
+
+              {canAct && (
+                <button
+                  disabled={editBusy}
+                  onClick={() => onEdit(o.id)}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-black/15 dark:border-white/15 px-3 py-2 text-xs font-semibold text-neutral-700 dark:text-white/80 transition-colors hover:bg-black/5 dark:hover:bg-white/5 disabled:opacity-50"
+                >
+                  <Pencil className="h-4 w-4" /> Upraviť
+                </button>
+              )}
             </>
-          )}
-
-          {canAct && o.driverId && (
-            <button
-              disabled={busy}
-              onClick={() => onRelease(o.id)}
-              className="inline-flex items-center gap-1.5 rounded-full border border-black/15 dark:border-white/15 px-3 py-2 text-xs font-semibold text-neutral-600 dark:text-white/60 transition-colors hover:bg-black/5 dark:hover:bg-white/5 disabled:opacity-50"
-            >
-              <RotateCcw className="h-4 w-4" /> Uvoľniť
-            </button>
-          )}
-
-          {canAct && (
-            <button
-              disabled={editBusy}
-              onClick={() => onEdit(o.id)}
-              className="inline-flex items-center gap-1.5 rounded-full border border-black/15 dark:border-white/15 px-3 py-2 text-xs font-semibold text-neutral-700 dark:text-white/80 transition-colors hover:bg-black/5 dark:hover:bg-white/5 disabled:opacity-50"
-            >
-              <Pencil className="h-4 w-4" /> Upraviť
-            </button>
           )}
         </div>
       )}

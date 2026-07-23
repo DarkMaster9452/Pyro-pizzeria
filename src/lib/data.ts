@@ -17,6 +17,16 @@ export const OPERATOR_CONTACT = {
   phone: "0904 917 880",
 } as const;
 
+// Legal identity of the operator running the pizzerias. Public — shown on the
+// About page and in the footer. Source: Obchodný register SR / FinStat.
+export const OPERATOR_COMPANY = {
+  name: "LAJ, s.r.o.",
+  ico: "52 006 042",
+  dic: "2120860819",
+  address: "Stráňavy 439, 013 25 Stráňavy",
+  registry: "Okresný súd Žilina, oddiel Sro, vložka č. 71039/L",
+} as const;
+
 export const CATEGORIES: Category[] = [
   { id: "pizza", name: "Pizza", icon: "🍕" },
   { id: "burgers", name: "Burgery", icon: "🍔" },

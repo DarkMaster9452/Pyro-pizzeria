@@ -1487,6 +1487,46 @@ export async function markOrderUnpaid(
   return { ok: true };
 }
 
+// Admin cancellation — unlike the customer-facing cancelOrder (token-gated,
+// only for still-cancelable unpaid orders), an admin can cancel an order in
+// any state that isn't already finished. Cancelling doesn't delete it: the
+// row stays for the record with status "cancelled".
+export async function adminCancelOrder(
+  restaurantId: string,
+  id: string
+): Promise<{ ok: boolean; error?: string }> {
+  const session = await requireAdmin(restaurantId);
+  await ensureOrderColumns();
+  if (!id) return { ok: false, error: "Neznáma objednávka." };
+  const rows = (await sql`
+    SELECT status FROM orders
+    WHERE id = ${id} AND restaurant_id = ${restaurantId}
+    LIMIT 1
+  `) as { status: string }[];
+  const o = rows[0];
+  if (!o) return { ok: false, error: "Objednávka neexistuje." };
+  if (o.status === "cancelled") return { ok: true };
+  if (o.status === "delivered")
+    return { ok: false, error: "Doručenú objednávku nie je možné zrušiť." };
+  const updated = (await sql`
+    UPDATE orders SET status = 'cancelled'
+    WHERE id = ${id} AND restaurant_id = ${restaurantId}
+      AND status <> 'cancelled'
+    RETURNING id
+  `) as { id: string }[];
+  if (!updated.length)
+    return { ok: false, error: "Objednávku sa nepodarilo zrušiť." };
+  await audit({
+    action: "order.cancelled_by_admin",
+    actorId: session.user.id,
+    actorEmail: session.user.email,
+    restaurantId,
+    target: id,
+    meta: { previousStatus: o.status },
+  });
+  return { ok: true };
+}
+
 export async function setSoldOut(restaurantId: string, value: boolean) {
   const session = await requireAdmin(restaurantId);
   await ensureOrderColumns();
