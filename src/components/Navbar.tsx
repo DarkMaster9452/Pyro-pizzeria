@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useApp } from "@/lib/store";
 import { RESTAURANTS } from "@/lib/data";
 import { subtotal } from "@/lib/pricing";
@@ -14,7 +14,7 @@ import {
   Menu as MenuIcon,
   X,
 } from "lucide-react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useAnimationControls } from "framer-motion";
 import type { Restaurant } from "@/lib/types";
 
 const LINKS = [
@@ -65,10 +65,28 @@ export function Navbar() {
   const clearRestaurant = useApp((s) => s.clearRestaurant);
   const cart = useApp((s) => s.cart);
   const setCartOpen = useApp((s) => s.setCartOpen);
+  const cartPulse = useApp((s) => s.cartPulse);
   const dbOpen = useApp((s) => s.dbOpen);
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
+
+  const count = cart.reduce((s, l) => s + l.quantity, 0);
+
+  // Gentle "item landed" bounce on the cart button whenever a line is added.
+  // (The count badge pops on its own via key={count} below.)
+  const cartControls = useAnimationControls();
+  const firstPulse = useRef(true);
+  useEffect(() => {
+    if (firstPulse.current) {
+      firstPulse.current = false;
+      return;
+    }
+    cartControls.start({
+      scale: [1, 1.14, 0.97, 1],
+      transition: { duration: 0.45, ease: "easeInOut" },
+    });
+  }, [cartPulse, cartControls]);
 
   useEffect(() => setMounted(true), []);
   useEffect(() => {
@@ -128,16 +146,31 @@ export function Navbar() {
             <User className="h-4 w-4" />
             Účet
           </Link>
-          <button
+          <motion.button
+            animate={cartControls}
             onClick={() => setCartOpen(true)}
-            className="flex h-11 items-center gap-2 rounded-full bg-brand-primary px-5 text-[15px] font-bold text-white shadow-glow transition-colors hover:bg-brand-primaryHover"
+            className="relative flex h-11 items-center gap-2 rounded-full bg-brand-primary px-5 text-[15px] font-bold text-white shadow-glow transition-colors hover:bg-brand-primaryHover"
             aria-label="Košík"
           >
             <ShoppingBag className="h-[18px] w-[18px]" />
             <span className="tabular-nums">
               {mounted ? eur(total) : "0,00 €"}
             </span>
-          </button>
+            <AnimatePresence mode="popLayout">
+              {mounted && count > 0 && (
+                <motion.span
+                  key={count}
+                  initial={{ scale: 0.3, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  exit={{ scale: 0.3, opacity: 0 }}
+                  transition={{ type: "spring", stiffness: 500, damping: 18 }}
+                  className="absolute -right-1.5 -top-1.5 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-white px-1 text-[11px] font-extrabold tabular-nums text-brand-primary shadow-md ring-2 ring-brand-ink"
+                >
+                  {count}
+                </motion.span>
+              )}
+            </AnimatePresence>
+          </motion.button>
           <button
             onClick={() => setMobileOpen((v) => !v)}
             className="flex h-11 w-11 items-center justify-center rounded-full border border-white/[0.1] bg-white/[0.04] text-white lg:hidden"

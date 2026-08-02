@@ -40,6 +40,9 @@ interface AppState {
   cart: CartLine[];
   cartOpen: boolean;
   setCartOpen: (v: boolean) => void;
+  // Bumped on every addLine so the cart button can play a short attention
+  // animation ("the item landed in the cart") without opening the drawer.
+  cartPulse: number;
   addLine: (line: CartLine) => void;
   updateQty: (lineId: string, qty: number) => void;
   removeLine: (lineId: string) => void;
@@ -94,8 +97,11 @@ export const useApp = create<AppState>()(
       cart: [],
       cartOpen: false,
       setCartOpen: (v) => set({ cartOpen: v }),
+      cartPulse: 0,
+      // Add the line and nudge the cart button instead of forcing the whole
+      // drawer open — a lighter, friendlier cue that the item was added.
       addLine: (line) =>
-        set((s) => ({ cart: [...s.cart, line], cartOpen: true })),
+        set((s) => ({ cart: [...s.cart, line], cartPulse: s.cartPulse + 1 })),
       updateQty: (lineId, qty) =>
         set((s) => ({
           cart: s.cart
