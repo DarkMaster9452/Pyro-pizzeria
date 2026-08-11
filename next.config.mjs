@@ -1,26 +1,8 @@
-const isProd = process.env.NODE_ENV === "production";
-
-// Content-Security-Policy. Next.js injects a small inline bootstrap script and
-// Framer Motion sets inline styles, so 'unsafe-inline' is required unless a
-// nonce middleware is added (see SECURITY.md for the nonce upgrade path).
-const csp = [
-  "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'" + (isProd ? "" : " 'unsafe-eval'"),
-  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-  "font-src 'self' https://fonts.gstatic.com",
-  "img-src 'self' data: blob: https://images.unsplash.com https://plus.unsplash.com https://*.basemaps.cartocdn.com",
-  "connect-src 'self' https://*.basemaps.cartocdn.com",
-  "worker-src 'self' blob:",
-  "frame-src 'self' https://www.openstreetmap.org",
-  "object-src 'none'",
-  "base-uri 'self'",
-  "form-action 'self'",
-  "frame-ancestors 'none'",
-  "upgrade-insecure-requests",
-].join("; ");
-
+// Content-Security-Policy is NOT set here — it is emitted per request by
+// src/middleware.ts, which mints a fresh nonce for each response. Setting it in
+// both places would send two CSP headers, and the browser enforces the
+// intersection, so the nonce policy would be silently narrowed.
 const securityHeaders = [
-  { key: "Content-Security-Policy", value: csp },
   {
     key: "Strict-Transport-Security",
     value: "max-age=63072000; includeSubDomains; preload",
