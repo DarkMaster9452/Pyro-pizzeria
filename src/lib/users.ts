@@ -1,7 +1,7 @@
 import "server-only";
 import { hash as argonHash, verify as argonVerify } from "@node-rs/argon2";
 import { sql } from "./db";
-import { logError } from "./log";
+import { logError, logWarn } from "./log";
 
 export interface DbUser {
   id: string;
@@ -48,9 +48,27 @@ interface SeedStaff {
   restaurantId: string | null;
 }
 
-// Shared bootstrap password for every staff account. The owner changes each
-// account's password individually after the first login.
-const BOOTSTRAP_PASSWORD = "martin";
+// Shared bootstrap password for every staff account, used once at creation.
+// The owner changes each account's password individually after first login.
+//
+// Set STAFF_BOOTSTRAP_PASSWORD to override it. The literal below is a weak
+// placeholder and is public in the repository, which is why seeding is refused
+// in production unless the deployment opts in — see shouldSeedStaff().
+export const BOOTSTRAP_PASSWORD =
+  process.env.STAFF_BOOTSTRAP_PASSWORD || "martin";
+
+// Whether new staff accounts may be created on this deployment.
+//
+// Outside production: always, so a fresh clone can be logged into immediately.
+// In production: only with an explicit opt-in, because creating accounts whose
+// password is published in the source would hand anyone the admin panel.
+// Accounts that already exist are never touched either way, so turning this off
+// cannot lock an existing deployment out.
+function shouldSeedStaff(): boolean {
+  if (process.env.NODE_ENV !== "production") return true;
+  if (process.env.SEED_DEMO_STAFF === "true") return true;
+  return Boolean(process.env.STAFF_BOOTSTRAP_PASSWORD);
+}
 
 export const STAFF_SEED: SeedStaff[] = [
   // Admin accounts are purely administrative — no personal identity/name is
@@ -91,18 +109,28 @@ export async function ensureStaffAccounts(): Promise<void> {
     // bootstrap password; an existing account is never touched, so a password
     // the owner changed later stays changed. The owner is expected to rotate
     // each account's password individually after go-live.
-    for (const s of STAFF_SEED) {
-      const e = s.email.toLowerCase();
-      const existing = (await sql`
-        SELECT 1 FROM users WHERE email = ${e} LIMIT 1
-      `) as unknown[];
-      if (existing.length) continue; // never overwrite an existing account
-      const pwHash = await hashPassword(s.password);
-      await sql`
-        INSERT INTO users (email, name, password_hash, role, restaurant_id, consent_at)
-        VALUES (${e}, ${s.name}, ${pwHash}, ${s.role}, ${s.restaurantId}, now())
-        ON CONFLICT (email) DO NOTHING
-      `;
+    //
+    // The schema fixes above always run — only account creation is gated, so a
+    // production deployment never gains an account with a published password.
+    if (shouldSeedStaff()) {
+      for (const s of STAFF_SEED) {
+        const e = s.email.toLowerCase();
+        const existing = (await sql`
+          SELECT 1 FROM users WHERE email = ${e} LIMIT 1
+        `) as unknown[];
+        if (existing.length) continue; // never overwrite an existing account
+        const pwHash = await hashPassword(s.password);
+        await sql`
+          INSERT INTO users (email, name, password_hash, role, restaurant_id, consent_at)
+          VALUES (${e}, ${s.name}, ${pwHash}, ${s.role}, ${s.restaurantId}, now())
+          ON CONFLICT (email) DO NOTHING
+        `;
+      }
+    } else {
+      logWarn(
+        "ensureStaffAccounts",
+        "staff seeding skipped in production — set STAFF_BOOTSTRAP_PASSWORD (or SEED_DEMO_STAFF=true) to bootstrap new staff accounts"
+      );
     }
     // Strip any personal identity/profile previously stored on admin accounts.
     // Admins are purely administrative: no assigned name and no customer
@@ -180,6 +208,15 @@ export async function verifyCredentials(
   if (ok) {
     if (row.failed_attempts > 0) {
       await sql`UPDATE users SET failed_attempts = 0, locked_until = NULL WHERE id = ${row.id}`;
+    }
+    // A staff account still on the shared bootstrap password is effectively
+    // public — the value ships in the repository. Surface it loudly on every
+    // such login so it cannot quietly stay that way after go-live.
+    if (row.role !== "customer" && password === BOOTSTRAP_PASSWORD) {
+      logWarn(
+        "login",
+        `staff account ${row.email} is still using the bootstrap password — change it`
+      );
     }
     return {
       id: row.id,
@@ -380,6 +417,55 @@ export async function changeUserPassword(
     WHERE id = ${userId}
   `;
   return { ok: true };
+}
+
+// Set a new password WITHOUT knowing the old one. Only for the email-verified
+// reset flow (see password-reset.ts) — never expose this to a request that has
+// not proven ownership of the mailbox. Bumps session_version so every existing
+// session is revoked, and clears any failed-login lockout so the user can sign
+// straight back in. The self-service "once a week" clock (last_pw_change) is
+// deliberately left untouched: a recovery must not consume the voluntary
+// change allowance.
+export async function setPasswordDirect(
+  userId: string,
+  newPassword: string
+): Promise<void> {
+  await ensureUserSecurityColumns();
+  const newHash = await hashPassword(newPassword);
+  await sql`
+    UPDATE users
+    SET password_hash = ${newHash}, password_changed_at = now(),
+        failed_attempts = 0, locked_until = NULL,
+        session_version = session_version + 1
+    WHERE id = ${userId}
+  `;
+}
+
+// Look up the account behind an email address for the reset flow. Returns null
+// for unknown addresses — the caller must still answer identically either way
+// so the endpoint cannot be used to enumerate registered customers.
+export async function findActiveUserByEmail(
+  email: string
+): Promise<{ id: string; email: string; name: string } | null> {
+  const e = email.toLowerCase().trim();
+  // `active` is added lazily by ensureStaffAccounts(), which may not have run
+  // yet on a fresh deployment whose first request is a password reset. Fall
+  // back to the column-free query rather than failing the whole flow.
+  type Row = { id: string; email: string; name: string; active?: boolean };
+  let rows: Row[];
+  try {
+    rows = (await sql`
+      SELECT id, email, name, COALESCE(active, true) AS active
+      FROM users WHERE email = ${e} LIMIT 1
+    `) as Row[];
+  } catch {
+    rows = (await sql`
+      SELECT id, email, name FROM users WHERE email = ${e} LIMIT 1
+    `) as Row[];
+  }
+  const row = rows[0];
+  if (!row || row.active === false) return null;
+  return { id: row.id, email: row.email, name: row.name };
 }
 
 export async function getEmailOptIn(userId: string): Promise<boolean> {

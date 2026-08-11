@@ -35,6 +35,7 @@ import {
 } from "./utils";
 import { orderInputSchema, firstError } from "./validation";
 import { rateLimit, audit, clientIp } from "./security";
+import { verifyCaptcha } from "./captcha";
 import { logError, logWarn } from "./log";
 import type {
   CartLine,
@@ -525,6 +526,8 @@ export interface NewOrderInput {
   couponCode?: string | null;
   note?: string;
   payment?: "cash_delivery" | "card_delivery" | "cash_pickup" | "card_pickup";
+  /** Turnstile token from the checkout form. Ignored when no keys are set. */
+  captchaToken?: string;
 }
 
 const PAYMENT_LABELS: Record<string, string> = {
@@ -585,6 +588,12 @@ export async function createOrder(
   const parsed = orderInputSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: firstError(parsed.error) };
   const data = parsed.data;
+
+  // Bot check before anything else — guest checkout needs no account, so this
+  // and the per-IP limit below are what stand between us and scripted fake
+  // orders. Skipped entirely when Turnstile is not configured.
+  const captcha = await verifyCaptcha(input.captchaToken);
+  if (!captcha.ok) return { ok: false, error: captcha.error };
 
   const ip = await clientIp();
   const rl = await rateLimit("order", ip, 12, 10 * 60);
@@ -2420,7 +2429,7 @@ export async function setProductAvailable(
   id: string,
   available: boolean
 ): Promise<{ ok: boolean }> {
-  await requireAdmin(restaurantId);
+  const session = await requireAdmin(restaurantId);
   await ensureOrderColumns();
   // This is the same "unavailable today" list the opening flow uses — per
   // restaurant, resets at midnight. Turning a product off adds it; turning it
@@ -2442,6 +2451,13 @@ export async function setProductAvailable(
       [restaurantId, id]
     );
   }
+  await audit({
+    action: available ? "product.available" : "product.unavailable",
+    actorId: session.user.id,
+    actorEmail: session.user.email,
+    restaurantId,
+    target: id,
+  });
   return { ok: true };
 }
 

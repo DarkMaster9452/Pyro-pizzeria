@@ -10,14 +10,25 @@ import {
   exportAccount,
   getRoleByEmail,
   changeUserPassword,
+  setPasswordDirect,
+  findActiveUserByEmail,
 } from "./users";
 import {
   loginSchema,
   registerSchema,
   changePasswordSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
   firstError,
 } from "./validation";
 import { rateLimit, audit, clientIp } from "./security";
+import { verifyCaptcha } from "./captcha";
+import {
+  issueResetToken,
+  consumeResetToken,
+  clearResetTokens,
+} from "./password-reset";
+import { notifyNewDevice } from "./devices";
 
 export type FormState = { error?: string } | undefined;
 
@@ -30,6 +41,9 @@ export async function loginAction(
     password: formData.get("password"),
   });
   if (!parsed.success) return { error: firstError(parsed.error) };
+
+  const captcha = await verifyCaptcha(formData.get("captchaToken"));
+  if (!captcha.ok) return { error: captcha.error };
 
   const ip = await clientIp();
   const rl = await rateLimit("login", ip, 10, 15 * 60);
@@ -56,6 +70,10 @@ export async function loginAction(
     actorEmail: parsed.data.email,
     meta: { ip },
   });
+  // Warn the owner if this browser has never signed in to the account before.
+  // Must happen before redirect() — that throws to unwind the request.
+  const account = await findActiveUserByEmail(parsed.data.email);
+  await notifyNewDevice(parsed.data.email, account?.id, ip);
   redirect(
     role === "admin" || role === "super_admin"
       ? "/admin"
@@ -80,6 +98,9 @@ export async function registerFormAction(
     consent: formData.get("consent") === "on",
   });
   if (!parsed.success) return { error: firstError(parsed.error) };
+
+  const captcha = await verifyCaptcha(formData.get("captchaToken"));
+  if (!captcha.ok) return { error: captcha.error };
 
   const ip = await clientIp();
   const rl = await rateLimit("register", ip, 5, 60 * 60);
@@ -174,6 +195,87 @@ export async function changePasswordAction(
     });
   }
   return res;
+}
+
+// ---------------------------------------------------------------------------
+// Password reset ("zabudnuté heslo")
+// ---------------------------------------------------------------------------
+
+export type ResetRequestState = { ok?: boolean; error?: string } | undefined;
+
+// Deliberately uniform response. Whether or not the address has an account, the
+// caller is told the same thing, so this endpoint can't be used to find out who
+// is registered. Limited per IP (mailbombing from one host) and per address
+// (mailbombing one victim from many hosts).
+export async function requestPasswordResetAction(
+  _prev: ResetRequestState,
+  formData: FormData
+): Promise<ResetRequestState> {
+  const parsed = forgotPasswordSchema.safeParse({ email: formData.get("email") });
+  if (!parsed.success) return { error: firstError(parsed.error) };
+  const { email } = parsed.data;
+
+  const captcha = await verifyCaptcha(formData.get("captchaToken"));
+  if (!captcha.ok) return { error: captcha.error };
+
+  const ip = await clientIp();
+  const byIp = await rateLimit("pwreset_ip", ip, 5, 60 * 60);
+  const byEmail = await rateLimit("pwreset_email", email, 3, 60 * 60);
+  if (!byIp.allowed || !byEmail.allowed) {
+    await audit({ action: "password_reset.rate_limited", target: email, meta: { ip } });
+    // Still the neutral answer — a throttled attacker learns nothing either.
+    return { ok: true };
+  }
+
+  const user = await findActiveUserByEmail(email);
+  if (user) {
+    await issueResetToken(user.email, user.name);
+    await audit({
+      action: "password_reset.requested",
+      actorId: user.id,
+      actorEmail: user.email,
+      meta: { ip },
+    });
+  } else {
+    await audit({ action: "password_reset.unknown_email", meta: { ip } });
+  }
+  return { ok: true };
+}
+
+export async function resetPasswordAction(
+  _prev: ResetRequestState,
+  formData: FormData
+): Promise<ResetRequestState> {
+  const parsed = resetPasswordSchema.safeParse({
+    token: formData.get("token"),
+    password: formData.get("password"),
+  });
+  if (!parsed.success) return { error: firstError(parsed.error) };
+
+  const ip = await clientIp();
+  // Guards the token space itself: 32 random bytes are unguessable, but this
+  // keeps a scripted attempt from burning through the endpoint.
+  const rl = await rateLimit("pwreset_use", ip, 10, 60 * 60);
+  if (!rl.allowed) return { error: "Príliš veľa pokusov. Skúste to neskôr." };
+
+  const email = await consumeResetToken(parsed.data.token);
+  if (!email)
+    return {
+      error: "Odkaz je neplatný alebo mu vypršala platnosť. Požiadajte o nový.",
+    };
+
+  const user = await findActiveUserByEmail(email);
+  if (!user) return { error: "Účet sa nenašiel." };
+
+  await setPasswordDirect(user.id, parsed.data.password);
+  await clearResetTokens(email);
+  await audit({
+    action: "password_reset.completed",
+    actorId: user.id,
+    actorEmail: user.email,
+    meta: { ip },
+  });
+  return { ok: true };
 }
 
 export async function exportAccountAction() {

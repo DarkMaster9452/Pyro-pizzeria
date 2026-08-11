@@ -41,6 +41,16 @@ export const changePasswordSchema = z.object({
   next: passwordSchema,
 });
 
+// "Forgot password" — request a reset link.
+export const forgotPasswordSchema = z.object({ email: emailSchema });
+
+// Redeem a reset link. The token is opaque (base64url of 32 random bytes);
+// bound the length so a junk value never reaches the database.
+export const resetPasswordSchema = z.object({
+  token: z.string().trim().min(20, "Neplatný odkaz.").max(200, "Neplatný odkaz."),
+  password: passwordSchema,
+});
+
 export const addressSchema = z.object({
   street: z.string().trim().max(120),
   houseNumber: z.string().trim().max(20),

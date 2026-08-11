@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { headers } from "next/headers";
 import { Plus_Jakarta_Sans, Anton, Pacifico } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/Providers";
@@ -58,11 +59,15 @@ export const viewport: Viewport = {
   initialScale: 1,
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  // Nonce minted by src/middleware.ts for this response. Next.js applies it to
+  // its own scripts automatically; the JSON-LD block below is ours, so it has
+  // to carry the nonce itself or the CSP will block it.
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
   return (
     <html
       lang="sk"
@@ -73,6 +78,7 @@ export default function RootLayout({
         {/* JSON-LD structured data */}
         <script
           type="application/ld+json"
+          nonce={nonce}
           dangerouslySetInnerHTML={{
             __html: JSON.stringify({
               "@context": "https://schema.org",

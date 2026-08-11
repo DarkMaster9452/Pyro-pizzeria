@@ -95,10 +95,9 @@ export function Footer() {
       </div>
       <div className="border-t border-white/10">
         <div className="section flex flex-col items-center justify-center gap-1 py-5 text-center text-xs text-neutral-500">
-          <span>
-            Prevádzkovateľ: {OPERATOR_COMPANY.name} · IČO:{" "}
-            {OPERATOR_COMPANY.ico} · DIČ: {OPERATOR_COMPANY.dic}
-          </span>
+          {/* Footer carries the IČO only. The full legal identity (názov,
+              DIČ, sídlo, register) stays on the About page. */}
+          <span>IČO: {OPERATOR_COMPANY.ico}</span>
           <span>© 2026 Pyro & Polomárik. Všetky práva vyhradené.</span>
         </div>
       </div>

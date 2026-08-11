@@ -3,6 +3,7 @@
 import { useActionState, useState } from "react";
 import Link from "next/link";
 import { loginAction, type FormState } from "@/lib/auth-actions";
+import Captcha from "@/components/Captcha";
 import { LogIn, Lock, Eye, EyeOff } from "lucide-react";
 
 export default function LoginPage() {
@@ -38,6 +39,7 @@ export default function LoginPage() {
                 {state.error}
               </p>
             )}
+            <Captcha />
             <button
               type="submit"
               disabled={pending}
@@ -48,7 +50,16 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <p className="mt-5 text-center text-sm text-[#B5B5B5]">
+          <p className="mt-4 text-center text-sm">
+            <Link
+              href="/forgot-password"
+              className="text-[#B5B5B5] underline hover:text-white"
+            >
+              Zabudli ste heslo?
+            </Link>
+          </p>
+
+          <p className="mt-3 text-center text-sm text-[#B5B5B5]">
             Nemáte účet?{" "}
             <Link href="/register" className="font-semibold text-brand-primary">
               Zaregistrujte sa

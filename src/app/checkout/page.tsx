@@ -18,6 +18,7 @@ import {
   type VerifyResult,
 } from "@/components/AddressVerification";
 import type { FulfillmentType, Order } from "@/lib/types";
+import Captcha, { captchaEnabled } from "@/components/Captcha";
 import {
   Truck,
   Store,
@@ -87,6 +88,7 @@ export default function CheckoutPage() {
   const [orderError, setOrderError] = useState("");
   const [loggedIn, setLoggedIn] = useState(false);
   const [saveProfile, setSaveProfile] = useState(true);
+  const [captchaToken, setCaptchaToken] = useState("");
 
   // If a customer is signed in on this device, pull their saved details in to
   // pre-fill checkout (only fills blanks — never overwrites in-progress edits).
@@ -176,6 +178,7 @@ export default function CheckoutPage() {
       couponCode: coupon,
       note,
       payment,
+      captchaToken,
     });
 
     if (!res.ok) {
@@ -545,6 +548,11 @@ export default function CheckoutPage() {
 
             {orderError && (
               <p className="mt-3 text-xs text-brand-error">{orderError}</p>
+            )}
+            {captchaEnabled && (
+              <div className="mt-4">
+                <Captcha onToken={setCaptchaToken} />
+              </div>
             )}
             <motion.button
               whileTap={{ scale: 0.97 }}

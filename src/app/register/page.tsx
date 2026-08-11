@@ -3,6 +3,7 @@
 import { useActionState, useState } from "react";
 import Link from "next/link";
 import { registerFormAction, type FormState } from "@/lib/auth-actions";
+import Captcha from "@/components/Captcha";
 import { UserPlus, Eye, EyeOff } from "lucide-react";
 
 export default function RegisterPage() {
@@ -58,6 +59,7 @@ export default function RegisterPage() {
                 {state.error}
               </p>
             )}
+            <Captcha />
             <button
               type="submit"
               disabled={pending}
