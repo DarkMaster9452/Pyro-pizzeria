@@ -1,123 +1,188 @@
-# 🔥 Pyro & Polomárik — Premium Pizza Ordering Platform
+# Pyro & Polomárik
 
-A modern, responsive, multi-restaurant pizza ordering platform for two
-locations under one roof:
+Objednávková platforma pre dve pizzerie pod jednou správou:
 
-- **Pyro Pizzeria** — Kamenná Poruba
-- **Polomárik** — Stráňavy
+| Prevádzka          | Lokalita        |
+| ------------------ | --------------- |
+| **Pyro Pizzeria**  | Kamenná Poruba  |
+| **Polomárik**      | Stráňavy        |
 
-Built to feel like a premium blend of PizzaMania.sk, the Domino's ordering
-flow, and Apple-level UI polish. Warm, wood-fired palette, glassmorphism where
-it earns its place, soft shadows, rounded corners, and animated micro
-interactions throughout.
-
-> This README documents the **customer-facing interface** — everything a guest
-> sees and does when ordering. Staff-only surfaces (kitchen, dispatch, admin)
-> are intentionally out of scope here.
+Obe prevádzky sú v jednej aplikácii. Každá má vlastné menu, ceny, otváracie
+hodiny, rozvozové zóny, kupóny, personál a vlastné logo. Aplikácia pokrýva
+objednávku zákazníka aj celý interný chod prevádzky: kuchyňu, rozvoz, výdaj pri
+pulte a administráciu.
 
 ---
 
-## ✨ The customer journey (working end-to-end)
+## Obsah
 
-The whole ordering flow runs live in the browser:
+1. [Zákaznícka časť](#zákaznícka-časť)
+2. [Interná časť pre personál](#interná-časť-pre-personál)
+3. [Životný cyklus objednávky](#životný-cyklus-objednávky)
+4. [Obchodné pravidlá](#obchodné-pravidlá)
+5. [Účty a zabezpečenie](#účty-a-zabezpečenie)
+6. [Technológie](#technológie)
+7. [Štruktúra projektu](#štruktúra-projektu)
 
-1. **Fullscreen restaurant selector** (first screen — *not* the menu). Large
-   photo cards with address, opening hours, live **Open/Closed** status,
-   estimated prep time, and **distance** when you allow geolocation. Picking a
-   restaurant switches the entire app — menu, prices, zones, hours, branding,
-   and even the **browser-tab favicon** (see below).
-2. **Home** — cinematic hero with animated ingredients, feature strip,
-   categories, bestseller grid, verified customer reviews, delivery CTA.
-3. **Menu** — sticky category nav, instant search, filters (vegetarian, spicy,
-   new, popular), price sorting, rich product cards with image, price, sizes,
-   ingredients, allergens, availability and badges (recommended / spicy /
-   vegetarian / new / bestseller). Categories: **pizza, burgers, club
-   sandwiches, sides, and dressings / sauces**.
-4. **Pizza Customizer** — size, extra cheese, stuffed crust, add/remove
-   ingredients, quantity, kitchen note, **live-updating price**.
-5. **Slide-out cart** — animated, quantity steppers, coupons
-   (`PYRO10`, `FREEDELIVERY`, `HAPPY5`), estimated prep time, running total.
-6. **Checkout** — delivery vs pickup, customer details, cash/card on
-   pickup/delivery (no online payments), live order summary.
-7. **Address Verification System** — enter street/house/city/ZIP → the app
-   searches each restaurant's delivery-zone database and returns:
-   - ✅ *We deliver here* with the zone's **minimum order**, **delivery fee**
-     and **ETA**. If the zone has a minimum, checkout unlocks only once your
-     subtotal meets it, with an "*add €X.XX more*" nudge until then.
-   - ❌ *Outside every zone* → offers **pickup** or **switching restaurant**.
-8. **Order tracking** — live status stepper (received → accepted → preparing →
-   ready → delivering → delivered) that auto-advances.
-9. **Account** — login / register / Google / Apple (mock), cross-device order
-   history, reorder, and notification preferences.
-10. Extras: dark mode, floating cart button, skeleton loaders, empty states,
-    custom 404, PWA manifest, SEO metadata + Schema.org JSON-LD, OpenStreetMap
-    contact map, Slovak copy throughout.
+---
 
-## 🚚 Delivery zones & minimum order
+## Zákaznícka časť
 
-Each restaurant has its own delivery zones, and every zone carries a
-**minimum order** amount. A zone with a `0 €` minimum has no limit; a zone set
-to, say, `20 €` (e.g. **Rajec a okolie** for Pyro) will only let guests in that
-zone check out once their subtotal reaches 20 €. The minimum is shown on the
-address-verification result, enforced at checkout, and validated again
-server-side so it can't be bypassed.
+| Stránka                   | Adresa                  | Účel |
+| ------------------------- | ----------------------- | ---- |
+| Výber prevádzky           | úvodná obrazovka        | Zákazník si ako prvé vyberie pizzeriu. Karta prevádzky ukazuje adresu, otváracie hodiny, či je práve otvorené, odhadovaný čas prípravy a vzdialenosť, ak zákazník povolí polohu. Podľa výberu sa prepne celá aplikácia. |
+| Domov                     | `/`                     | Predstavenie prevádzky, obľúbené položky, recenzie zákazníkov a rýchly vstup do objednávky. |
+| Menu                      | `/menu`                 | Kompletná ponuka rozdelená do kategórií: pizza, burgery, club sandwiche, ostatné, dresingy a omáčky. Obsahuje vyhľadávanie podľa názvu aj čísla z letáku, filtre (vegetariánske, pikantné, novinky, populárne), zoradenie podľa ceny, alergény a označenie vypredaných položiek. |
+| Úprava pizze              | okno v menu             | Voľba veľkosti, extra syra, plneného okraja, pridanie alebo odobratie surovín, počet kusov a poznámka pre kuchyňu. Cena sa prepočítava priebežne. |
+| Košík                     | bočný panel             | Zhrnutie objednávky, úprava množstva, zľavové kupóny a odhadovaný čas prípravy. |
+| Pokladňa                  | `/checkout`             | Rozvoz alebo osobný odber, kontaktné údaje a platba hotovosťou alebo kartou pri prevzatí. Online platby sa nepoužívajú. |
+| Rozvozové zóny            | `/delivery`             | Prehľad zón prevádzky a overenie adresy. Pri adrese v zóne sa zobrazí minimálna objednávka, poplatok za dopravu a čas doručenia. Pri adrese mimo zón aplikácia ponúkne osobný odber alebo inú prevádzku. |
+| Sledovanie objednávky     | `/track`                | Stav objednávky v reálnom čase od prijatia po doručenie. Zákazník môže objednávku zrušiť, kým ju prevádzka nezačala pripravovať. |
+| Účet                      | `/account`              | História objednávok naprieč zariadeniami, opakovanie objednávky, uložené kontaktné údaje, e-mailové notifikácie, zmena hesla, export údajov a zrušenie účtu. |
+| Prihlásenie / registrácia | `/login`, `/register`   | Spoločné prihlásenie pre zákazníkov aj personál. Po prihlásení aplikácia presmeruje používateľa podľa jeho roly. |
+| O nás, Kontakt            | `/about`, `/contact`    | Informácie o prevádzke, otváracie hodiny, telefón a mapa. |
+| Ochrana údajov, Podmienky | `/privacy`, `/terms`    | Zásady ochrany osobných údajov (GDPR), obchodné podmienky a súhlas s cookies. |
 
-## 🖼️ Per-restaurant favicon
+Ikona v záložke prehliadača sa mení podľa zvolenej prevádzky. Aplikáciu je
+možné nainštalovať ako PWA a má SEO metadáta so štruktúrovanými údajmi
+(Schema.org).
 
-The browser-tab favicon follows the pizzeria you're currently browsing — a
-**rounded version of that restaurant's logo** (Pyro or Polomárik). Before you
-pick a restaurant, a neutral brand icon is shown.
+---
 
-## 🎨 Design system
+## Interná časť pre personál
 
-| Token       | Value     | Use                    |
-| ----------- | --------- | ---------------------- |
-| Primary     | `#B22222` | deep pizza red         |
-| Secondary   | `#E85D04` | wood-fired orange      |
-| Accent      | `#F4C542` | golden cheese          |
-| Dark        | `#191919` | dark surfaces          |
-| Surface     | `#262626` | cards (dark)           |
-| Background  | `#FFF8F1` | app background         |
-| Success     | `#2E7D32` | open / confirmations   |
-| Error       | `#C62828` | closed / no delivery   |
+Každý zamestnanec patrí ku konkrétnej prevádzke a vidí iba jej objednávky.
+Vstup do aplikácie určuje rola účtu.
 
-Rounded 18–24px corners, soft shadows, subtle gradients, glassmorphism on the
-navbar and modals only.
+| Rola          | Adresa      | Čo robí |
+| ------------- | ----------- | ------- |
+| **Admin**     | `/admin`    | Riadi celú prevádzku (pozri nižšie). |
+| **Kuchár**    | `/kuchyna`  | Kuchynská tabuľa (KDS). Posúva objednávky cez stavy prijatá, v príprave a hotová. Hotovú objednávku môže po potvrdení vrátiť späť do prípravy. Platby ani odovzdanie objednávky nerieši. |
+| **Rozvoz**    | `/rozvoz`   | Tabuľa pre vodiča. Vodič si berie hotové objednávky na rozvoz, jedným ťuknutím otvorí navigáciu na adresu, označí objednávku ako „na ceste“, potom ako doručenú a zaplatenú. Zapisuje aj telefonické objednávky. |
+| **Telefón**   | `/call`     | Prehľad hotových objednávok rozdelený na rozvoz a osobný odber. Umožňuje priamo zavolať zákazníkovi. Iné akcie tento účet nemá. |
+| **Zákazník**  | `/account`  | Bežný zákaznícky účet. |
 
-## 🧱 Tech stack
+Zamestnanec pracuje iba vtedy, keď má v daný deň priradenú zmenu. Bez zmeny
+zostane prihlásený, ale na tabuli nemôže nič robiť.
 
-- **Next.js 15** (App Router) · **React 19** · **TypeScript**
-- **TailwindCSS** (custom design tokens) · **Framer Motion** (animations)
-- **Zustand** (cart / restaurant / theme / orders, persisted to localStorage)
-- **lucide-react** icons
+### Administrácia
 
-The seed data layer (`src/lib/data.ts`) is a fully-typed source for both
-restaurants — menus, prices, opening hours, and delivery zones — mirrored 1:1
-by `prisma/schema.prisma`.
+| Sekcia              | Účel |
+| ------------------- | ---- |
+| **Prehľad**         | Denné štatistiky: počet objednávok, tržba, rozdelenie na hotovosť a kartu, grafy. |
+| **Kuchyňa (KDS)**   | Rovnaká kuchynská tabuľa, akú má kuchár. Pri novej objednávke zaznie zvukové upozornenie. |
+| **Nová objednávka** | Zadanie telefonickej objednávky. Položky sa dajú hľadať aj podľa čísla z letáku. |
+| **Objednávky**      | Zoznam objednávok podľa dní s filtrami a detailom. Admin tu môže upraviť alebo zrušiť objednávku, zmeniť spôsob platby, označiť objednávku ako nezaplatenú a pri pulte odovzdať a uzavrieť osobný odber. |
+| **Produkty**        | Úprava menu: názvy, ceny, veľkosti, suroviny, alergény, označenia, dostupnosť a vypredanie. |
+| **Prevádzka**       | Denné otvorenie a zatvorenie prevádzky, priradenie zmien personálu, vypredané položky, spočítanie pokladne s rozdelením sprepitného, prehľad odpracovaných dní a tržieb a mazanie starých objednávok. |
+| **Rozvozové zóny**  | Obce a ulice v každej zóne, poplatok za dopravu, minimálna objednávka a čas doručenia. |
+| **Kupóny**          | Vytváranie a mazanie zľavových kódov. |
+| **Recenzie**        | Informácia o spätnej väzbe. Recenzie sa od zákazníkov zbierajú e-mailom po objednávke. |
+| **Správa účtov**    | Správa zamestnaneckých účtov: roly, priradenie k prevádzke, odomknutie zablokovaného účtu, reset hesla. Sekcia je chránená samostatným heslom. |
 
-## 🚀 Getting started
+Administrácia je navrhnutá aj pre tablet na prevádzke. Má zbaľovateľné bočné
+menu, svetlý a tmavý režim a voliteľný ukazovateľ batérie tabletu.
 
-```bash
-npm install
-npm run dev        # http://localhost:3000
-# or
-npm run build && npm run start
+---
+
+## Životný cyklus objednávky
+
+```
+prijatá → akceptovaná → v príprave → hotová → na ceste → doručená
+                                         │
+                                         └→ (osobný odber) odovzdaná pri pulte
+kedykoľvek pred prípravou → zrušená
 ```
 
-## 📁 Structure
+| Stav             | Kto ho nastavuje |
+| ---------------- | ---------------- |
+| prijatá          | zákazník (web) alebo personál (telefonická objednávka) |
+| akceptovaná      | kuchyňa |
+| v príprave       | kuchyňa |
+| hotová           | kuchyňa |
+| na ceste         | vodič |
+| doručená         | vodič, pri osobnom odbere admin pri pulte |
+| zrušená          | zákazník pred začatím prípravy alebo admin |
+
+Zákazník vidí každú zmenu stavu na stránke sledovania objednávky.
+
+---
+
+## Obchodné pravidlá
+
+- **Ceny počíta server.** Celkovú sumu, ceny položiek, zľavy aj poplatok za
+  dopravu vždy znova prepočíta server z aktuálneho menu. Suma poslaná
+  z prehliadača sa ignoruje.
+- **Minimálna objednávka podľa zóny.** Každá rozvozová zóna môže mať vlastné
+  minimum (napr. Rajec a okolie 20 €). Kým ho objednávka nedosiahne, pokladňa
+  ukazuje, koľko ešte chýba. Minimum kontroluje aj server.
+- **Vypredané položky** sa v menu nedajú objednať a server ich odmietne.
+- **Otváracie hodiny a denné otvorenie.** Prevádzka prijíma objednávky iba
+  v otváracích hodinách a po tom, čo ju admin v daný deň otvorí.
+- **Platba** prebieha výhradne pri prevzatí, v hotovosti alebo kartou.
+
+---
+
+## Účty a zabezpečenie
+
+- Heslá sú uložené iba ako Argon2id hash. Po opakovaných neúspešných
+  prihláseniach sa účet dočasne zablokuje.
+- Prihlásenie, registrácia, objednávky a sledovanie objednávok majú obmedzený
+  počet pokusov.
+- Každá interná akcia overuje prihlásenie, rolu aj príslušnosť k prevádzke.
+- Dôležité udalosti sa zapisujú do auditného logu: prihlásenia, objednávky,
+  zmeny stavov, vypredanie, správa účtov.
+- Odhlásiť sa dá naraz zo všetkých zariadení.
+- Zákazník si môže stiahnuť svoje údaje alebo zrušiť účet. Pri zrušení účtu sa
+  jeho staršie objednávky anonymizujú.
+
+---
+
+## Technológie
+
+| Oblasť         | Použité riešenie |
+| -------------- | ---------------- |
+| Aplikácia      | Next.js 15 (App Router), React 19, TypeScript |
+| Vzhľad         | Tailwind CSS, Framer Motion, ikony lucide-react |
+| Stav v prehliadači | Zustand (košík, zvolená prevádzka, téma) |
+| Databáza       | Neon Postgres (serverless driver, parametrizované dotazy) |
+| Prihlásenie    | Auth.js (NextAuth v5), Argon2id |
+| Validácia      | Zod |
+| Mapy           | MapLibre GL, OpenStreetMap |
+| Hosting        | Vercel |
+
+---
+
+## Štruktúra projektu
 
 ```
 src/
-  app/            # routes: home, menu, offers, about, contact, delivery,
-                  #         checkout, track, account, + manifest/404/loading
-  components/     # Navbar, RestaurantModal, Cart, ProductCard, PizzaCustomizer,
-                  # AddressVerification, Footer, Badges
-  lib/            # types, data (seed), store (zustand), pricing, utils
-prisma/           # reference PostgreSQL schema
+  app/                  stránky aplikácie
+    (zákazník)          /, menu, checkout, delivery, track, account,
+                        login, register, about, contact, privacy, terms, offers
+    admin/              administrácia prevádzky
+    kuchyna/            kuchynská tabuľa
+    rozvoz/             tabuľa vodiča
+    call/               telefón / výdaj
+    api/auth/           prihlasovanie (Auth.js)
+  components/           UI komponenty
+    admin/              sekcie a grafy administrácie
+    CookApp, DriverApp, CallApp, StaffOrderForm   interné tabule
+    Navbar, RestaurantModal, Cart, ProductCard,
+    PizzaCustomizer, AddressVerification, …       zákaznícka časť
+  lib/
+    data.ts             východiskové údaje prevádzok (menu, hodiny, zóny)
+    server-actions.ts   serverová logika objednávok, kuchyne, rozvozu a administrácie
+    users.ts            účty, roly, prihlásenie
+    pricing.ts          výpočet cien
+    validation.ts       validácia vstupov
+    security.ts         obmedzenie počtu pokusov, audit
+    service-open.ts     otváracie hodiny a denné otvorenie
+  middleware.ts         ochrana interných stránok
+prisma/                 referenčná schéma databázy
+public/logos/           logá prevádzok
 ```
 
 ---
 
-*Menus, prices, opening hours, and delivery zones are configurable per
-restaurant. Restaurant details use realistic public information as a starting
-point.*
+© Všetky práva vyhradené. Podrobnosti v súbore [LICENSE](LICENSE).
