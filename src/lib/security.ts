@@ -18,7 +18,7 @@ export async function clientIp(): Promise<string> {
  * Fixed-window rate limiter backed by Postgres.
  * Returns true when the action is allowed. Fails open on DB errors so a
  * database blip never locks legitimate users out — production should also
- * enable an edge limiter (Upstash / Arcjet), see SECURITY.md.
+ * enable an edge limiter (Upstash / Arcjet).
  */
 export async function rateLimit(
   bucket: string,
