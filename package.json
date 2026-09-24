@@ -1,6 +1,7 @@
 {
   "name": "pyro-platform",
   "version": "1.0.0",
+  "license": "UNLICENSED",
   "private": true,
   "scripts": {
     "dev": "next dev",
